@@ -4,6 +4,7 @@ import { useTranslation } from "../i18n";
 export type StatusState = "healthy" | "degraded" | "unavailable" | "warning" | "critical";
 export type Severity = "s1" | "s2" | "s3" | "s4" | "s5";
 type TranslationKey = string;
+type IndicatorTone = StatusState | "informational";
 
 const statusSymbol: Record<StatusState, string> = {
   healthy: "●",
@@ -13,11 +14,19 @@ const statusSymbol: Record<StatusState, string> = {
   critical: "!"
 };
 
+// Severity communicates business impact, while status communicates operational health; these reuse tones only as visual priority.
+const severityTone: Record<Severity, IndicatorTone> = {
+  s1: "critical",
+  s2: "warning",
+  s3: "degraded",
+  s4: "healthy",
+  s5: "informational"
+};
+
 export function StatusIndicator({ state, severity }: { state?: StatusState; severity?: Severity }) {
   const { t } = useTranslation();
   const label = severity ? t(`severity.${severity}`) : t(`status.${state ?? "healthy"}`);
-  const tone =
-    severity === "s1" ? "critical" : severity === "s2" ? "warning" : (state ?? "healthy");
+  const tone = severity ? severityTone[severity] : (state ?? "healthy");
   return (
     <span className={`indicator indicator--${tone}`}>
       <span aria-hidden="true">{severity ?? statusSymbol[state ?? "healthy"]}</span>

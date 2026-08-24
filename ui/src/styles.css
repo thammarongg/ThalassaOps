@@ -89,6 +89,9 @@ h2 {
 .indicator--healthy {
   color: var(--color-kelp);
 }
+.indicator--informational {
+  color: var(--color-reef-cyan);
+}
 .indicator--degraded,
 .indicator--warning {
   color: var(--color-amber);

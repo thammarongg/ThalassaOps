@@ -15,6 +15,26 @@ import {
   Timeline
 } from "./components";
 
+it("maps each incident severity to its intentional visual tone", () => {
+  render(
+    <I18nProvider>
+      <StatusIndicator severity="s1" />
+      <StatusIndicator severity="s2" />
+      <StatusIndicator severity="s3" />
+      <StatusIndicator severity="s4" />
+      <StatusIndicator severity="s5" />
+    </I18nProvider>
+  );
+
+  expect(screen.getByText("S1 Critical").closest(".indicator")).toHaveClass("indicator--critical");
+  expect(screen.getByText("S2 Major").closest(".indicator")).toHaveClass("indicator--warning");
+  expect(screen.getByText("S3 Moderate").closest(".indicator")).toHaveClass("indicator--degraded");
+  expect(screen.getByText("S4 Minor").closest(".indicator")).toHaveClass("indicator--healthy");
+  expect(screen.getByText("S5 Informational").closest(".indicator")).toHaveClass(
+    "indicator--informational"
+  );
+});
+
 it("renders shared components in distinct usages without accessibility violations", async () => {
   const user = userEvent.setup();
   render(
