@@ -1,0 +1,26 @@
+:root {
+  color: #e6edf3;
+  background: #0c1117;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 720px;
+  margin: 16vh auto;
+  padding: 2rem;
+  border: 1px solid #263241;
+  border-radius: 12px;
+  background: #111923;
+}
+.eyebrow {
+  color: #7ee3c7;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+.status {
+  color: #7ee3c7;
+  font-size: 2rem;
+  font-weight: 700;
+}
