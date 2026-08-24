@@ -46,3 +46,26 @@ it("pins a navigation item and opens the honest terminal placeholder", async () 
   await user.click(screen.getByRole("button", { name: "Open external terminal" }));
   expect(screen.getByRole("status")).toHaveTextContent("not yet available");
 });
+
+it("shows an unavailable policy indicator and context error when the context request is denied", async () => {
+  render(
+    <I18nProvider>
+      <Shell
+        invoke={vi.fn().mockResolvedValue({
+          ok: false,
+          error: {
+            code: "POLICY_DENIED",
+            message: "Policy denied the workspace context request.",
+            details: {}
+          }
+        })}
+      />
+    </I18nProvider>
+  );
+
+  await screen.findByRole("button", {
+    name: "Organization: Workspace context is unavailable."
+  });
+  const policyStatus = screen.getByText("Policy version …").parentElement;
+  expect(policyStatus?.querySelector(".indicator")).toHaveClass("indicator--unavailable");
+});

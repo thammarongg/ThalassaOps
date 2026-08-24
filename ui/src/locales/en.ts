@@ -57,6 +57,7 @@ const en = {
     workspace: "Workspace",
     environment: "Environment",
     noEnvironments: "No environments configured yet",
+    contextUnavailable: "Workspace context is unavailable.",
     search: "Search",
     commandShortcut: "⌘K",
     commandPalette: "Command palette",

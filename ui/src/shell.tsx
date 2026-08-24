@@ -19,6 +19,7 @@ type Area =
   | "integrations"
   | "policies"
   | "audit";
+type ContextFetchState = "loading" | "ready" | "error";
 const areas: Area[] = [
   "commandCenter",
   "incidents",
@@ -55,6 +56,7 @@ export const fuzzyMatches = (query: string, target: string) => {
 export function Shell({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
   const [context, setContext] = useState<WorkspaceContext>();
+  const [contextFetchState, setContextFetchState] = useState<ContextFetchState>("loading");
   const [active, setActive] = useState<Area>("commandCenter");
   const [favorites, setFavorites] = useState<Area[]>(
     () => JSON.parse(localStorage.getItem("thalassaops.favorites") ?? "[]") as Area[]
@@ -65,9 +67,27 @@ export function Shell({ invoke }: { invoke: Invoke }) {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [handoffRequested, setHandoffRequested] = useState(false);
   useEffect(() => {
-    invoke("system_context", { envelope: contextEnvelope() }).then((result) => {
-      if (result.ok) setContext(result.value);
-    });
+    let active = true;
+    setContextFetchState("loading");
+    invoke("system_context", { envelope: contextEnvelope() })
+      .then((result) => {
+        if (!active) return;
+        if (result.ok) {
+          setContext(result.value);
+          setContextFetchState("ready");
+        } else {
+          setContext(undefined);
+          setContextFetchState("error");
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setContext(undefined);
+        setContextFetchState("error");
+      });
+    return () => {
+      active = false;
+    };
   }, [invoke]);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -88,6 +108,13 @@ export function Shell({ invoke }: { invoke: Invoke }) {
     setPaletteOpen(false);
     setQuery("");
   };
+  const contextPlaceholder = contextFetchState === "error" ? t("shell.contextUnavailable") : "…";
+  const policyState =
+    contextFetchState === "ready"
+      ? "healthy"
+      : contextFetchState === "error"
+        ? "unavailable"
+        : "warning";
   const toggleFavorite = (area: Area) =>
     setFavorites((current) => {
       const next = current.includes(area)
@@ -102,13 +129,13 @@ export function Shell({ invoke }: { invoke: Invoke }) {
         <strong>{t("shell.productName")}</strong>
         <div className="switchers">
           <button type="button">
-            {t("shell.organization")}: {context?.organization_name ?? "…"}
+            {t("shell.organization")}: {context?.organization_name ?? contextPlaceholder}
           </button>
           <button type="button">
-            {t("shell.team")}: {context?.team_name ?? "…"}
+            {t("shell.team")}: {context?.team_name ?? contextPlaceholder}
           </button>
           <button type="button">
-            {t("shell.workspace")}: {context?.workspace_name ?? "…"}
+            {t("shell.workspace")}: {context?.workspace_name ?? contextPlaceholder}
           </button>
           <button type="button">
             {t("shell.environment")}: {t("shell.noEnvironments")}
@@ -169,7 +196,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </main>
       <aside className="shell-status">
         <StatusIndicator state="unavailable" /> <span>{t("shell.connectorStatus")}</span>
-        <StatusIndicator state="healthy" />{" "}
+        <StatusIndicator state={policyState} />{" "}
         <span>{t("shell.policyStatus", { version: context?.policy_version ?? "…" })}</span>
         <StatusIndicator state="unavailable" /> <span>{t("shell.modelStatus")}</span>
       </aside>

@@ -57,6 +57,7 @@ const th = {
     workspace: "พื้นที่ทำงาน",
     environment: "สภาพแวดล้อม",
     noEnvironments: "ยังไม่มีการตั้งค่าสภาพแวดล้อม",
+    contextUnavailable: "ข้อมูลบริบทของพื้นที่ทำงานไม่พร้อมใช้งาน",
     search: "ค้นหา",
     commandShortcut: "⌘K",
     commandPalette: "ชุดคำสั่ง",
