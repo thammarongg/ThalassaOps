@@ -35,6 +35,17 @@ connector_command!(
     Vec<thalassaops::connectors::ConnectorSummary>
 );
 connector_command!(
+    kubernetes_inventory,
+    kubernetes_inventory,
+    thalassaops::kubernetes::KubernetesInventory
+);
+connector_command!(kubernetes_pod_logs, kubernetes_pod_logs, String);
+connector_command!(
+    kubernetes_pod_events,
+    kubernetes_pod_events,
+    Vec<thalassaops::kubernetes::KubernetesEvent>
+);
+connector_command!(
     connector_add,
     connector_add,
     thalassaops::connectors::ConnectorSummary
@@ -80,7 +91,10 @@ fn main() {
             connector_disable,
             connector_remove,
             connector_test,
-            connector_diagnose
+            connector_diagnose,
+            kubernetes_inventory,
+            kubernetes_pod_logs,
+            kubernetes_pod_events
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ThalassaOps");

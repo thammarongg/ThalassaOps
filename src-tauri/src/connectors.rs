@@ -1,4 +1,6 @@
-use crate::kubernetes::KUBERNETES_CONNECTOR_KIND;
+use crate::kubernetes::{
+    client_from_kubeconfig, KubernetesConnectorConfig, KUBERNETES_CONNECTOR_KIND,
+};
 use chrono::Utc;
 use keyring::Entry;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -30,6 +32,10 @@ pub enum ConnectorError {
     NotFound,
     #[error("connector is disabled")]
     Disabled,
+    #[error("invalid connector configuration: {0}")]
+    InvalidConfiguration(String),
+    #[error("Kubernetes connection failed: {0}")]
+    Kubernetes(String),
 }
 
 pub trait CredentialStore: Send + Sync {
@@ -181,6 +187,7 @@ pub fn add(
     store: &dyn CredentialStore,
     request: AddConnectorRequest,
 ) -> Result<ConnectorSummary, ConnectorError> {
+    validate_add_request(&request)?;
     let id = Uuid::new_v4().to_string();
     let credential_reference = request
         .credential_value
@@ -200,6 +207,27 @@ pub fn add(
         return Err(error.into());
     }
     get(connection, store, &id)?.ok_or(ConnectorError::NotFound)
+}
+
+fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorError> {
+    match request.kind.as_str() {
+        FIXTURE_CONNECTOR_KIND => Ok(()),
+        KUBERNETES_CONNECTOR_KIND => {
+            let config: KubernetesConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+            if config.kubeconfig_path.trim().is_empty() || config.context_name.trim().is_empty() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "kubeconfig_path and context_name are required".into(),
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(ConnectorError::InvalidConfiguration(format!(
+            "unsupported connector kind: {}",
+            request.kind
+        ))),
+    }
 }
 
 pub fn list(
@@ -337,6 +365,9 @@ fn fixture_duration(connector: &ConnectorSummary, key: &str, default_ms: u64) ->
 }
 
 fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+    if connector.kind == KUBERNETES_CONNECTOR_KIND {
+        return kubernetes_connection_test(connector);
+    }
     let policy = ConnectionTestPolicy::for_connector(connector);
     let mut last_failure = String::new();
 
@@ -366,6 +397,54 @@ fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
             "Fixture connection failed after {CONNECTION_MAX_ATTEMPTS} attempts: {last_failure}"
         ),
         attempts: CONNECTION_MAX_ATTEMPTS,
+    }
+}
+
+fn kubernetes_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+    let config: KubernetesConnectorConfig =
+        match serde_json::from_value(connector.config_metadata.clone()) {
+            Ok(config) => config,
+            Err(error) => {
+                return ConnectionTestResult {
+                    outcome: "unavailable",
+                    message: format!("Invalid Kubernetes configuration: {error}"),
+                    attempts: 0,
+                }
+            }
+        };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return ConnectionTestResult {
+                outcome: "unavailable",
+                message: format!("Unable to start Kubernetes client: {error}"),
+                attempts: 0,
+            }
+        }
+    };
+    match runtime.block_on(async {
+        let client = client_from_kubeconfig(&config)
+            .await
+            .map_err(|error| error.to_string())?;
+        kube::Api::<k8s_openapi::api::core::v1::Namespace>::all(client)
+            .list(&kube::api::ListParams::default())
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(()) => ConnectionTestResult {
+            outcome: "healthy",
+            message: "Kubernetes Namespace list succeeded.".into(),
+            attempts: 1,
+        },
+        Err(error) => ConnectionTestResult {
+            outcome: "unavailable",
+            message: format!("Kubernetes connection failed: {error}"),
+            attempts: 1,
+        },
     }
 }
 

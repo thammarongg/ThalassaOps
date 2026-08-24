@@ -95,6 +95,19 @@ const en = {
     lastSync: "Last successful sync",
     never: "Never",
     noLogs: "No connection tests have been recorded."
+  },
+  kubernetes: {
+    title: "Kubernetes inspection",
+    cluster: "Connected cluster",
+    inspect: "Inspect cluster",
+    availability: "Available resource APIs",
+    resources: "Cluster resources",
+    resource: "Resource",
+    status: "Status",
+    owner: "Owning workload",
+    podDetails: "Pod investigation",
+    events: "Events",
+    logs: "Logs"
   }
 } as const;
 

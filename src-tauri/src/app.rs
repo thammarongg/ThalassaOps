@@ -2,6 +2,10 @@ use crate::connectors::{
     self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
     ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
 };
+use crate::kubernetes::{
+    client_from_kubeconfig, discover, pod_events, pod_logs, KubernetesConnectorConfig,
+    KubernetesEvent, KubernetesInventory,
+};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -52,6 +56,20 @@ pub struct ContextResponse {
     pub team_name: String,
     pub workspace_name: String,
     pub policy_version: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KubernetesConnectorRequest {
+    pub connector_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KubernetesPodRequest {
+    pub connector_id: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub pod: String,
 }
 
 impl AppState {
@@ -231,6 +249,134 @@ impl AppState {
                 serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
             connectors::diagnose(connection, store, &request.id).map_err(AppStateError::Connector)
         })
+    }
+
+    pub fn kubernetes_inventory(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<KubernetesInventory> {
+        self.kubernetes_command(
+            envelope,
+            "inventory",
+            Capability::EnvironmentRead,
+            |client, _| {
+                runtime_block_on(discover(
+                    client,
+                    self.bootstrap.workspace.id,
+                    self.bootstrap.scope.clone(),
+                ))
+            },
+        )
+    }
+
+    pub fn kubernetes_pod_logs(&self, envelope: CommandEnvelope<Value>) -> IpcResult<String> {
+        self.kubernetes_command(
+            envelope,
+            "pod_logs",
+            Capability::ResourceRead,
+            |client, request| {
+                runtime_block_on(pod_logs(client, &request.namespace, &request.pod))?
+                    .map_err(|error| AppStateError::Kubernetes(error.to_string()))
+            },
+        )
+    }
+
+    pub fn kubernetes_pod_events(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<Vec<KubernetesEvent>> {
+        self.kubernetes_command(
+            envelope,
+            "pod_events",
+            Capability::ResourceRead,
+            |client, request| {
+                runtime_block_on(pod_events(client, &request.namespace, &request.pod))?
+                    .map_err(|error| AppStateError::Kubernetes(error.to_string()))
+            },
+        )
+    }
+
+    fn kubernetes_command<T>(
+        &self,
+        envelope: CommandEnvelope<Value>,
+        verb: &str,
+        capability: Capability,
+        operation: impl FnOnce(kube::Client, KubernetesPodRequest) -> Result<T, AppStateError>,
+    ) -> IpcResult<T> {
+        let descriptor = CommandDescriptor::new(
+            "kubernetes",
+            verb,
+            capability,
+            thalassa_domain::Permission::Read,
+        );
+        if envelope.command != descriptor.name
+            || envelope.capability != descriptor.required_capability
+            || envelope.scope.is_bounded()
+            || !descriptor.scope.contains(&envelope.scope)
+            || self.bootstrap.membership.status != thalassa_domain::MembershipStatus::Active
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::permission_denied(descriptor.name.to_string(), envelope.scope),
+            };
+        }
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied Kubernetes response",
+                    json!({}),
+                ),
+            };
+        }
+        let request = match serde_json::from_value::<KubernetesPodRequest>(envelope.payload) {
+            Ok(request) => request,
+            Err(error) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(error)),
+                }
+            }
+        };
+        let result = Connection::open(&self.database_path)
+            .map_err(AppStateError::Database)
+            .and_then(|connection| {
+                let connector = connectors::get(
+                    &connection,
+                    self.credential_store.as_ref(),
+                    &request.connector_id,
+                )?
+                .ok_or(ConnectorError::NotFound)?;
+                if !connector.enabled {
+                    return Err(AppStateError::Connector(ConnectorError::Disabled));
+                }
+                if connector.kind != crate::kubernetes::KUBERNETES_CONNECTOR_KIND {
+                    return Err(AppStateError::Connector(
+                        ConnectorError::InvalidConfiguration("connector is not Kubernetes".into()),
+                    ));
+                }
+                let config: KubernetesConnectorConfig =
+                    serde_json::from_value(connector.config_metadata)
+                        .map_err(AppStateError::Serialization)?;
+                let client = runtime_block_on(client_from_kubeconfig(&config))?
+                    .map_err(|error| AppStateError::Kubernetes(error.to_string()))?;
+                operation(client, request)
+            });
+        match result {
+            Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
     }
 
     fn connector_set_enabled(
@@ -480,6 +626,16 @@ pub enum AppStateError {
     Policy(#[from] thalassa_policy::PolicyLoadError),
     #[error("connector error: {0}")]
     Connector(#[from] ConnectorError),
+    #[error("kubernetes error: {0}")]
+    Kubernetes(String),
+}
+
+fn runtime_block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, AppStateError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| AppStateError::Kubernetes(error.to_string()))
+        .map(|runtime| runtime.block_on(future))
 }
 
 fn ipc_error_for(error: AppStateError) -> IpcError {
