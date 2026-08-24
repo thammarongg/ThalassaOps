@@ -1,26 +1,199 @@
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+
 :root {
-  color: #e6edf3;
-  background: #0c1117;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  --color-abyss: #071a2b;
+  --color-deep-water: #0e2c3d;
+  --color-sea-glass: #dceff0;
+  --color-reef-cyan: #53d7e8;
+  --color-kelp: #50d18c;
+  --color-amber: #e4b65a;
+  --color-coral: #ff6b6b;
+  --font-ui: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  color: var(--color-sea-glass);
+  background: var(--color-abyss);
+  font-family: var(--font-ui);
+}
+* {
+  box-sizing: border-box;
 }
 body {
   margin: 0;
+  min-width: 320px;
+  background: var(--color-abyss);
 }
-main {
-  max-width: 720px;
-  margin: 16vh auto;
-  padding: 2rem;
-  border: 1px solid #263241;
-  border-radius: 12px;
-  background: #111923;
+button,
+input {
+  font: inherit;
+}
+:focus-visible {
+  outline: 3px solid var(--color-reef-cyan);
+  outline-offset: 3px;
+}
+.app {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 10vh var(--space-3);
+  display: grid;
+  gap: var(--space-2);
 }
 .eyebrow {
-  color: #7ee3c7;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
+  color: var(--color-reef-cyan);
+  font: 400 0.8rem var(--font-mono);
+  margin: 0;
 }
-.status {
-  color: #7ee3c7;
-  font-size: 2rem;
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  margin-bottom: var(--space-1);
+}
+h2 {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+.grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+.card,
+.table-wrap,
+.command-surface,
+.tabs,
+.timeline {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-radius: 0.75rem;
+  background: var(--color-deep-water);
+  padding: var(--space-2);
+}
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-weight: 700;
+}
+.indicator > span:first-child {
+  min-width: 1rem;
+  text-align: center;
+}
+.indicator--healthy {
+  color: var(--color-kelp);
+}
+.indicator--informational {
+  color: var(--color-reef-cyan);
+}
+.indicator--degraded,
+.indicator--warning {
+  color: var(--color-amber);
+}
+.indicator--unavailable,
+.indicator--critical {
+  color: var(--color-coral);
+}
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 0.5rem;
+  min-height: 6rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  text-align: center;
+}
+.empty-state p {
+  margin: 0;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+caption {
+  text-align: left;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+th,
+td {
+  padding: 0.5rem;
+  text-align: left;
+  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 12%, transparent);
+}
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+.tab,
+.drawer button {
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--color-sea-glass);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+.timeline {
+  list-style: none;
+  margin: 0;
+}
+.timeline li {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 0.5rem 0 0.5rem var(--space-2);
+  border-left: 2px solid var(--color-reef-cyan);
+}
+.command-surface {
+  display: grid;
+  gap: 0.5rem;
+}
+.command-surface input {
+  width: 100%;
+  color: var(--color-sea-glass);
+  background: var(--color-abyss);
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  padding: 0.65rem;
+  font-family: var(--font-mono);
+}
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: end;
+  background: rgb(0 0 0 / 55%);
+}
+.drawer {
+  width: min(30rem, 100%);
+  min-height: 100%;
+  padding: var(--space-3);
+  color: var(--color-sea-glass);
+  background: var(--color-deep-water);
+}
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer {
+    animation: enter 0.16s ease-out;
+  }
+  @keyframes enter {
+    from {
+      transform: translateX(2rem);
+      opacity: 0;
+    }
+  }
 }
