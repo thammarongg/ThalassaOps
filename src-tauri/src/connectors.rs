@@ -1,3 +1,4 @@
+use crate::kubernetes::KUBERNETES_CONNECTOR_KIND;
 use chrono::Utc;
 use keyring::Entry;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -146,6 +147,32 @@ pub fn fixture_manifest() -> ConnectorManifest {
             "fixture.test",
             ["fixture"],
             ActionRiskClass::ReadOnly,
+        ))
+}
+
+/// The installed connector is read-only. Runtime RBAC discovery narrows the availability
+/// reported for each of these declared resource kinds.
+pub fn kubernetes_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(KUBERNETES_CONNECTOR_KIND, "Kubernetes", "0.1.0")
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.resources.read",
+            [
+                "Node",
+                "Namespace",
+                "Deployment",
+                "StatefulSet",
+                "DaemonSet",
+                "Service",
+                "Pod",
+            ],
+        ))
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.events.read",
+            ["Event"],
+        ))
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.pod_logs.read",
+            ["Pod"],
         ))
 }
 
@@ -383,6 +410,8 @@ fn fixture_test(
 fn manifest_for(kind: &str) -> ConnectorManifest {
     if kind == FIXTURE_CONNECTOR_KIND {
         fixture_manifest()
+    } else if kind == KUBERNETES_CONNECTOR_KIND {
+        kubernetes_manifest()
     } else {
         ConnectorManifest::new(kind, kind, "unavailable")
     }
