@@ -231,13 +231,64 @@ impl AppState {
         })
     }
 
-    pub fn connector_test(&self, envelope: CommandEnvelope<Value>) -> IpcResult<ConnectorSummary> {
-        self.connector_act(envelope, "test", |connection, store, payload| {
-            let request: ConnectorIdRequest =
-                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
-            connectors::test_connection(connection, store, &request.id)
-                .map_err(AppStateError::Connector)
-        })
+    pub async fn connector_test(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<ConnectorSummary> {
+        let descriptor = CommandDescriptor::new(
+            "connector",
+            "test",
+            Capability::ConnectorAct,
+            thalassa_domain::Permission::Read,
+        );
+        if envelope.command != descriptor.name
+            || envelope.capability != descriptor.required_capability
+            || envelope.scope.is_bounded()
+            || !descriptor.scope.contains(&envelope.scope)
+            || self.bootstrap.membership.status != thalassa_domain::MembershipStatus::Active
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::permission_denied(descriptor.name.to_string(), envelope.scope),
+            };
+        }
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied connector response",
+                    json!({}),
+                ),
+            };
+        }
+        let result = match serde_json::from_value::<ConnectorIdRequest>(envelope.payload) {
+            Ok(request) => match Connection::open(&self.database_path) {
+                Ok(connection) => connectors::test_connection(
+                    connection,
+                    self.credential_store.as_ref(),
+                    &request.id,
+                )
+                .await
+                .map_err(AppStateError::Connector),
+                Err(error) => Err(AppStateError::Database(error)),
+            },
+            Err(error) => Err(AppStateError::Serialization(error)),
+        };
+        match result {
+            Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
     }
 
     pub fn connector_diagnose(
@@ -251,7 +302,7 @@ impl AppState {
         })
     }
 
-    pub fn kubernetes_inventory(
+    pub async fn kubernetes_inventory(
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<KubernetesInventory> {
@@ -259,29 +310,33 @@ impl AppState {
             envelope,
             "inventory",
             Capability::EnvironmentRead,
-            |client, _| {
-                runtime_block_on(discover(
+            |client, _| async move {
+                Ok(discover(
                     client,
                     self.bootstrap.workspace.id,
                     self.bootstrap.scope.clone(),
-                ))
+                )
+                .await)
             },
         )
+        .await
     }
 
-    pub fn kubernetes_pod_logs(&self, envelope: CommandEnvelope<Value>) -> IpcResult<String> {
+    pub async fn kubernetes_pod_logs(&self, envelope: CommandEnvelope<Value>) -> IpcResult<String> {
         self.kubernetes_command(
             envelope,
             "pod_logs",
             Capability::ResourceRead,
-            |client, request| {
-                runtime_block_on(pod_logs(client, &request.namespace, &request.pod))?
+            |client, request| async move {
+                pod_logs(client, &request.namespace, &request.pod)
+                    .await
                     .map_err(|error| AppStateError::Kubernetes(error.to_string()))
             },
         )
+        .await
     }
 
-    pub fn kubernetes_pod_events(
+    pub async fn kubernetes_pod_events(
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<Vec<KubernetesEvent>> {
@@ -289,20 +344,26 @@ impl AppState {
             envelope,
             "pod_events",
             Capability::ResourceRead,
-            |client, request| {
-                runtime_block_on(pod_events(client, &request.namespace, &request.pod))?
+            |client, request| async move {
+                pod_events(client, &request.namespace, &request.pod)
+                    .await
                     .map_err(|error| AppStateError::Kubernetes(error.to_string()))
             },
         )
+        .await
     }
 
-    fn kubernetes_command<T>(
+    async fn kubernetes_command<T, F, Fut>(
         &self,
         envelope: CommandEnvelope<Value>,
         verb: &str,
         capability: Capability,
-        operation: impl FnOnce(kube::Client, KubernetesPodRequest) -> Result<T, AppStateError>,
-    ) -> IpcResult<T> {
+        operation: F,
+    ) -> IpcResult<T>
+    where
+        F: FnOnce(kube::Client, KubernetesPodRequest) -> Fut,
+        Fut: std::future::Future<Output = Result<T, AppStateError>>,
+    {
         let descriptor = CommandDescriptor::new(
             "kubernetes",
             verb,
@@ -346,30 +407,35 @@ impl AppState {
                 }
             }
         };
-        let result = Connection::open(&self.database_path)
-            .map_err(AppStateError::Database)
-            .and_then(|connection| {
-                let connector = connectors::get(
-                    &connection,
-                    self.credential_store.as_ref(),
-                    &request.connector_id,
-                )?
-                .ok_or(ConnectorError::NotFound)?;
-                if !connector.enabled {
-                    return Err(AppStateError::Connector(ConnectorError::Disabled));
-                }
-                if connector.kind != crate::kubernetes::KUBERNETES_CONNECTOR_KIND {
-                    return Err(AppStateError::Connector(
-                        ConnectorError::InvalidConfiguration("connector is not Kubernetes".into()),
-                    ));
-                }
-                let config: KubernetesConnectorConfig =
-                    serde_json::from_value(connector.config_metadata)
-                        .map_err(AppStateError::Serialization)?;
-                let client = runtime_block_on(client_from_kubeconfig(&config))?
-                    .map_err(|error| AppStateError::Kubernetes(error.to_string()))?;
-                operation(client, request)
-            });
+        let result = (|| {
+            let connection =
+                Connection::open(&self.database_path).map_err(AppStateError::Database)?;
+            let connector = connectors::get(
+                &connection,
+                self.credential_store.as_ref(),
+                &request.connector_id,
+            )?
+            .ok_or(ConnectorError::NotFound)?;
+            if !connector.enabled {
+                return Err(AppStateError::Connector(ConnectorError::Disabled));
+            }
+            if connector.kind != crate::kubernetes::KUBERNETES_CONNECTOR_KIND {
+                return Err(AppStateError::Connector(
+                    ConnectorError::InvalidConfiguration("connector is not Kubernetes".into()),
+                ));
+            }
+            let config: KubernetesConnectorConfig =
+                serde_json::from_value(connector.config_metadata)
+                    .map_err(AppStateError::Serialization)?;
+            Ok((config, request))
+        })();
+        let result = match result {
+            Ok((config, request)) => match client_from_kubeconfig(&config).await {
+                Ok(client) => operation(client, request).await,
+                Err(error) => Err(AppStateError::Kubernetes(error.to_string())),
+            },
+            Err(error) => Err(error),
+        };
         match result {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(error) => IpcResult::Err {
@@ -630,14 +696,6 @@ pub enum AppStateError {
     Kubernetes(String),
 }
 
-fn runtime_block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, AppStateError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| AppStateError::Kubernetes(error.to_string()))
-        .map(|runtime| runtime.block_on(future))
-}
-
 fn ipc_error_for(error: AppStateError) -> IpcError {
     match error {
         AppStateError::Connector(ConnectorError::NotFound) => {
@@ -698,6 +756,21 @@ mod tests {
         CommandEnvelope {
             request_id: Uuid::new_v4(),
             command: thalassa_ipc::CommandName::new("connector", verb).unwrap(),
+            capability,
+            scope: state.bootstrap.scope.clone(),
+            payload,
+        }
+    }
+
+    fn kubernetes_envelope(
+        state: &AppState,
+        verb: &str,
+        capability: Capability,
+        payload: Value,
+    ) -> CommandEnvelope<Value> {
+        CommandEnvelope {
+            request_id: Uuid::new_v4(),
+            command: thalassa_ipc::CommandName::new("kubernetes", verb).unwrap(),
             capability,
             scope: state.bootstrap.scope.clone(),
             payload,
@@ -811,8 +884,8 @@ mod tests {
         assert!(matches!(state.context(envelope), IpcResult::Err { .. }));
     }
 
-    #[test]
-    fn connector_registry_persists_metadata_but_never_a_credential_value() {
+    #[tokio::test]
+    async fn connector_registry_persists_metadata_but_never_a_credential_value() {
         let (directory, state) = test_state();
         let secret = "fixture-secret-must-not-leak";
         let added = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Fixture", "config_metadata": { "fixture_health": "healthy" }, "credential_value": secret })));
@@ -833,12 +906,14 @@ mod tests {
             Value::Null,
         )))
         .unwrap();
-        let _ = state.connector_test(connector_envelope(
-            &state,
-            "test",
-            Capability::ConnectorAct,
-            json!({ "id": connector.id }),
-        ));
+        let _ = state
+            .connector_test(connector_envelope(
+                &state,
+                "test",
+                Capability::ConnectorAct,
+                json!({ "id": connector.id }),
+            ))
+            .await;
         let diagnose_json = serde_json::to_string(&state.connector_diagnose(connector_envelope(
             &state,
             "diagnose",
@@ -850,16 +925,19 @@ mod tests {
         assert!(!diagnose_json.contains(secret));
     }
 
-    #[test]
-    fn fixture_connector_can_be_tested_disabled_and_diagnosed() {
+    #[tokio::test]
+    async fn fixture_connector_can_be_tested_disabled_and_diagnosed() {
         let (_directory, state) = test_state();
         let IpcResult::Ok { value: connector, .. } = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Test fixture", "config_metadata": { "fixture_health": "timeout", "fixture_timeout_ms": 1, "fixture_retry_backoff_ms": 1 } }))) else { panic!("add should succeed") };
-        let IpcResult::Ok { value: checked, .. } = state.connector_test(connector_envelope(
-            &state,
-            "test",
-            Capability::ConnectorAct,
-            json!({ "id": connector.id }),
-        )) else {
+        let IpcResult::Ok { value: checked, .. } = state
+            .connector_test(connector_envelope(
+                &state,
+                "test",
+                Capability::ConnectorAct,
+                json!({ "id": connector.id }),
+            ))
+            .await
+        else {
             panic!("test should succeed")
         };
         assert_eq!(checked.health_state, "unavailable");
@@ -887,12 +965,49 @@ mod tests {
             IpcResult::Ok { .. }
         ));
         assert!(matches!(
-            state.connector_test(connector_envelope(
-                &state,
-                "test",
-                Capability::ConnectorAct,
-                json!({ "id": connector.id })
-            )),
+            state
+                .connector_test(connector_envelope(
+                    &state,
+                    "test",
+                    Capability::ConnectorAct,
+                    json!({ "id": connector.id })
+                ))
+                .await,
+            IpcResult::Err { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn kubernetes_inventory_returns_an_ipc_error_inside_a_tokio_runtime() {
+        let (_directory, state) = test_state();
+        let IpcResult::Ok {
+            value: connector, ..
+        } = state.connector_add(connector_envelope(
+            &state,
+            "add",
+            Capability::ConnectorAct,
+            json!({
+                "kind": "kubernetes",
+                "display_name": "Unavailable Kubernetes",
+                "config_metadata": {
+                    "kubeconfig_path": "/definitely/not/a/kubeconfig",
+                    "context_name": "missing"
+                }
+            }),
+        ))
+        else {
+            panic!("add should succeed")
+        };
+
+        assert!(matches!(
+            state
+                .kubernetes_inventory(kubernetes_envelope(
+                    &state,
+                    "inventory",
+                    Capability::EnvironmentRead,
+                    json!({ "connector_id": connector.id }),
+                ))
+                .await,
             IpcResult::Err { .. }
         ));
     }
