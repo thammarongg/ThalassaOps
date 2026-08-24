@@ -40,9 +40,9 @@ pub struct HealthResponse {
 
 impl AppState {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppStateError> {
-        let connection = Connection::open(path)?;
+        let mut connection = Connection::open(path)?;
         apply_migrations(&connection)?;
-        let bootstrap = load_or_bootstrap(&connection)?;
+        let bootstrap = load_or_bootstrap(&mut connection)?;
         let policy = load_or_seed_policy(&connection)?;
         Ok(Self { bootstrap, policy })
     }
@@ -118,7 +118,7 @@ fn apply_migrations(connection: &Connection) -> Result<(), AppStateError> {
     Ok(())
 }
 
-fn load_or_bootstrap(connection: &Connection) -> Result<BootstrapState, AppStateError> {
+fn load_or_bootstrap(connection: &mut Connection) -> Result<BootstrapState, AppStateError> {
     let existing: Option<String> = connection
         .query_row("SELECT document_json FROM principals LIMIT 1", [], |row| {
             row.get(0)
@@ -132,31 +132,33 @@ fn load_or_bootstrap(connection: &Connection) -> Result<BootstrapState, AppState
     let team = Team::new(organization.id, "Local Team");
     let workspace = Workspace::new(team.id, "Local Workspace");
     let membership = Membership::workspace_owner(principal.id, workspace.id);
+    let transaction = connection.transaction()?;
     persist(
-        connection,
+        &transaction,
         "principals",
         principal.id.to_string(),
         &principal,
     )?;
     persist(
-        connection,
+        &transaction,
         "organizations",
         organization.id.to_string(),
         &organization,
     )?;
-    persist(connection, "teams", team.id.to_string(), &team)?;
+    persist(&transaction, "teams", team.id.to_string(), &team)?;
     persist(
-        connection,
+        &transaction,
         "workspaces",
         workspace.id.to_string(),
         &workspace,
     )?;
     persist(
-        connection,
+        &transaction,
         "memberships",
         principal.id.to_string(),
         &membership,
     )?;
+    transaction.commit()?;
     Ok(BootstrapState {
         principal,
         organization,
@@ -259,6 +261,38 @@ mod tests {
             thalassa_domain::MembershipStatus::Active
         );
         assert_eq!(state.policy.document().id, "system-baseline");
+    }
+
+    #[test]
+    fn bootstrap_rolls_back_every_record_when_a_write_fails() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply_migrations(&connection).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                    CREATE TRIGGER interrupt_bootstrap BEFORE INSERT ON teams
+                    BEGIN
+                        SELECT RAISE(ABORT, 'interrupted bootstrap');
+                    END;
+                "#,
+            )
+            .unwrap();
+
+        assert!(load_or_bootstrap(&mut connection).is_err());
+
+        for table in [
+            "principals",
+            "organizations",
+            "teams",
+            "workspaces",
+            "memberships",
+        ] {
+            let statement = format!("SELECT COUNT(*) FROM {table}");
+            let count: i64 = connection
+                .query_row(&statement, [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "{table} should be empty after a failed bootstrap");
+        }
     }
 
     #[test]
