@@ -21,6 +21,10 @@ thalassa-ipc = { path = "../crates/thalassa-ipc" }
 thalassa-policy = { path = "../crates/thalassa-policy" }
 thalassa-connectors = { path = "../crates/thalassa-connectors" }
 keyring = "3"
+kube = { version = "0.96", features = ["client", "config", "rustls-tls"] }
+k8s-openapi = { version = "0.23", features = ["v1_30"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile = "3"
+httpmock = "0.7"

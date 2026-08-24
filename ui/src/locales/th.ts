@@ -95,6 +95,19 @@ const th = {
     lastSync: "ซิงก์สำเร็จล่าสุด",
     never: "ไม่เคย",
     noLogs: "ยังไม่มีการบันทึกการทดสอบการเชื่อมต่อ"
+  },
+  kubernetes: {
+    title: "ตรวจสอบ Kubernetes",
+    cluster: "คลัสเตอร์ที่เชื่อมต่อ",
+    inspect: "ตรวจสอบคลัสเตอร์",
+    availability: "Resource API ที่ใช้งานได้",
+    resources: "ทรัพยากรในคลัสเตอร์",
+    resource: "ทรัพยากร",
+    status: "สถานะ",
+    owner: "เวิร์กโหลดเจ้าของ",
+    podDetails: "ตรวจสอบ Pod",
+    events: "เหตุการณ์",
+    logs: "บันทึก"
   }
 } as const;
 

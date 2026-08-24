@@ -1,3 +1,6 @@
+use crate::kubernetes::{
+    client_from_kubeconfig, KubernetesConnectorConfig, KUBERNETES_CONNECTOR_KIND,
+};
 use chrono::Utc;
 use keyring::Entry;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -29,6 +32,10 @@ pub enum ConnectorError {
     NotFound,
     #[error("connector is disabled")]
     Disabled,
+    #[error("invalid connector configuration: {0}")]
+    InvalidConfiguration(String),
+    #[error("Kubernetes connection failed: {0}")]
+    Kubernetes(String),
 }
 
 pub trait CredentialStore: Send + Sync {
@@ -149,11 +156,38 @@ pub fn fixture_manifest() -> ConnectorManifest {
         ))
 }
 
+/// The installed connector is read-only. Runtime RBAC discovery narrows the availability
+/// reported for each of these declared resource kinds.
+pub fn kubernetes_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(KUBERNETES_CONNECTOR_KIND, "Kubernetes", "0.1.0")
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.resources.read",
+            [
+                "Node",
+                "Namespace",
+                "Deployment",
+                "StatefulSet",
+                "DaemonSet",
+                "Service",
+                "Pod",
+            ],
+        ))
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.events.read",
+            ["Event"],
+        ))
+        .with_capability(ConnectorCapability::read(
+            "kubernetes.pod_logs.read",
+            ["Pod"],
+        ))
+}
+
 pub fn add(
     connection: &Connection,
     store: &dyn CredentialStore,
     request: AddConnectorRequest,
 ) -> Result<ConnectorSummary, ConnectorError> {
+    validate_add_request(&request)?;
     let id = Uuid::new_v4().to_string();
     let credential_reference = request
         .credential_value
@@ -173,6 +207,27 @@ pub fn add(
         return Err(error.into());
     }
     get(connection, store, &id)?.ok_or(ConnectorError::NotFound)
+}
+
+fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorError> {
+    match request.kind.as_str() {
+        FIXTURE_CONNECTOR_KIND => Ok(()),
+        KUBERNETES_CONNECTOR_KIND => {
+            let config: KubernetesConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+            if config.kubeconfig_path.trim().is_empty() || config.context_name.trim().is_empty() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "kubeconfig_path and context_name are required".into(),
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(ConnectorError::InvalidConfiguration(format!(
+            "unsupported connector kind: {}",
+            request.kind
+        ))),
+    }
 }
 
 pub fn list(
@@ -256,22 +311,22 @@ pub fn diagnose(
     })
 }
 
-pub fn test_connection(
-    connection: &Connection,
+pub async fn test_connection(
+    connection: Connection,
     store: &dyn CredentialStore,
     id: &str,
 ) -> Result<ConnectorSummary, ConnectorError> {
-    let connector = get(connection, store, id)?.ok_or(ConnectorError::NotFound)?;
+    let connector = get(&connection, store, id)?.ok_or(ConnectorError::NotFound)?;
     if !connector.enabled {
         return Err(ConnectorError::Disabled);
     }
-    let result = run_connection_test(&connector);
+    let result = run_connection_test(&connector).await;
     let log_message = format!("{} Attempts: {}.", result.message, result.attempts);
     let checked_at = Utc::now().to_rfc3339();
     connection.execute("UPDATE connector_instances SET health_state = ?2, last_checked_at = ?3, last_successful_sync_at = CASE WHEN ?2 = 'healthy' THEN ?3 ELSE last_successful_sync_at END WHERE id = ?1", params![id, result.outcome, checked_at])?;
     connection.execute("INSERT INTO connector_test_logs (id, connector_id, checked_at, outcome, message) VALUES (?1, ?2, ?3, ?4, ?5)", params![Uuid::new_v4().to_string(), id, checked_at, result.outcome, log_message])?;
     connection.execute("DELETE FROM connector_test_logs WHERE id IN (SELECT id FROM connector_test_logs WHERE connector_id = ?1 ORDER BY checked_at DESC LIMIT -1 OFFSET ?2)", params![id, LOG_HISTORY_LIMIT])?;
-    get(connection, store, id)?.ok_or(ConnectorError::NotFound)
+    get(&connection, store, id)?.ok_or(ConnectorError::NotFound)
 }
 
 #[derive(Debug)]
@@ -309,12 +364,15 @@ fn fixture_duration(connector: &ConnectorSummary, key: &str, default_ms: u64) ->
     Duration::from_millis(configured_ms.clamp(1, default_ms))
 }
 
-fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+async fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+    if connector.kind == KUBERNETES_CONNECTOR_KIND {
+        return kubernetes_connection_test(connector).await;
+    }
     let policy = ConnectionTestPolicy::for_connector(connector);
     let mut last_failure = String::new();
 
     for attempt in 1..=CONNECTION_MAX_ATTEMPTS {
-        match fixture_test(connector, attempt, policy.timeout) {
+        match fixture_test(connector, attempt, policy.timeout).await {
             Ok((outcome, message)) => {
                 return ConnectionTestResult {
                     outcome,
@@ -327,7 +385,7 @@ fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
             Err(message) => {
                 last_failure = message;
                 if attempt < CONNECTION_MAX_ATTEMPTS {
-                    std::thread::sleep(policy.retry_backoff);
+                    tokio::time::sleep(policy.retry_backoff).await;
                 }
             }
         }
@@ -342,7 +400,44 @@ fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
     }
 }
 
-fn fixture_test(
+async fn kubernetes_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+    let config: KubernetesConnectorConfig =
+        match serde_json::from_value(connector.config_metadata.clone()) {
+            Ok(config) => config,
+            Err(error) => {
+                return ConnectionTestResult {
+                    outcome: "unavailable",
+                    message: format!("Invalid Kubernetes configuration: {error}"),
+                    attempts: 0,
+                }
+            }
+        };
+    match async {
+        let client = client_from_kubeconfig(&config)
+            .await
+            .map_err(|error| error.to_string())?;
+        kube::Api::<k8s_openapi::api::core::v1::Namespace>::all(client)
+            .list(&kube::api::ListParams::default())
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    .await
+    {
+        Ok(()) => ConnectionTestResult {
+            outcome: "healthy",
+            message: "Kubernetes Namespace list succeeded.".into(),
+            attempts: 1,
+        },
+        Err(error) => ConnectionTestResult {
+            outcome: "unavailable",
+            message: format!("Kubernetes connection failed: {error}"),
+            attempts: 1,
+        },
+    }
+}
+
+async fn fixture_test(
     connector: &ConnectorSummary,
     attempt: usize,
     timeout: Duration,
@@ -370,7 +465,7 @@ fn fixture_test(
         )),
         "degraded" => Ok(("degraded", "Fixture connection is degraded.".into())),
         "timeout" => {
-            std::thread::sleep(timeout);
+            tokio::time::sleep(timeout).await;
             Err(format!(
                 "Fixture connection timed out after {}ms.",
                 timeout.as_millis()
@@ -383,6 +478,8 @@ fn fixture_test(
 fn manifest_for(kind: &str) -> ConnectorManifest {
     if kind == FIXTURE_CONNECTOR_KIND {
         fixture_manifest()
+    } else if kind == KUBERNETES_CONNECTOR_KIND {
+        kubernetes_manifest()
     } else {
         ConnectorManifest::new(kind, kind, "unavailable")
     }
@@ -442,27 +539,29 @@ mod tests {
         }
     }
 
-    #[test]
-    fn fixture_connection_retries_until_a_transient_failure_recovers() {
+    #[tokio::test]
+    async fn fixture_connection_retries_until_a_transient_failure_recovers() {
         let started = Instant::now();
         let result = run_connection_test(&fixture(json!({
             "fails_then_recovers": 2,
             "fixture_retry_backoff_ms": 5,
-        })));
+        })))
+        .await;
 
         assert_eq!(result.outcome, "healthy");
         assert_eq!(result.attempts, 3);
         assert!(started.elapsed() >= Duration::from_millis(10));
     }
 
-    #[test]
-    fn fixture_connection_stops_after_the_configured_attempt_limit() {
+    #[tokio::test]
+    async fn fixture_connection_stops_after_the_configured_attempt_limit() {
         let started = Instant::now();
         let result = run_connection_test(&fixture(json!({
             "fixture_health": "timeout",
             "fixture_timeout_ms": 1,
             "fixture_retry_backoff_ms": 1,
-        })));
+        })))
+        .await;
 
         assert_eq!(result.outcome, "unavailable");
         assert_eq!(result.attempts, CONNECTION_MAX_ATTEMPTS);

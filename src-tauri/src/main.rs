@@ -34,6 +34,34 @@ connector_command!(
     connector_list,
     Vec<thalassaops::connectors::ConnectorSummary>
 );
+#[tauri::command]
+async fn connector_test(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::connectors::ConnectorSummary>, String> {
+    Ok(state.inner().clone().connector_test(envelope).await)
+}
+#[tauri::command]
+async fn kubernetes_inventory(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::kubernetes::KubernetesInventory>, String> {
+    Ok(state.inner().clone().kubernetes_inventory(envelope).await)
+}
+#[tauri::command]
+async fn kubernetes_pod_logs(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<String>, String> {
+    Ok(state.inner().clone().kubernetes_pod_logs(envelope).await)
+}
+#[tauri::command]
+async fn kubernetes_pod_events(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<Vec<thalassaops::kubernetes::KubernetesEvent>>, String> {
+    Ok(state.inner().clone().kubernetes_pod_events(envelope).await)
+}
 connector_command!(
     connector_add,
     connector_add,
@@ -50,11 +78,6 @@ connector_command!(
     thalassaops::connectors::ConnectorSummary
 );
 connector_command!(connector_remove, connector_remove, serde_json::Value);
-connector_command!(
-    connector_test,
-    connector_test,
-    thalassaops::connectors::ConnectorSummary
-);
 connector_command!(
     connector_diagnose,
     connector_diagnose,
@@ -80,7 +103,10 @@ fn main() {
             connector_disable,
             connector_remove,
             connector_test,
-            connector_diagnose
+            connector_diagnose,
+            kubernetes_inventory,
+            kubernetes_pod_logs,
+            kubernetes_pod_events
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ThalassaOps");
