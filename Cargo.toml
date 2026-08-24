@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "src-tauri",
     "crates/thalassa-domain",
     "crates/thalassa-policy",
     "crates/thalassa-ipc",

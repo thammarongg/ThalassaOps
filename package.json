@@ -1,0 +1,40 @@
+{
+  "name": "thalassaops-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint ui",
+    "format:check": "prettier --check package.json tsconfig.json tsconfig.app.json vite.config.ts eslint.config.js .prettierrc.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json ui/index.html ui/src .github/workflows/ci.yml README.md",
+    "format": "prettier --write package.json tsconfig.json tsconfig.app.json vite.config.ts eslint.config.js .prettierrc.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json ui/index.html ui/src .github/workflows/ci.yml README.md",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --bundles app && codesign --force --deep --sign - target/release/bundle/macos/ThalassaOps.app"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@eslint/js": "^9.0.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "globals": "^15.0.0",
+    "jsdom": "^25.0.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.5"
+  }
+}
