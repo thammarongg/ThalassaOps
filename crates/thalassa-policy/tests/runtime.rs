@@ -7,6 +7,24 @@ fn scope() -> ResourceScope {
     ResourceScope::workspace(uuid::Uuid::nil(), uuid::Uuid::nil(), uuid::Uuid::nil())
 }
 
+fn staging_scope() -> ResourceScope {
+    ResourceScope::environment(
+        uuid::Uuid::from_u128(1),
+        uuid::Uuid::from_u128(2),
+        uuid::Uuid::from_u128(3),
+        uuid::Uuid::from_u128(4),
+    )
+}
+
+fn production_scope() -> ResourceScope {
+    ResourceScope::environment(
+        uuid::Uuid::from_u128(5),
+        uuid::Uuid::from_u128(2),
+        uuid::Uuid::from_u128(3),
+        uuid::Uuid::from_u128(4),
+    )
+}
+
 #[test]
 fn baseline_allows_public_hosted_ai_only_when_classification_and_redaction_are_verified() {
     let runtime = PolicyRuntime::baseline();
@@ -78,6 +96,51 @@ fn policy_auto_requires_mutating_action_and_explicit_enablement() {
         mutating,
         PolicyDecision::Denied {
             reason: PolicyDenyReason::PolicyAutoDisabled,
+            policy_version: 1
+        }
+    );
+}
+
+#[test]
+fn policy_auto_scope_only_constrains_policy_auto_requests() {
+    let runtime =
+        PolicyRuntime::load(PolicyDocument::baseline(2).enable_policy_auto(staging_scope()))
+            .unwrap();
+
+    let approval = runtime.evaluate_action(ActionPolicyRequest {
+        risk_class: ActionRiskClass::Mutating,
+        execution_mode: ExecutionMode::Approval,
+        scope: production_scope(),
+    });
+    assert_eq!(approval, PolicyDecision::Allowed { policy_version: 2 });
+
+    let policy_auto = runtime.evaluate_action(ActionPolicyRequest {
+        risk_class: ActionRiskClass::Mutating,
+        execution_mode: ExecutionMode::PolicyAuto,
+        scope: production_scope(),
+    });
+    assert_eq!(
+        policy_auto,
+        PolicyDecision::Denied {
+            reason: PolicyDenyReason::ScopeNotPermitted,
+            policy_version: 2
+        }
+    );
+}
+
+#[test]
+fn blocked_actions_use_an_action_specific_deny_reason() {
+    let runtime = PolicyRuntime::baseline();
+    let blocked = runtime.evaluate_action(ActionPolicyRequest {
+        risk_class: ActionRiskClass::Blocked,
+        execution_mode: ExecutionMode::Approval,
+        scope: scope(),
+    });
+
+    assert_eq!(
+        blocked,
+        PolicyDecision::Denied {
+            reason: PolicyDenyReason::ActionBlocked,
             policy_version: 1
         }
     );

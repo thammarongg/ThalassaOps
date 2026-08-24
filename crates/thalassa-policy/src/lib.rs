@@ -63,6 +63,7 @@ pub enum PolicyDenyReason {
     PolicyAutoDisabled,
     PolicyAutoRequiresMutatingAction,
     ScopeNotPermitted,
+    ActionBlocked,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -234,17 +235,19 @@ impl PolicyRuntime {
                 policy_version: version,
             };
         }
-        if let Some(scope) = &self.document.policy_auto_scope {
-            if !scope.contains(&request.scope) {
-                return PolicyDecision::Denied {
-                    reason: PolicyDenyReason::ScopeNotPermitted,
-                    policy_version: version,
-                };
+        if request.execution_mode == ExecutionMode::PolicyAuto {
+            if let Some(scope) = &self.document.policy_auto_scope {
+                if !scope.contains(&request.scope) {
+                    return PolicyDecision::Denied {
+                        reason: PolicyDenyReason::ScopeNotPermitted,
+                        policy_version: version,
+                    };
+                }
             }
         }
         if request.risk_class == ActionRiskClass::Blocked {
             return PolicyDecision::Denied {
-                reason: PolicyDenyReason::DataClassNotPermitted,
+                reason: PolicyDenyReason::ActionBlocked,
                 policy_version: version,
             };
         }
