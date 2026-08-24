@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use thalassa_connectors::{ConnectorCapability, ConnectorManifest};
 use thalassa_domain::ActionRiskClass;
 use uuid::Uuid;
@@ -13,6 +14,7 @@ pub const FIXTURE_CONNECTOR_KIND: &str = "fixture";
 const LOG_HISTORY_LIMIT: i64 = 25;
 const CONNECTION_TIMEOUT_MS: u64 = 1_000;
 const CONNECTION_MAX_ATTEMPTS: usize = 3;
+const CONNECTION_RETRY_BACKOFF_MS: u64 = 100;
 const KEYRING_SERVICE: &str = "io.thalassaops.connector";
 
 #[derive(Debug, thiserror::Error)]
@@ -263,28 +265,118 @@ pub fn test_connection(
     if !connector.enabled {
         return Err(ConnectorError::Disabled);
     }
-    let (outcome, message) = fixture_test(&connector);
+    let result = run_connection_test(&connector);
+    let log_message = format!("{} Attempts: {}.", result.message, result.attempts);
     let checked_at = Utc::now().to_rfc3339();
-    connection.execute("UPDATE connector_instances SET health_state = ?2, last_checked_at = ?3, last_successful_sync_at = CASE WHEN ?2 = 'healthy' THEN ?3 ELSE last_successful_sync_at END WHERE id = ?1", params![id, outcome, checked_at])?;
-    connection.execute("INSERT INTO connector_test_logs (id, connector_id, checked_at, outcome, message) VALUES (?1, ?2, ?3, ?4, ?5)", params![Uuid::new_v4().to_string(), id, checked_at, outcome, message])?;
+    connection.execute("UPDATE connector_instances SET health_state = ?2, last_checked_at = ?3, last_successful_sync_at = CASE WHEN ?2 = 'healthy' THEN ?3 ELSE last_successful_sync_at END WHERE id = ?1", params![id, result.outcome, checked_at])?;
+    connection.execute("INSERT INTO connector_test_logs (id, connector_id, checked_at, outcome, message) VALUES (?1, ?2, ?3, ?4, ?5)", params![Uuid::new_v4().to_string(), id, checked_at, result.outcome, log_message])?;
     connection.execute("DELETE FROM connector_test_logs WHERE id IN (SELECT id FROM connector_test_logs WHERE connector_id = ?1 ORDER BY checked_at DESC LIMIT -1 OFFSET ?2)", params![id, LOG_HISTORY_LIMIT])?;
     get(connection, store, id)?.ok_or(ConnectorError::NotFound)
 }
 
-fn fixture_test(connector: &ConnectorSummary) -> (&'static str, String) {
+#[derive(Debug)]
+struct ConnectionTestResult {
+    outcome: &'static str,
+    message: String,
+    attempts: usize,
+}
+
+#[derive(Debug)]
+struct ConnectionTestPolicy {
+    timeout: Duration,
+    retry_backoff: Duration,
+}
+
+impl ConnectionTestPolicy {
+    fn for_connector(connector: &ConnectorSummary) -> Self {
+        Self {
+            timeout: fixture_duration(connector, "fixture_timeout_ms", CONNECTION_TIMEOUT_MS),
+            retry_backoff: fixture_duration(
+                connector,
+                "fixture_retry_backoff_ms",
+                CONNECTION_RETRY_BACKOFF_MS,
+            ),
+        }
+    }
+}
+
+fn fixture_duration(connector: &ConnectorSummary, key: &str, default_ms: u64) -> Duration {
+    let configured_ms = connector
+        .config_metadata
+        .get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or(default_ms);
+    Duration::from_millis(configured_ms.clamp(1, default_ms))
+}
+
+fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+    let policy = ConnectionTestPolicy::for_connector(connector);
+    let mut last_failure = String::new();
+
+    for attempt in 1..=CONNECTION_MAX_ATTEMPTS {
+        match fixture_test(connector, attempt, policy.timeout) {
+            Ok((outcome, message)) => {
+                return ConnectionTestResult {
+                    outcome,
+                    message: format!(
+                        "{message} Connection test completed after {attempt} attempts."
+                    ),
+                    attempts: attempt,
+                };
+            }
+            Err(message) => {
+                last_failure = message;
+                if attempt < CONNECTION_MAX_ATTEMPTS {
+                    std::thread::sleep(policy.retry_backoff);
+                }
+            }
+        }
+    }
+
+    ConnectionTestResult {
+        outcome: "unavailable",
+        message: format!(
+            "Fixture connection failed after {CONNECTION_MAX_ATTEMPTS} attempts: {last_failure}"
+        ),
+        attempts: CONNECTION_MAX_ATTEMPTS,
+    }
+}
+
+fn fixture_test(
+    connector: &ConnectorSummary,
+    attempt: usize,
+    timeout: Duration,
+) -> Result<(&'static str, String), String> {
+    let failures_before_recovery = connector
+        .config_metadata
+        .get("fails_then_recovers")
+        .and_then(Value::as_u64)
+        .map(|value| usize::try_from(value).unwrap_or(usize::MAX))
+        .unwrap_or(0);
+    if attempt <= failures_before_recovery {
+        return Err("Fixture connection failed.".into());
+    }
+
     let behavior = connector
         .config_metadata
         .get("fixture_health")
         .and_then(Value::as_str)
         .unwrap_or("healthy");
-    let _timeout = CONNECTION_TIMEOUT_MS;
-    let _attempts = CONNECTION_MAX_ATTEMPTS;
     match behavior {
-        "healthy" => ("healthy", "Fixture connection succeeded.".into()),
-        "warning" => ("warning", "Fixture connection completed with a warning.".into()),
-        "degraded" => ("degraded", "Fixture connection is degraded.".into()),
-        "timeout" => ("unavailable", format!("Fixture connection timed out after {CONNECTION_MAX_ATTEMPTS} attempts within {CONNECTION_TIMEOUT_MS}ms each.")),
-        _ => ("unavailable", "Fixture connection failed.".into()),
+        "healthy" => Ok(("healthy", "Fixture connection succeeded.".into())),
+        "warning" => Ok((
+            "warning",
+            "Fixture connection completed with a warning.".into(),
+        )),
+        "degraded" => Ok(("degraded", "Fixture connection is degraded.".into())),
+        "timeout" => {
+            std::thread::sleep(timeout);
+            Err(format!(
+                "Fixture connection timed out after {}ms.",
+                timeout.as_millis()
+            ))
+        }
+        _ => Err("Fixture connection failed.".into()),
     }
 }
 
@@ -329,3 +421,51 @@ fn row_to_summary(
 }
 
 pub type SharedCredentialStore = Arc<dyn CredentialStore>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+
+    fn fixture(config_metadata: Value) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "fixture-id".into(),
+            kind: FIXTURE_CONNECTOR_KIND.into(),
+            display_name: "Fixture".into(),
+            enabled: true,
+            config_metadata,
+            credential_configured: false,
+            health_state: "unavailable".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    #[test]
+    fn fixture_connection_retries_until_a_transient_failure_recovers() {
+        let started = Instant::now();
+        let result = run_connection_test(&fixture(json!({
+            "fails_then_recovers": 2,
+            "fixture_retry_backoff_ms": 5,
+        })));
+
+        assert_eq!(result.outcome, "healthy");
+        assert_eq!(result.attempts, 3);
+        assert!(started.elapsed() >= Duration::from_millis(10));
+    }
+
+    #[test]
+    fn fixture_connection_stops_after_the_configured_attempt_limit() {
+        let started = Instant::now();
+        let result = run_connection_test(&fixture(json!({
+            "fixture_health": "timeout",
+            "fixture_timeout_ms": 1,
+            "fixture_retry_backoff_ms": 1,
+        })));
+
+        assert_eq!(result.outcome, "unavailable");
+        assert_eq!(result.attempts, CONNECTION_MAX_ATTEMPTS);
+        assert!(started.elapsed() >= Duration::from_millis(3));
+    }
+}

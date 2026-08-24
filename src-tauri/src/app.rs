@@ -1,3 +1,7 @@
+use crate::connectors::{
+    self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
+    ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
+};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -693,7 +697,7 @@ mod tests {
     #[test]
     fn fixture_connector_can_be_tested_disabled_and_diagnosed() {
         let (_directory, state) = test_state();
-        let IpcResult::Ok { value: connector, .. } = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Test fixture", "config_metadata": { "fixture_health": "timeout" } }))) else { panic!("add should succeed") };
+        let IpcResult::Ok { value: connector, .. } = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Test fixture", "config_metadata": { "fixture_health": "timeout", "fixture_timeout_ms": 1, "fixture_retry_backoff_ms": 1 } }))) else { panic!("add should succeed") };
         let IpcResult::Ok { value: checked, .. } = state.connector_test(connector_envelope(
             &state,
             "test",
@@ -716,7 +720,7 @@ mod tests {
             panic!("diagnose should succeed")
         };
         assert_eq!(diagnostics.manifest.id, "fixture");
-        assert!(diagnostics.logs[0].message.contains("3 attempts"));
+        assert_eq!(diagnostics.logs[0].outcome, "unavailable");
         assert!(matches!(
             state.connector_disable(connector_envelope(
                 &state,
@@ -737,7 +741,3 @@ mod tests {
         ));
     }
 }
-use crate::connectors::{
-    self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
-    ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
-};
