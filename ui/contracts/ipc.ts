@@ -56,9 +56,14 @@ export type IpcError = {
   details: Record<string, unknown>;
 };
 
-export type IpcResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: IpcError };
+export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
+
+export type WorkspaceContext = {
+  organization_name: string;
+  team_name: string;
+  workspace_name: string;
+  policy_version: number;
+};
 
 /**
  * Tauri command names use lowercase resource.verb components. Commands must

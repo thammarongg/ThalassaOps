@@ -10,6 +10,14 @@ fn system_health(
     state.health(envelope)
 }
 
+#[tauri::command]
+fn system_context(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassaops::app::ContextResponse> {
+    state.context(envelope)
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -20,7 +28,7 @@ fn main() {
             )?);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![system_health])
+        .invoke_handler(tauri::generate_handler![system_health, system_context])
         .run(tauri::generate_context!())
         .expect("failed to run ThalassaOps");
 }

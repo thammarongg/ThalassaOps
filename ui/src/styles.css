@@ -43,6 +43,111 @@ input {
   display: grid;
   gap: var(--space-2);
 }
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 15rem 1fr 14rem;
+  grid-template-rows: auto 1fr;
+}
+.shell-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water);
+}
+.shell-header strong {
+  color: var(--color-reef-cyan);
+}
+.shell-header button,
+.shell aside button,
+.notification-center button {
+  color: var(--color-sea-glass);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  cursor: pointer;
+}
+.switchers {
+  display: flex;
+  gap: 0.4rem;
+  flex: 1;
+  overflow: auto;
+}
+.shell > aside {
+  padding: var(--space-2);
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+}
+.shell nav {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: var(--space-2);
+}
+.nav-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+}
+.nav-row button:first-child {
+  text-align: left;
+}
+.nav-row [aria-current="page"] {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+.shell-main {
+  padding: clamp(1rem, 4vw, 3rem);
+}
+.shell-status {
+  align-content: start;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+}
+.notification-center {
+  position: fixed;
+  z-index: 3;
+  top: 4.5rem;
+  right: 1rem;
+  width: min(22rem, calc(100% - 2rem));
+  padding: var(--space-2);
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.6rem;
+  background: var(--color-deep-water);
+}
+.drawer .command-surface + button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 0.5rem;
+}
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 12rem 1fr;
+  }
+  .shell-status {
+    display: none;
+  }
+  .switchers {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .shell > aside:first-of-type {
+    display: flex;
+    overflow: auto;
+  }
+  .shell nav {
+    min-width: 10rem;
+  }
+}
 .eyebrow {
   color: var(--color-reef-cyan);
   font: 400 0.8rem var(--font-mono);

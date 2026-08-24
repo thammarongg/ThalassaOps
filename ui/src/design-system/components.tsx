@@ -212,11 +212,13 @@ export function Timeline({
 export function CommandSurface({
   labelKey,
   placeholderKey,
-  onSubmit
+  onSubmit,
+  onChange
 }: {
   labelKey: TranslationKey;
   placeholderKey: TranslationKey;
   onSubmit?: (query: string) => void;
+  onChange?: (query: string) => void;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -232,7 +234,10 @@ export function CommandSurface({
       <input
         id="command-input"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          onChange?.(event.target.value);
+        }}
         placeholder={t(placeholderKey)}
       />
     </form>
