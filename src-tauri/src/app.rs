@@ -38,6 +38,14 @@ pub struct HealthResponse {
     pub policy_version: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextResponse {
+    pub organization_name: String,
+    pub team_name: String,
+    pub workspace_name: String,
+    pub policy_version: u64,
+}
+
 impl AppState {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppStateError> {
         let mut connection = Connection::open(path)?;
@@ -94,6 +102,52 @@ impl AppState {
             ok: true,
             value: HealthResponse {
                 status: "healthy".into(),
+                policy_version: self.policy.version(),
+            },
+        }
+    }
+
+    pub fn context(&self, envelope: CommandEnvelope<Value>) -> IpcResult<ContextResponse> {
+        let descriptor = CommandDescriptor::new(
+            "system",
+            "context",
+            Capability::WorkspaceRead,
+            thalassa_domain::Permission::Read,
+        );
+        if envelope.command != descriptor.name
+            || envelope.capability != descriptor.required_capability
+            || envelope.scope.is_bounded()
+            || !descriptor.scope.contains(&envelope.scope)
+            || self.bootstrap.membership.status != thalassa_domain::MembershipStatus::Active
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::permission_denied(descriptor.name.to_string(), envelope.scope),
+            };
+        }
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied context response",
+                    json!({}),
+                ),
+            };
+        }
+        IpcResult::Ok {
+            ok: true,
+            value: ContextResponse {
+                organization_name: self.bootstrap.organization.name.clone(),
+                team_name: self.bootstrap.team.name.clone(),
+                workspace_name: self.bootstrap.workspace.name.clone(),
                 policy_version: self.policy.version(),
             },
         }
@@ -248,6 +302,16 @@ mod tests {
         }
     }
 
+    fn context_envelope(state: &AppState) -> CommandEnvelope<Value> {
+        CommandEnvelope {
+            request_id: Uuid::new_v4(),
+            command: thalassa_ipc::CommandName::new("system", "context").unwrap(),
+            capability: Capability::WorkspaceRead,
+            scope: state.bootstrap.scope.clone(),
+            payload: Value::Null,
+        }
+    }
+
     #[test]
     fn bootstrap_persists_local_administrator_and_workspace_hierarchy() {
         let directory = tempdir().unwrap();
@@ -321,5 +385,27 @@ mod tests {
         let json = serde_json::to_value(state.health(health_envelope(&state))).unwrap();
         assert_eq!(json["ok"], true);
         assert_eq!(json["value"]["status"], "healthy");
+    }
+
+    #[test]
+    fn context_command_returns_bootstrapped_hierarchy_and_policy_version() {
+        let directory = tempdir().unwrap();
+        let state = AppState::open(directory.path().join("thalassaops.sqlite")).unwrap();
+        let IpcResult::Ok { value, .. } = state.context(context_envelope(&state)) else {
+            panic!("context should succeed")
+        };
+        assert_eq!(value.organization_name, "Local Organization");
+        assert_eq!(value.team_name, "Local Team");
+        assert_eq!(value.workspace_name, "Local Workspace");
+        assert_eq!(value.policy_version, state.policy.version());
+    }
+
+    #[test]
+    fn context_command_rejects_wrong_scope() {
+        let directory = tempdir().unwrap();
+        let state = AppState::open(directory.path().join("thalassaops.sqlite")).unwrap();
+        let mut envelope = context_envelope(&state);
+        envelope.scope.workspace_id = Some(state.bootstrap.workspace.id);
+        assert!(matches!(state.context(envelope), IpcResult::Err { .. }));
     }
 }
