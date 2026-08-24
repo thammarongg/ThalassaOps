@@ -75,6 +75,26 @@ const en = {
     terminalUnavailable: "Embedded terminal is not yet available.",
     routeUnavailable: "This product area is not yet available.",
     close: "Close"
+  },
+  integrations: {
+    loading: "Loading integrations…",
+    empty: "No connectors are configured.",
+    addFixture: "Add fixture connector",
+    fixtureName: "Fixture connector",
+    tableCaption: "Configured connectors",
+    name: "Connector",
+    status: "Status",
+    actions: "Actions",
+    test: "Test connection",
+    diagnose: "Diagnose",
+    disable: "Disable",
+    enable: "Enable",
+    remove: "Remove",
+    diagnostics: "Connector diagnostics",
+    capabilities: "Capabilities",
+    lastSync: "Last successful sync",
+    never: "Never",
+    noLogs: "No connection tests have been recorded."
   }
 } as const;
 

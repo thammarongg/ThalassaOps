@@ -1,13 +1,19 @@
+use crate::connectors::{
+    self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
+    ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
+};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thalassa_domain::{Membership, Organization, Principal, ResourceScope, Team, Workspace};
 use thalassa_ipc::{Capability, CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode};
 use thalassa_policy::{DataClass, EgressDestination, EgressRequest, PolicyDocument, PolicyRuntime};
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_local_workspace.sql");
+const CONNECTOR_MIGRATION: &str = include_str!("../migrations/0002_connector_registry.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -19,10 +25,12 @@ pub struct BootstrapState {
     pub scope: ResourceScope,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     pub bootstrap: BootstrapState,
     pub policy: PolicyRuntime,
+    database_path: PathBuf,
+    credential_store: SharedCredentialStore,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -48,11 +56,24 @@ pub struct ContextResponse {
 
 impl AppState {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppStateError> {
-        let mut connection = Connection::open(path)?;
+        Self::open_with_credential_store(path, Arc::new(OsKeychainCredentialStore))
+    }
+
+    pub fn open_with_credential_store(
+        path: impl AsRef<Path>,
+        credential_store: SharedCredentialStore,
+    ) -> Result<Self, AppStateError> {
+        let database_path = path.as_ref().to_path_buf();
+        let mut connection = Connection::open(&database_path)?;
         apply_migrations(&connection)?;
         let bootstrap = load_or_bootstrap(&mut connection)?;
         let policy = load_or_seed_policy(&connection)?;
-        Ok(Self { bootstrap, policy })
+        Ok(Self {
+            bootstrap,
+            policy,
+            database_path,
+            credential_store,
+        })
     }
 
     pub fn health(&self, envelope: CommandEnvelope<Value>) -> IpcResult<HealthResponse> {
@@ -152,6 +173,165 @@ impl AppState {
             },
         }
     }
+
+    pub fn connector_list(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<Vec<ConnectorSummary>> {
+        self.connector_read(envelope, "list", |connection, store, _| {
+            Ok(connectors::list(connection, store)?)
+        })
+    }
+
+    pub fn connector_add(&self, envelope: CommandEnvelope<Value>) -> IpcResult<ConnectorSummary> {
+        self.connector_act(envelope, "add", |connection, store, payload| {
+            let request: AddConnectorRequest =
+                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
+            connectors::add(connection, store, request).map_err(AppStateError::Connector)
+        })
+    }
+
+    pub fn connector_enable(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<ConnectorSummary> {
+        self.connector_set_enabled(envelope, "enable", true)
+    }
+    pub fn connector_disable(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<ConnectorSummary> {
+        self.connector_set_enabled(envelope, "disable", false)
+    }
+
+    pub fn connector_remove(&self, envelope: CommandEnvelope<Value>) -> IpcResult<Value> {
+        self.connector_act(envelope, "remove", |connection, store, payload| {
+            let request: ConnectorIdRequest =
+                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
+            connectors::remove(connection, store, &request.id).map_err(AppStateError::Connector)?;
+            Ok(json!({ "id": request.id }))
+        })
+    }
+
+    pub fn connector_test(&self, envelope: CommandEnvelope<Value>) -> IpcResult<ConnectorSummary> {
+        self.connector_act(envelope, "test", |connection, store, payload| {
+            let request: ConnectorIdRequest =
+                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
+            connectors::test_connection(connection, store, &request.id)
+                .map_err(AppStateError::Connector)
+        })
+    }
+
+    pub fn connector_diagnose(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<ConnectorDiagnostics> {
+        self.connector_read(envelope, "diagnose", |connection, store, payload| {
+            let request: ConnectorIdRequest =
+                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
+            connectors::diagnose(connection, store, &request.id).map_err(AppStateError::Connector)
+        })
+    }
+
+    fn connector_set_enabled(
+        &self,
+        envelope: CommandEnvelope<Value>,
+        verb: &str,
+        enabled: bool,
+    ) -> IpcResult<ConnectorSummary> {
+        self.connector_act(envelope, verb, move |connection, store, payload| {
+            let request: ConnectorIdRequest =
+                serde_json::from_value(payload.clone()).map_err(AppStateError::Serialization)?;
+            connectors::set_enabled(connection, store, &request.id, enabled)
+                .map_err(AppStateError::Connector)
+        })
+    }
+
+    fn connector_read<T>(
+        &self,
+        envelope: CommandEnvelope<Value>,
+        verb: &str,
+        operation: impl FnOnce(
+            &Connection,
+            &dyn connectors::CredentialStore,
+            &Value,
+        ) -> Result<T, AppStateError>,
+    ) -> IpcResult<T> {
+        self.connector_command(envelope, verb, Capability::ConnectorRead, operation)
+    }
+    fn connector_act<T>(
+        &self,
+        envelope: CommandEnvelope<Value>,
+        verb: &str,
+        operation: impl FnOnce(
+            &Connection,
+            &dyn connectors::CredentialStore,
+            &Value,
+        ) -> Result<T, AppStateError>,
+    ) -> IpcResult<T> {
+        self.connector_command(envelope, verb, Capability::ConnectorAct, operation)
+    }
+    fn connector_command<T>(
+        &self,
+        envelope: CommandEnvelope<Value>,
+        verb: &str,
+        capability: Capability,
+        operation: impl FnOnce(
+            &Connection,
+            &dyn connectors::CredentialStore,
+            &Value,
+        ) -> Result<T, AppStateError>,
+    ) -> IpcResult<T> {
+        let descriptor = CommandDescriptor::new(
+            "connector",
+            verb,
+            capability,
+            thalassa_domain::Permission::Read,
+        );
+        if envelope.command != descriptor.name
+            || envelope.capability != descriptor.required_capability
+            || envelope.scope.is_bounded()
+            || !descriptor.scope.contains(&envelope.scope)
+            || self.bootstrap.membership.status != thalassa_domain::MembershipStatus::Active
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::permission_denied(descriptor.name.to_string(), envelope.scope),
+            };
+        }
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied connector response",
+                    json!({}),
+                ),
+            };
+        }
+        match Connection::open(&self.database_path)
+            .map_err(AppStateError::Database)
+            .and_then(|connection| {
+                operation(
+                    &connection,
+                    self.credential_store.as_ref(),
+                    &envelope.payload,
+                )
+            }) {
+            Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
+    }
 }
 
 fn apply_migrations(connection: &Connection) -> Result<(), AppStateError> {
@@ -166,6 +346,20 @@ fn apply_migrations(connection: &Connection) -> Result<(), AppStateError> {
     if exists.is_none() {
         connection.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
+    connection.execute_batch(CONNECTOR_MIGRATION)?;
+    let connector_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 2",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if connector_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?1)",
             [Utc::now().to_rfc3339()],
         )?;
     }
@@ -284,11 +478,38 @@ pub enum AppStateError {
     Serialization(#[from] serde_json::Error),
     #[error("policy error: {0}")]
     Policy(#[from] thalassa_policy::PolicyLoadError),
+    #[error("connector error: {0}")]
+    Connector(#[from] ConnectorError),
+}
+
+fn ipc_error_for(error: AppStateError) -> IpcError {
+    match error {
+        AppStateError::Connector(ConnectorError::NotFound) => {
+            IpcError::new(IpcErrorCode::NotFound, "connector not found", json!({}))
+        }
+        AppStateError::Connector(ConnectorError::Disabled) => IpcError::new(
+            IpcErrorCode::ConnectorUnavailable,
+            "connector is disabled",
+            json!({}),
+        ),
+        AppStateError::Serialization(_) => IpcError::new(
+            IpcErrorCode::InvalidRequest,
+            "invalid connector request",
+            json!({}),
+        ),
+        _ => IpcError::new(
+            IpcErrorCode::InternalError,
+            "connector operation failed",
+            json!({}),
+        ),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::connectors::InMemoryCredentialStore;
+    use std::sync::Arc;
     use tempfile::tempdir;
     use uuid::Uuid;
 
@@ -310,6 +531,31 @@ mod tests {
             scope: state.bootstrap.scope.clone(),
             payload: Value::Null,
         }
+    }
+
+    fn connector_envelope(
+        state: &AppState,
+        verb: &str,
+        capability: Capability,
+        payload: Value,
+    ) -> CommandEnvelope<Value> {
+        CommandEnvelope {
+            request_id: Uuid::new_v4(),
+            command: thalassa_ipc::CommandName::new("connector", verb).unwrap(),
+            capability,
+            scope: state.bootstrap.scope.clone(),
+            payload,
+        }
+    }
+
+    fn test_state() -> (tempfile::TempDir, AppState) {
+        let directory = tempdir().unwrap();
+        let state = AppState::open_with_credential_store(
+            directory.path().join("thalassaops.sqlite"),
+            Arc::new(InMemoryCredentialStore::default()),
+        )
+        .unwrap();
+        (directory, state)
     }
 
     #[test]
@@ -407,5 +653,91 @@ mod tests {
         let mut envelope = context_envelope(&state);
         envelope.scope.workspace_id = Some(state.bootstrap.workspace.id);
         assert!(matches!(state.context(envelope), IpcResult::Err { .. }));
+    }
+
+    #[test]
+    fn connector_registry_persists_metadata_but_never_a_credential_value() {
+        let (directory, state) = test_state();
+        let secret = "fixture-secret-must-not-leak";
+        let added = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Fixture", "config_metadata": { "fixture_health": "healthy" }, "credential_value": secret })));
+        let IpcResult::Ok {
+            value: connector, ..
+        } = added
+        else {
+            panic!("add should succeed")
+        };
+        assert!(connector.credential_configured);
+        let connection = Connection::open(directory.path().join("thalassaops.sqlite")).unwrap();
+        let serialized_row: String = connection.query_row("SELECT kind || display_name || config_metadata_json || COALESCE(credential_reference, '') FROM connector_instances WHERE id = ?1", [&connector.id], |row| row.get(0)).unwrap();
+        assert!(!serialized_row.contains(secret));
+        let list_json = serde_json::to_string(&state.connector_list(connector_envelope(
+            &state,
+            "list",
+            Capability::ConnectorRead,
+            Value::Null,
+        )))
+        .unwrap();
+        let _ = state.connector_test(connector_envelope(
+            &state,
+            "test",
+            Capability::ConnectorAct,
+            json!({ "id": connector.id }),
+        ));
+        let diagnose_json = serde_json::to_string(&state.connector_diagnose(connector_envelope(
+            &state,
+            "diagnose",
+            Capability::ConnectorRead,
+            json!({ "id": connector.id }),
+        )))
+        .unwrap();
+        assert!(!list_json.contains(secret));
+        assert!(!diagnose_json.contains(secret));
+    }
+
+    #[test]
+    fn fixture_connector_can_be_tested_disabled_and_diagnosed() {
+        let (_directory, state) = test_state();
+        let IpcResult::Ok { value: connector, .. } = state.connector_add(connector_envelope(&state, "add", Capability::ConnectorAct, json!({ "kind": "fixture", "display_name": "Test fixture", "config_metadata": { "fixture_health": "timeout", "fixture_timeout_ms": 1, "fixture_retry_backoff_ms": 1 } }))) else { panic!("add should succeed") };
+        let IpcResult::Ok { value: checked, .. } = state.connector_test(connector_envelope(
+            &state,
+            "test",
+            Capability::ConnectorAct,
+            json!({ "id": connector.id }),
+        )) else {
+            panic!("test should succeed")
+        };
+        assert_eq!(checked.health_state, "unavailable");
+        assert!(checked.last_checked_at.is_some());
+        let IpcResult::Ok {
+            value: diagnostics, ..
+        } = state.connector_diagnose(connector_envelope(
+            &state,
+            "diagnose",
+            Capability::ConnectorRead,
+            json!({ "id": connector.id }),
+        ))
+        else {
+            panic!("diagnose should succeed")
+        };
+        assert_eq!(diagnostics.manifest.id, "fixture");
+        assert_eq!(diagnostics.logs[0].outcome, "unavailable");
+        assert!(matches!(
+            state.connector_disable(connector_envelope(
+                &state,
+                "disable",
+                Capability::ConnectorAct,
+                json!({ "id": connector.id })
+            )),
+            IpcResult::Ok { .. }
+        ));
+        assert!(matches!(
+            state.connector_test(connector_envelope(
+                &state,
+                "test",
+                Capability::ConnectorAct,
+                json!({ "id": connector.id })
+            )),
+            IpcResult::Err { .. }
+        ));
     }
 }

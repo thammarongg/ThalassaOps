@@ -65,6 +65,16 @@ export type WorkspaceContext = {
   policy_version: number;
 };
 
+export type StatusState = "healthy" | "degraded" | "unavailable" | "warning" | "critical";
+export type ConnectorCapability = { key: string; operation: "Read" | "Act"; resource_kinds: string[] };
+export type ConnectorManifest = { id: string; display_name: string; version: string; capabilities: ConnectorCapability[] };
+export type ConnectorSummary = {
+  id: string; kind: string; display_name: string; enabled: boolean; config_metadata: Record<string, unknown>;
+  credential_configured: boolean; health_state: StatusState; last_checked_at?: string; last_successful_sync_at?: string;
+};
+export type ConnectorLogEntry = { id: string; checked_at: string; outcome: StatusState; message: string };
+export type ConnectorDiagnostics = { connector: ConnectorSummary; manifest: ConnectorManifest; logs: ConnectorLogEntry[] };
+
 /**
  * Tauri command names use lowercase resource.verb components. Commands must
  * be registered with an explicit capability and permission on the Rust side.

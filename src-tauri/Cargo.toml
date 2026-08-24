@@ -19,6 +19,8 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 thalassa-domain = { path = "../crates/thalassa-domain" }
 thalassa-ipc = { path = "../crates/thalassa-ipc" }
 thalassa-policy = { path = "../crates/thalassa-policy" }
+thalassa-connectors = { path = "../crates/thalassa-connectors" }
+keyring = "3"
 
 [dev-dependencies]
 tempfile = "3"
