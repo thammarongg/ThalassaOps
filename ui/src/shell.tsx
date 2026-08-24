@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CommandEnvelope, IpcResult, WorkspaceContext } from "../contracts/ipc";
+import type { CommandEnvelope, ConnectorDiagnostics, ConnectorSummary, IpcResult, WorkspaceContext } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
-import { CommandSurface, Drawer, EmptyState, StatusIndicator } from "./design-system/components";
+import { Card, CommandSurface, Drawer, EmptyState, StatusIndicator, Table } from "./design-system/components";
 import { useTranslation } from "./i18n";
 
-type Invoke = (
-  command: string,
-  args: Record<string, unknown>
-) => Promise<IpcResult<WorkspaceContext>>;
+type Invoke = (command: string, args: Record<string, unknown>) => Promise<IpcResult<unknown>>;
 type Area =
   | "commandCenter"
   | "incidents"
@@ -73,7 +70,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       .then((result) => {
         if (!active) return;
         if (result.ok) {
-          setContext(result.value);
+          setContext(result.value as WorkspaceContext);
           setContextFetchState("ready");
         } else {
           setContext(undefined);
@@ -192,7 +189,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </aside>
       <main className="shell-main">
         <h1>{t(`shell.${active}`)}</h1>
-        <EmptyState titleKey="shell.routeUnavailable" />
+        {active === "integrations" ? <Integrations invoke={invoke} /> : <EmptyState titleKey="shell.routeUnavailable" />}
       </main>
       <aside className="shell-status">
         <StatusIndicator state="unavailable" /> <span>{t("shell.connectorStatus")}</span>
@@ -244,4 +241,39 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </Drawer>
     </div>
   );
+}
+
+const connectorEnvelope = <T,>(verb: string, capability: "ConnectorRead" | "ConnectorAct", payload: T): CommandEnvelope<T> => ({
+  request_id: crypto.randomUUID(), command: command("connector", verb), capability, scope: { resource_ids: [] }, payload
+});
+
+function Integrations({ invoke }: { invoke: Invoke }) {
+  const { t } = useTranslation();
+  const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
+  const [diagnostics, setDiagnostics] = useState<ConnectorDiagnostics>();
+  const [loading, setLoading] = useState(true);
+  const load = () => {
+    setLoading(true);
+    invoke("connector_list", { envelope: connectorEnvelope("list", "ConnectorRead", null) })
+      .then((result) => { if (result.ok) setConnectors(result.value as ConnectorSummary[]); })
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, [invoke]);
+  const act = (verb: "test" | "enable" | "disable" | "remove", id: string) =>
+    invoke(`connector_${verb}`, { envelope: connectorEnvelope(verb, "ConnectorAct", { id }) }).then(() => {
+      if (verb === "remove") setDiagnostics(undefined);
+      load();
+    });
+  const diagnose = (id: string) => invoke("connector_diagnose", { envelope: connectorEnvelope("diagnose", "ConnectorRead", { id }) })
+    .then((result) => { if (result.ok) setDiagnostics(result.value as ConnectorDiagnostics); });
+  const add = () => invoke("connector_add", { envelope: connectorEnvelope("add", "ConnectorAct", { kind: "fixture", display_name: t("integrations.fixtureName"), config_metadata: { fixture_health: "healthy" } }) }).then(load);
+  if (loading) return <p role="status">{t("integrations.loading")}</p>;
+  if (!connectors.length) return <EmptyState titleKey="integrations.empty"><button type="button" onClick={add}>{t("integrations.addFixture")}</button></EmptyState>;
+  return <div className="integrations">
+    <button type="button" onClick={add}>{t("integrations.addFixture")}</button>
+    <Table captionKey="integrations.tableCaption" columns={[
+      { key: "name", headerKey: "integrations.name" }, { key: "status", headerKey: "integrations.status" }, { key: "actions", headerKey: "integrations.actions" }
+    ]} rows={connectors.map((item) => ({ id: item.id, name: <><strong>{item.display_name}</strong><small>{item.kind}</small></>, status: <StatusIndicator state={item.health_state} />, actions: <div className="connector-actions"><button type="button" onClick={() => act("test", item.id)}>{t("integrations.test")}</button><button type="button" onClick={() => diagnose(item.id)}>{t("integrations.diagnose")}</button><button type="button" onClick={() => act(item.enabled ? "disable" : "enable", item.id)}>{t(item.enabled ? "integrations.disable" : "integrations.enable")}</button><button type="button" onClick={() => act("remove", item.id)}>{t("integrations.remove")}</button></div> }))} />
+    {diagnostics && <Card titleKey="integrations.diagnostics"><p>{t("integrations.capabilities")}: {diagnostics.manifest.capabilities.map((capability) => capability.key).join(", ")}</p><p>{t("integrations.lastSync")}: {diagnostics.connector.last_successful_sync_at ?? t("integrations.never")}</p>{diagnostics.logs.length ? <ul>{diagnostics.logs.map((entry) => <li key={entry.id}><StatusIndicator state={entry.outcome} /> {entry.message}</li>)}</ul> : <p>{t("integrations.noLogs")}</p>}</Card>}
+  </div>;
 }

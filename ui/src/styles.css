@@ -216,6 +216,10 @@ h2 {
 .empty-state p {
   margin: 0;
 }
+.integrations { display: grid; gap: var(--space-2); }
+.integrations > button, .empty-state button, .connector-actions button { border: 1px solid var(--color-reef-cyan); border-radius: .4rem; background: transparent; color: var(--color-sea-glass); padding: .4rem .7rem; cursor: pointer; }
+.connector-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+td small { display: block; color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent); font-family: var(--font-mono); }
 table {
   width: 100%;
   border-collapse: collapse;
