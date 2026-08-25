@@ -62,6 +62,13 @@ async fn kubernetes_pod_events(
 ) -> Result<thalassaops::app::IpcResult<Vec<thalassaops::kubernetes::KubernetesEvent>>, String> {
     Ok(state.inner().clone().kubernetes_pod_events(envelope).await)
 }
+#[tauri::command]
+async fn kubernetes_resource_manifest(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::kubernetes::KubernetesManifest>, String> {
+    Ok(state.inner().clone().kubernetes_resource_manifest(envelope).await)
+}
 connector_command!(
     connector_add,
     connector_add,
@@ -86,6 +93,7 @@ connector_command!(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&data_dir)?;
@@ -106,7 +114,8 @@ fn main() {
             connector_diagnose,
             kubernetes_inventory,
             kubernetes_pod_logs,
-            kubernetes_pod_events
+            kubernetes_pod_events,
+            kubernetes_resource_manifest
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ThalassaOps");

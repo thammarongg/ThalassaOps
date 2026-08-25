@@ -107,7 +107,8 @@ const th = {
     owner: "เวิร์กโหลดเจ้าของ",
     podDetails: "ตรวจสอบ Pod",
     events: "เหตุการณ์",
-    logs: "บันทึก"
+    logs: "บันทึก",
+    search: "ค้นหาทรัพยากร", kind: "ชนิด", namespace: "เนมสเปซ", health: "สถานะสุขภาพ", all: "ทั้งหมด", hierarchy: "ลำดับชั้นทรัพยากร", manifest: "YAML manifest", showManifest: "ดู manifest", sensitiveRedacted: "มีการปกปิดข้อมูลสำคัญ", copyKubectl: "คัดลอกคำสั่ง kubectl", openConsole: "เปิดในคอนโซล", readOnly: "อ่านอย่างเดียว", replicas: "เรพลิกา", servicePods: "พ็อดที่เลือก"
   }
 } as const;
 

@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability for the local ThalassaOps shell.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "shell:allow-open"]
 }

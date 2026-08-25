@@ -76,9 +76,11 @@ export type ConnectorLogEntry = { id: string; checked_at: string; outcome: Statu
 export type ConnectorDiagnostics = { connector: ConnectorSummary; manifest: ConnectorManifest; logs: ConnectorLogEntry[] };
 export type KubernetesCondition = { type_: string; status: string; reason?: string; message?: string };
 export type KubernetesOwner = { kind: string; name: string; uid?: string };
-export type KubernetesResource = { resource: { name: string; kind: string; labels: Record<string, string> }; status?: string; conditions: KubernetesCondition[]; owner?: KubernetesOwner };
+export type KubernetesHealth = "healthy" | "degraded" | "crash_loop_back_off" | "oom_killed" | "pending" | "unknown";
+export type KubernetesResource = { resource: { name: string; kind: string; labels: Record<string, string> }; status?: string; conditions: KubernetesCondition[]; owner?: KubernetesOwner; service_selector?: Record<string, string>; replicas?: { desired: number; ready: number; available?: number }; containers: { name: string; restart_count: number; waiting_reason?: string; terminated_reason?: string; last_terminated_reason?: string }[]; health: KubernetesHealth };
 export type KubernetesEvent = { type_?: string; reason?: string; message?: string; involved_kind?: string; involved_name?: string };
-export type KubernetesInventory = { resources: KubernetesResource[]; availability: { resource_kind: string; available: boolean; reason?: string }[] };
+export type KubernetesInventory = { resources: KubernetesResource[]; availability: { resource_kind: string; available: boolean; reason?: string }[]; topology: { from_kind: string; from_name: string; to_kind: string; to_name: string; relationship: string }[] };
+export type KubernetesManifest = { yaml: string; masked: boolean; risk_class: string };
 
 /**
  * Tauri command names use lowercase resource.verb components. Commands must
