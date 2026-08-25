@@ -521,6 +521,61 @@ Every sprint ends with a demonstrable artifact, not only merged code.
 
 **Milestone:** Production Release.
 
+## Backlog — deferred candidates
+
+Items below are not scheduled into a sprint number yet. They are scoped enough to pull into
+an existing sprint (most likely Sprint 25) or split into their own sprint once there is
+concrete customer demand or the sprint sequence above is renumbered/extended. Keep this
+section short — a scope draft per candidate, not a running wishlist.
+
+### External secret manager backends (HashiCorp Vault, AWS Secrets Manager) — optional
+
+**Origin:** User question during Sprint 7 review (2026-08-25): can ThalassaOps use Vault or
+AWS Secrets Manager instead of (or alongside) the OS keychain for storing connector
+credentials, as an opt-in choice.
+
+**Goal:** Let an installation back its `CredentialStore` with a centrally managed secret
+service instead of the local OS keychain, for teams that already run Vault or AWS Secrets
+Manager and want rotation/audit/central revocation — without changing the default,
+local-first behavior for everyone else.
+
+**Why it fits:** `CredentialStore` (src-tauri/src/connectors.rs) is already a trait with a
+single implementation, `OsKeychainCredentialStore` (`keyring` crate), plus an
+`InMemoryCredentialStore` test double. Adding `VaultCredentialStore` and
+`AwsSecretsManagerCredentialStore` behind the same trait requires no change to any call
+site — every connector already goes through `CredentialStore::set/has/delete`.
+
+**Deliverables (draft):**
+
+- `VaultCredentialStore` (HashiCorp Vault KV v2, token or AppRole auth) and
+  `AwsSecretsManagerCredentialStore` implementing the existing `CredentialStore` trait.
+- Per-installation (not per-connector) backend selection, defaulting to
+  `OsKeychainCredentialStore` — this is an installation-wide choice, not a per-connector
+  toggle, to avoid splitting one workspace's credentials across inconsistent trust
+  boundaries.
+- The credential needed to reach Vault/AWS itself (a Vault token, an AWS credential/role)
+  still has to be stored somewhere — store that root credential in the OS keychain rather
+  than a config file, so enabling this feature never means writing a plaintext secret to
+  disk.
+- Outbound calls to Vault/AWS Secrets Manager go through the existing egress policy path
+  (`EgressDestination`, `DataClass`) like every other external connector — this is a new
+  egress destination, not a bypass.
+- Connection health/diagnostics surfaced the same way connector health already is (reuse
+  the existing connector diagnose/test pattern rather than inventing a parallel one).
+- Documentation covering the tradeoff explicitly: enabling this trades local-first
+  isolation for centralized rotation/audit, and requires network reachability to the
+  secret service for the app to unlock any stored connector credential.
+
+**Exit criteria (draft):** A workspace can be configured to use Vault or AWS Secrets Manager
+as its credential backend instead of the OS keychain; existing OS-keychain-backed
+workspaces are unaffected by default; a security review finds no path where a connector
+credential is written to disk in plaintext under either backend.
+
+**Explicitly out of scope for this candidate:** per-connector backend mixing, other secret
+managers (Azure Key Vault, GCP Secret Manager, etc. — add only if asked for), and any
+change to how credentials are used once retrieved (masking/redaction rules in
+`kubernetes.rs` and elsewhere are unaffected).
+
 ## Milestones at a glance
 
 | Milestone | Sprint | Outcome |
