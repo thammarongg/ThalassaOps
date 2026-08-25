@@ -58,8 +58,11 @@ Configured native endpoint (GET only)
 The existing connector registry remains the lifecycle owner. It stores only
 non-sensitive metadata in SQLite and uses the OS keychain for the single
 credential value. `CredentialStore` gains a backend-only retrieval operation so
-the HTTP adapter can read the secret transiently; no secret may enter a Rust
-response type, IPC payload, diagnostic log or UI state.
+the HTTP adapter can read the secret transiently. The existing write-only
+`connector_add.credential_value` input is the sole IPC-request exception needed
+to put a user-supplied secret into the keychain; no secret may enter a Rust
+response type, a later observability IPC request, diagnostic log, persistent or
+reactive UI state.
 
 ## Connector configuration
 
