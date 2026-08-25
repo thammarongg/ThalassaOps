@@ -108,6 +108,7 @@ const en = {
     podDetails: "Pod investigation",
     events: "Events",
     logs: "Logs"
+    ,search: "Search resources", kind: "Kind", namespace: "Namespace", health: "Health", all: "All", hierarchy: "Resource hierarchy", manifest: "YAML manifest", showManifest: "View manifest", sensitiveRedacted: "Sensitive fields redacted", copyKubectl: "Copy kubectl command", openConsole: "Open in console", readOnly: "Read-only", replicas: "Replicas", servicePods: "Selected pods"
   }
 } as const;
 

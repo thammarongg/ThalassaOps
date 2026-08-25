@@ -5,7 +5,7 @@ use k8s_openapi::api::{
     events::v1::Event,
 };
 use kube::{
-    api::{Api, ListParams, LogParams},
+    api::{Api, ApiResource, DynamicObject, GroupVersionKind, ListParams, LogParams},
     config::{KubeConfigOptions, Kubeconfig},
     Client, ResourceExt,
 };
@@ -21,6 +21,8 @@ pub const LOG_TAIL_LINES: i64 = 200;
 pub struct KubernetesConnectorConfig {
     pub kubeconfig_path: String,
     pub context_name: String,
+    #[serde(default)]
+    pub console_url_template: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,7 +82,25 @@ pub struct KubernetesResource {
     pub status: Option<String>,
     pub conditions: Vec<KubernetesCondition>,
     pub owner: Option<KubernetesOwner>,
+    #[serde(default)]
+    pub service_selector: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    pub replicas: Option<KubernetesReplicaSummary>,
+    #[serde(default)]
+    pub containers: Vec<KubernetesContainerStatus>,
+    pub health: KubernetesHealth,
 }
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KubernetesReplicaSummary { pub desired: i32, pub ready: i32, pub available: Option<i32> }
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KubernetesContainerStatus { pub name: String, pub restart_count: i32, pub waiting_reason: Option<String>, pub terminated_reason: Option<String>, pub last_terminated_reason: Option<String> }
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KubernetesHealth { Healthy, Degraded, CrashLoopBackOff, OomKilled, Pending, Unknown }
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KubernetesTopologyEdge { pub from_kind: String, pub from_name: String, pub to_kind: String, pub to_name: String, pub relationship: String }
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KubernetesManifest { pub yaml: String, pub masked: bool, pub risk_class: String }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct KubernetesEvent {
     pub type_: Option<String>,
@@ -99,6 +119,38 @@ pub struct CapabilityAvailability {
 pub struct KubernetesInventory {
     pub resources: Vec<KubernetesResource>,
     pub availability: Vec<CapabilityAvailability>,
+    pub topology: Vec<KubernetesTopologyEdge>,
+}
+
+pub fn pod_health(phase: Option<&str>, containers: &[KubernetesContainerStatus]) -> KubernetesHealth {
+    if containers.iter().any(|item| item.waiting_reason.as_deref() == Some("CrashLoopBackOff")) { return KubernetesHealth::CrashLoopBackOff; }
+    if containers.iter().any(|item| item.terminated_reason.as_deref() == Some("OOMKilled") || item.last_terminated_reason.as_deref() == Some("OOMKilled")) { return KubernetesHealth::OomKilled; }
+    if phase == Some("Pending") { return KubernetesHealth::Pending; }
+    if phase == Some("Running") || phase == Some("Succeeded") { KubernetesHealth::Healthy } else { KubernetesHealth::Degraded }
+}
+pub fn workload_health(replicas: &KubernetesReplicaSummary) -> KubernetesHealth { if replicas.ready >= replicas.desired { KubernetesHealth::Healthy } else { KubernetesHealth::Degraded } }
+pub fn topology_edges(inventory: &KubernetesInventory) -> Vec<KubernetesTopologyEdge> {
+    let mut edges = Vec::new();
+    for item in &inventory.resources {
+        if item.resource.kind == "Pod" {
+            if let Some(owner) = &item.owner { edges.push(KubernetesTopologyEdge { from_kind: owner.kind.clone(), from_name: owner.name.clone(), to_kind: "Pod".into(), to_name: item.resource.name.clone(), relationship: "owns".into() }); }
+        }
+        if item.resource.kind == "Service" { if let Some(selector) = &item.service_selector { for pod in inventory.resources.iter().filter(|candidate| candidate.resource.kind == "Pod" && selector.iter().all(|(key, value)| candidate.resource.labels.get(key) == Some(value))) { edges.push(KubernetesTopologyEdge { from_kind: "Service".into(), from_name: item.resource.name.clone(), to_kind: "Pod".into(), to_name: pod.resource.name.clone(), relationship: "selects".into() }); } } }
+    }
+    edges
+}
+pub fn kubectl_command(kind: &str, namespace: Option<&str>, name: &str, context: &str) -> String {
+    let kind_lower = kind.to_ascii_lowercase(); let scope = namespace.filter(|value| !value.is_empty()).map(|value| format!(" -n {value}")).unwrap_or_default();
+    if kind == "Pod" { format!("kubectl --context {context}{scope} logs {name} --tail=200") } else { format!("kubectl --context {context}{scope} get {kind_lower} {name} -o yaml") }
+}
+const REDACTED: &str = "<REDACTED>";
+fn sensitive_key(key: &str) -> bool { let key = key.to_ascii_lowercase(); ["password", "secret", "token", "key", "credential"].iter().any(|needle| key.contains(needle)) }
+pub fn mask_sensitive_manifest(value: &mut serde_json::Value) -> bool {
+    let mut masked = false;
+    if value.get("kind").and_then(|item| item.as_str()) == Some("Secret") { for field in ["data", "stringData"] { if let Some(object) = value.get_mut(field).and_then(serde_json::Value::as_object_mut) { for item in object.values_mut() { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } }
+    if let Some(metadata) = value.get_mut("metadata").and_then(serde_json::Value::as_object_mut) { for field in ["annotations", "labels"] { if let Some(object) = metadata.get_mut(field).and_then(serde_json::Value::as_object_mut) { for (key, item) in object { if sensitive_key(key) { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } } }
+    if let Some(containers) = value.pointer_mut("/spec/containers").and_then(serde_json::Value::as_array_mut) { for container in containers { if let Some(env) = container.get_mut("env").and_then(serde_json::Value::as_array_mut) { for entry in env { if entry.get("name").and_then(|item| item.as_str()).is_some_and(sensitive_key) { if let Some(item) = entry.get_mut("value") { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } } } }
+    masked
 }
 
 fn base_resource<T: ResourceExt>(
@@ -155,11 +207,20 @@ pub fn map_pod(
                 .collect()
         })
         .unwrap_or_default();
+    let containers: Vec<KubernetesContainerStatus> = status.and_then(|value| value.container_statuses.as_ref()).map(|items| items.iter().map(|item| KubernetesContainerStatus {
+        name: item.name.clone(), restart_count: item.restart_count,
+        waiting_reason: item.state.as_ref().and_then(|state| state.waiting.as_ref()).and_then(|waiting| waiting.reason.clone()),
+        terminated_reason: item.state.as_ref().and_then(|state| state.terminated.as_ref()).and_then(|terminated| terminated.reason.clone()),
+        last_terminated_reason: item.last_state.as_ref().and_then(|state| state.terminated.as_ref()).and_then(|terminated| terminated.reason.clone()),
+    }).collect::<Vec<_>>()).unwrap_or_default();
+    let phase = status.and_then(|value| value.phase.clone());
     KubernetesResource {
         resource: base_resource(pod, environment_id, scope, "Pod"),
-        status: status.and_then(|value| value.phase.clone()),
+        status: phase.clone(),
         conditions,
         owner: owner(pod),
+        service_selector: None, replicas: None,
+        health: pod_health(phase.as_deref(), &containers), containers,
     }
 }
 fn map_plain<T: ResourceExt>(
@@ -173,7 +234,15 @@ fn map_plain<T: ResourceExt>(
         status: None,
         conditions: vec![],
         owner: owner(object),
+        service_selector: None, replicas: None, containers: vec![], health: KubernetesHealth::Unknown,
     }
+}
+fn map_workload<T: ResourceExt>(object: &T, environment_id: EnvironmentId, scope: ResourceScope, kind: &str, desired: Option<i32>, ready: Option<i32>, available: Option<i32>) -> KubernetesResource {
+    let replicas = KubernetesReplicaSummary { desired: desired.unwrap_or_default(), ready: ready.unwrap_or_default(), available };
+    KubernetesResource { resource: base_resource(object, environment_id, scope, kind), status: Some(format!("{}/{} ready", replicas.ready, replicas.desired)), conditions: vec![], owner: owner(object), service_selector: None, health: workload_health(&replicas), replicas: Some(replicas), containers: vec![] }
+}
+fn map_service(service: &Service, environment_id: EnvironmentId, scope: ResourceScope) -> KubernetesResource {
+    KubernetesResource { resource: base_resource(service, environment_id, scope, "Service"), status: None, conditions: vec![], owner: owner(service), service_selector: service.spec.as_ref().and_then(|spec| spec.selector.clone()).map(|items| items.into_iter().collect()), replicas: None, containers: vec![], health: KubernetesHealth::Unknown }
 }
 fn availability(kind: &str, error: Option<&kube::Error>) -> CapabilityAvailability {
     CapabilityAvailability {
@@ -210,10 +279,10 @@ pub async fn discover(
     }
     list!(Node, "Node");
     list!(Namespace, "Namespace");
-    list!(Deployment, "Deployment");
-    list!(StatefulSet, "StatefulSet");
-    list!(DaemonSet, "DaemonSet");
-    list!(Service, "Service");
+    let deployments = Api::<Deployment>::all(client.clone()).list(&ListParams::default()).await; capabilities.push(availability("Deployment", deployments.as_ref().err())); if let Ok(items) = deployments { resources.extend(items.items.iter().map(|item| map_workload(item, environment_id, scope.clone(), "Deployment", item.spec.as_ref().and_then(|spec| spec.replicas), item.status.as_ref().and_then(|status| status.ready_replicas), item.status.as_ref().and_then(|status| status.available_replicas)))); }
+    let statefulsets = Api::<StatefulSet>::all(client.clone()).list(&ListParams::default()).await; capabilities.push(availability("StatefulSet", statefulsets.as_ref().err())); if let Ok(items) = statefulsets { resources.extend(items.items.iter().map(|item| map_workload(item, environment_id, scope.clone(), "StatefulSet", item.spec.as_ref().and_then(|spec| spec.replicas), item.status.as_ref().and_then(|status| status.ready_replicas), item.status.as_ref().and_then(|status| status.available_replicas)))); }
+    let daemonsets = Api::<DaemonSet>::all(client.clone()).list(&ListParams::default()).await; capabilities.push(availability("DaemonSet", daemonsets.as_ref().err())); if let Ok(items) = daemonsets { resources.extend(items.items.iter().map(|item| map_workload(item, environment_id, scope.clone(), "DaemonSet", item.status.as_ref().map(|status| status.desired_number_scheduled), item.status.as_ref().map(|status| status.number_ready), item.status.as_ref().and_then(|status| status.number_available)))); }
+    let services = Api::<Service>::all(client.clone()).list(&ListParams::default()).await; capabilities.push(availability("Service", services.as_ref().err())); if let Ok(items) = services { resources.extend(items.items.iter().map(|item| map_service(item, environment_id, scope.clone()))); }
     let pods = Api::<Pod>::all(client).list(&ListParams::default()).await;
     capabilities.push(availability("Pod", pods.as_ref().err()));
     if let Ok(items) = pods {
@@ -224,10 +293,9 @@ pub async fn discover(
                 .map(|item| map_pod(item, environment_id, scope.clone())),
         );
     }
-    KubernetesInventory {
-        resources,
-        availability: capabilities,
-    }
+    let mut inventory = KubernetesInventory { resources, availability: capabilities, topology: vec![] };
+    inventory.topology = topology_edges(&inventory);
+    inventory
 }
 pub async fn pod_logs(client: Client, namespace: &str, pod: &str) -> Result<String, kube::Error> {
     Api::<Pod>::namespaced(client, namespace)
@@ -264,6 +332,21 @@ pub async fn pod_events(
         .collect())
 }
 
+pub async fn resource_manifest(client: Client, kind: &str, namespace: &str, name: &str) -> Result<KubernetesManifest, kube::Error> {
+    let (group, version, namespaced) = match kind {
+        "Node" | "Namespace" => ("", "v1", false),
+        "Pod" | "Service" => ("", "v1", true),
+        "Deployment" | "StatefulSet" | "DaemonSet" => ("apps", "v1", true),
+        _ => return Err(kube::Error::SerdeError(serde_json::Error::io(std::io::Error::other("unsupported Kubernetes resource kind")))),
+    };
+    let resource = ApiResource::from_gvk(&GroupVersionKind::gvk(group, version, kind));
+    let object: DynamicObject = if namespaced { Api::namespaced_with(client, namespace, &resource).get(name).await? } else { Api::all_with(client, &resource).get(name).await? };
+    let mut value = serde_json::to_value(object).map_err(kube::Error::SerdeError)?;
+    let masked = mask_sensitive_manifest(&mut value);
+    let yaml = serde_yaml::to_string(&value).map_err(|error| kube::Error::SerdeError(serde_json::Error::io(std::io::Error::other(error))))?;
+    Ok(KubernetesManifest { yaml, masked, risk_class: "READ-ONLY".into() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +366,50 @@ mod tests {
             Some("ContainersNotReady")
         );
         assert_eq!(mapped.owner.as_ref().unwrap().kind, "ReplicaSet");
+    }
+
+    #[test]
+    fn health_classifies_crash_loop_oom_pending_and_healthy_pods() {
+        let crash = KubernetesContainerStatus { name: "api".into(), restart_count: 3, waiting_reason: Some("CrashLoopBackOff".into()), terminated_reason: None, last_terminated_reason: None };
+        let oom = KubernetesContainerStatus { name: "api".into(), restart_count: 1, waiting_reason: None, terminated_reason: None, last_terminated_reason: Some("OOMKilled".into()) };
+        assert_eq!(pod_health(Some("Running"), &[crash]), KubernetesHealth::CrashLoopBackOff);
+        assert_eq!(pod_health(Some("Failed"), &[oom]), KubernetesHealth::OomKilled);
+        assert_eq!(pod_health(Some("Pending"), &[]), KubernetesHealth::Pending);
+        assert_eq!(pod_health(Some("Running"), &[]), KubernetesHealth::Healthy);
+    }
+    #[test]
+    fn masking_redacts_secret_and_sensitive_metadata_but_preserves_name() {
+        let mut value = serde_json::json!({"kind":"Secret","metadata":{"name":"safe","annotations":{"api-token":"x","note":"ok"}},"data":{"password":"abc"},"stringData":{"token":"def"}});
+        assert!(mask_sensitive_manifest(&mut value));
+        assert_eq!(value["data"]["password"], REDACTED);
+        assert_eq!(value["stringData"]["token"], REDACTED);
+        assert_eq!(value["metadata"]["annotations"]["api-token"], REDACTED);
+        assert_eq!(value["metadata"]["name"], "safe");
+    }
+    #[test]
+    fn topology_and_kubectl_commands_are_read_only() {
+        let pod = KubernetesResource { resource: Resource::new(uuid::Uuid::nil(), ResourceScope::default(), "Pod", "prod/api"), status: Some("Running".into()), conditions: vec![], owner: Some(KubernetesOwner { kind: "ReplicaSet".into(), name: "api-rs".into(), uid: None }), service_selector: None, replicas: None, containers: vec![], health: KubernetesHealth::Healthy };
+        let mut service_resource = Resource::new(uuid::Uuid::nil(), ResourceScope::default(), "Service", "prod/api"); service_resource.labels = Default::default();
+        let service = KubernetesResource { resource: service_resource, status: None, conditions: vec![], owner: None, service_selector: Some([("app".into(), "api".into())].into_iter().collect()), replicas: None, containers: vec![], health: KubernetesHealth::Unknown };
+        let mut pod = pod; pod.resource.labels.insert("app".into(), "api".into());
+        let inventory = KubernetesInventory { resources: vec![pod, service], availability: vec![], topology: vec![] };
+        assert_eq!(topology_edges(&inventory).len(), 2);
+        assert_eq!(kubectl_command("Pod", Some("prod"), "api", "ctx"), "kubectl --context ctx -n prod logs api --tail=200");
+        assert_eq!(kubectl_command("Deployment", Some("prod"), "api", "ctx"), "kubectl --context ctx -n prod get deployment api -o yaml");
+    }
+
+    #[tokio::test]
+    async fn manifest_fetch_uses_get_and_masks_returned_resource() {
+        let server = MockServer::start();
+        let manifest = server.mock(|when, then| {
+            when.method(GET).path("/api/v1/namespaces/production/pods/api");
+            then.status(200).header("content-type", "application/json").body(r#"{"apiVersion":"v1","kind":"Secret","metadata":{"name":"api","namespace":"production"},"data":{"token":"raw-secret"}}"#);
+        });
+        let result = resource_manifest(mock_client(&server), "Pod", "production", "api").await.unwrap();
+        manifest.assert_hits(1);
+        assert!(result.masked);
+        assert!(result.yaml.contains(REDACTED));
+        assert!(!result.yaml.contains("raw-secret"));
     }
 
     #[tokio::test]

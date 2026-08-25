@@ -3,8 +3,8 @@ use crate::connectors::{
     ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
 };
 use crate::kubernetes::{
-    client_from_kubeconfig, discover, pod_events, pod_logs, KubernetesConnectorConfig,
-    KubernetesEvent, KubernetesInventory,
+    client_from_kubeconfig, discover, pod_events, pod_logs, resource_manifest, KubernetesConnectorConfig,
+    KubernetesEvent, KubernetesInventory, KubernetesManifest,
 };
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -70,6 +70,10 @@ pub struct KubernetesPodRequest {
     pub namespace: String,
     #[serde(default)]
     pub pod: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl AppState {
@@ -351,6 +355,12 @@ impl AppState {
             },
         )
         .await
+    }
+
+    pub async fn kubernetes_resource_manifest(&self, envelope: CommandEnvelope<Value>) -> IpcResult<KubernetesManifest> {
+        self.kubernetes_command(envelope, "resource_manifest", Capability::ResourceRead, |client, request| async move {
+            resource_manifest(client, &request.kind, &request.namespace, &request.name).await.map_err(|error| AppStateError::Kubernetes(error.to_string()))
+        }).await
     }
 
     async fn kubernetes_command<T, F, Fut>(

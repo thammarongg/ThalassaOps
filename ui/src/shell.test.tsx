@@ -86,3 +86,31 @@ it("adds and tests a fixture connector through the integrations IPC commands", a
   await user.click(await screen.findByRole("button", { name: "Test connection" }));
   expect(invoke).toHaveBeenCalledWith("connector_test", expect.objectContaining({ envelope: expect.objectContaining({ command: "connector.test", capability: "ConnectorAct" }) }));
 });
+
+it("filters Kubernetes resources by health and shows a masked manifest banner", async () => {
+  const user = userEvent.setup();
+  const connector = { id: "k8s-1", kind: "kubernetes", display_name: "Cluster", enabled: true, config_metadata: { context_name: "test" }, credential_configured: false, health_state: "healthy" };
+  const inventory = { availability: [], topology: [], resources: [
+    { resource: { kind: "Pod", name: "prod/crashing", labels: {} }, conditions: [], containers: [], health: "crash_loop_back_off" },
+    { resource: { kind: "Service", name: "stage/web", labels: {} }, conditions: [], containers: [], health: "healthy" }
+  ] };
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list") return Promise.resolve({ ok: true, value: [connector] });
+    if (name === "kubernetes_inventory") return Promise.resolve({ ok: true, value: inventory });
+    if (name === "kubernetes_pod_logs") return Promise.resolve({ ok: true, value: "logs" });
+    if (name === "kubernetes_pod_events") return Promise.resolve({ ok: true, value: [] });
+    if (name === "kubernetes_resource_manifest") return Promise.resolve({ ok: true, value: { yaml: "token: <REDACTED>", masked: true, risk_class: "READ-ONLY" } });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+  render(<I18nProvider><Shell invoke={invoke} /></I18nProvider>);
+  await user.click(screen.getByRole("button", { name: "Integrations" }));
+  await user.click(await screen.findByRole("button", { name: "Inspect cluster" }));
+  expect(await screen.findByText("crash_loop_back_off")).toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Health"), "crash_loop_back_off");
+  expect(screen.getByText("Pod/prod/crashing")).toBeInTheDocument();
+  expect(screen.queryByText("Service/stage/web")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Pod/prod/crashing" }));
+  await user.click(screen.getByRole("button", { name: "View manifest" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("Sensitive fields redacted");
+});
