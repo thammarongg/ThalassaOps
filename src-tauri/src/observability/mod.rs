@@ -18,6 +18,7 @@ pub enum ObservabilityAuthMode {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityConnectorConfig {
     pub base_url: String,
     pub auth_mode: ObservabilityAuthMode,
@@ -25,4 +26,65 @@ pub struct ObservabilityConnectorConfig {
     // Grafana specific fields
     pub datasource_uid: Option<String>,
     pub default_dashboard_uid: Option<String>,
+}
+
+impl ObservabilityConnectorConfig {
+    pub fn validate(&self, has_credential: bool) -> Result<(), String> {
+        if self.base_url.trim().is_empty() {
+            return Err("base_url is required".into());
+        }
+        
+        let url = reqwest::Url::parse(&self.base_url)
+            .map_err(|e| format!("base_url is invalid: {}", e))?;
+        
+        if url.scheme() == "http" {
+            let host = url.host_str().unwrap_or_default();
+            if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+                return Err("base_url must use https scheme (http is only permitted for localhost/loopback for dev)".into());
+            }
+        } else if url.scheme() != "https" {
+            return Err("base_url must use https scheme".into());
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err("base_url cannot contain embedded credentials or userinfo".into());
+        }
+        if url.query().is_some() {
+            return Err("base_url cannot contain a query string".into());
+        }
+        if url.fragment().is_some() {
+            return Err("base_url cannot contain a fragment".into());
+        }
+        if url.host_str().is_none() || url.host_str().unwrap().is_empty() {
+            return Err("base_url must have a host".into());
+        }
+
+        match self.auth_mode {
+            ObservabilityAuthMode::None => {
+                if has_credential {
+                    return Err("credentials cannot be provided for 'none' auth mode".into());
+                }
+                if self.username.is_some() {
+                    return Err("username cannot be provided for 'none' auth mode".into());
+                }
+            }
+            ObservabilityAuthMode::Bearer => {
+                if !has_credential {
+                    return Err("credential_value is required for 'bearer' auth mode".into());
+                }
+                if self.username.is_some() {
+                    return Err("username cannot be provided for 'bearer' auth mode".into());
+                }
+            }
+            ObservabilityAuthMode::Basic => {
+                if !has_credential {
+                    return Err("credential_value is required for 'basic' auth mode".into());
+                }
+                if self.username.as_deref().unwrap_or_default().trim().is_empty() {
+                    return Err("username is required for 'basic' auth mode".into());
+                }
+            }
+        }
+        
+        Ok(())
+    }
 }

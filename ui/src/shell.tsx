@@ -8,7 +8,8 @@ import type {
   KubernetesInventory,
   KubernetesManifest,
   KubernetesResource,
-  WorkspaceContext
+  WorkspaceContext,
+  Invoke
 } from "../contracts/ipc";
 import { open } from "@tauri-apps/plugin-shell";
 import { command } from "../contracts/ipc";
@@ -22,8 +23,6 @@ import {
 } from "./design-system/components";
 import { useTranslation } from "./i18n";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
-
-type Invoke = (command: string, args: Record<string, unknown>) => Promise<IpcResult<unknown>>;
 type Area =
   | "commandCenter"
   | "incidents"

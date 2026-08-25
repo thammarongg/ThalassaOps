@@ -108,7 +108,8 @@ const en = {
     credential: "Credential",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
-    httpsGuidance: "Use HTTPS for production configurations."
+    httpsGuidance:
+      "Use HTTPS for production configurations (HTTP is permitted only for localhost/loopback development)."
   },
   observability: {
     empty: "No observability connectors are configured.",
@@ -125,7 +126,13 @@ const en = {
     instant: "Instant",
     range: "Range",
     samples: "{{count}} samples",
-    grafanaVersion: "Grafana v{{version}} ({{database}})"
+    grafanaVersion: "Grafana v{{version}} ({{database}})",
+    timestamp: "Timestamp",
+    resource: "Resource",
+    unresolved: "Unresolved ({{reason}})",
+    value: "Value",
+    unavailable: "Connector is unavailable or disabled.",
+    malformed: "Received a malformed response from the provider."
   },
   kubernetes: {
     title: "Kubernetes inspection",

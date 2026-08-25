@@ -176,3 +176,108 @@ it("filters Kubernetes resources by health and shows a masked manifest banner", 
   await user.click(screen.getByRole("button", { name: "View manifest" }));
   expect(await screen.findByRole("status")).toHaveTextContent("Sensitive fields redacted");
 });
+
+it("renders observability workspace, lists alerts, runs metric query, and handles context propagation", async () => {
+  const user = userEvent.setup();
+  const alertmanager = {
+    id: "am-1",
+    kind: "alertmanager",
+    display_name: "AM",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const prometheus = {
+    id: "prom-1",
+    kind: "prometheus",
+    display_name: "PROM",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const grafana = {
+    id: "graf-1",
+    kind: "grafana",
+    display_name: "GRAF",
+    enabled: true,
+    config_metadata: { default_dashboard_uid: "dash1", datasource_uid: "ds1" },
+    credential_configured: false,
+    health_state: "healthy"
+  };
+
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list")
+      return Promise.resolve({ ok: true, value: [alertmanager, prometheus, grafana] });
+    if (name === "alertmanager_alerts")
+      return Promise.resolve({
+        ok: true,
+        value: [
+          {
+            fingerprint: "123",
+            state: "firing",
+            starts_at: "2024-01-01T00:00:00Z",
+            ends_at: "2024-01-01T01:00:00Z",
+            labels: { alertname: "HighCPU" },
+            annotations: {},
+            resource_reference: { unresolved: { reason: "test" } },
+            source: { endpoint: "am" }
+          }
+        ]
+      });
+    if (name === "grafana_health")
+      return Promise.resolve({ ok: true, value: { version: "10.0", database: "sqlite" } });
+    if (name === "prometheus_query")
+      return Promise.resolve({
+        ok: true,
+        value: {
+          source: { endpoint: "prom" },
+          series: [
+            { labels: { instance: "A" }, samples: [{ timestamp: 1700000000000, value: "1.5" }] }
+          ]
+        }
+      });
+    if (name === "grafana_link")
+      return Promise.resolve({
+        ok: true,
+        value: { url: 'http://localhost/d/dash1?var-query={alertname="HighCPU"}' }
+      });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Observability" }));
+
+  // Wait for AM panel
+  expect(await screen.findByRole("heading", { name: "AM" })).toBeInTheDocument();
+
+  // Select the alert using the radio button
+  const radio = screen.getByRole("radio", { name: "Select alert 123" });
+  await user.click(radio);
+
+  // Check Prometheus panel got the context (the input should have the label)
+  const queryInput = screen.getByRole("textbox");
+  expect(queryInput).toHaveValue('{alertname="HighCPU"}');
+
+  // Run query
+  await user.click(screen.getByRole("button", { name: "Run Query" }));
+  expect(await screen.findByText("1.5")).toBeInTheDocument();
+
+  // Grafana open dashboard with context
+  await user.click(screen.getByRole("button", { name: "Open Dashboard" }));
+  expect(invoke).toHaveBeenCalledWith(
+    "grafana_link",
+    expect.objectContaining({
+      envelope: expect.objectContaining({
+        payload: expect.objectContaining({ query: '{alertname="HighCPU"}' })
+      })
+    })
+  );
+});

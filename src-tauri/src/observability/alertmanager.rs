@@ -23,7 +23,6 @@ pub struct AlertmanagerStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub enum ResourceReference {
     Resolved {
         namespace: String,
@@ -131,6 +130,60 @@ pub async fn alerts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::MockServer;
+    use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use serde_json::json;
+
+    fn test_connector(base_url: &str) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "test-am".into(),
+            kind: "alertmanager".into(),
+            display_name: "Alertmanager".into(),
+            enabled: true,
+            config_metadata: json!({
+                "base_url": base_url,
+                "auth_mode": "none"
+            }),
+            credential_configured: false,
+            health_state: "healthy".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_alerts_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/api/v2/alerts");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(json!([
+                    {
+                        "fingerprint": "123",
+                        "status": { "state": "active" },
+                        "startsAt": "2024-01-01T00:00:00Z",
+                        "endsAt": "2024-01-01T01:00:00Z",
+                        "labels": { "alertname": "TestAlert", "severity": "critical" },
+                        "annotations": { "summary": "Test" },
+                        "generatorURL": "http://localhost/graph"
+                    }
+                ]).to_string());
+        });
+
+        let connector = test_connector(&server.url(""));
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+        
+        let res = alerts(&client, AlertmanagerAlertsRequest {
+            connector_id: "test-am".into(),
+        }).await.unwrap();
+
+        mock.assert();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].fingerprint, "123");
+        assert_eq!(res[0].labels.get("alertname").unwrap(), "TestAlert");
+    }
 
     #[test]
     fn test_resolve_resource_reference() {

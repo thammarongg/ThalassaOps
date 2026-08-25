@@ -1,3 +1,4 @@
+use crate::observability::client::ObservabilityClient;
 use crate::connectors::{
     self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
     ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
@@ -349,9 +350,9 @@ impl AppState {
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND && connector.enabled => {
-                    if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled)) // Actually it's policy denied, we'll map correctly
+                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
+                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                        Err(AppStateError::Connector(ConnectorError::Disabled))
                     } else {
                         match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
                             Ok(client) => prometheus::query(&client, req).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
@@ -408,9 +409,9 @@ impl AppState {
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND && connector.enabled => {
-                    if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled)) // Mapping as Disabled just to catch below
+                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
+                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                        Err(AppStateError::Connector(ConnectorError::Disabled))
                     } else {
                         match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
                             Ok(client) => prometheus::query_range(&client, req).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
@@ -445,7 +446,9 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<Vec<crate::observability::alertmanager::NormalizedAlert>> {
-        use crate::observability::{ALERTMANAGER_CONNECTOR_KIND, client::ObservabilityClient, alertmanager::{self, AlertmanagerAlertsRequest}};
+        use crate::observability::client::ObservabilityClient;
+        use crate::observability::ALERTMANAGER_CONNECTOR_KIND;
+        use crate::observability::alertmanager::{self, AlertmanagerAlertsRequest};
         
         let descriptor = CommandDescriptor::new("alertmanager", "alerts", Capability::ResourceRead, thalassa_domain::Permission::Read);
         if envelope.command != descriptor.name
@@ -467,8 +470,8 @@ impl AppState {
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == ALERTMANAGER_CONNECTOR_KIND && connector.enabled => {
-                    if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                Ok(Some(connector)) if connector.kind == ALERTMANAGER_CONNECTOR_KIND => {
+                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
                         Err(AppStateError::Connector(ConnectorError::Disabled))
                     } else {
                         match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
@@ -526,8 +529,8 @@ impl AppState {
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.id) {
-                Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND && connector.enabled => {
-                    if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND => {
+                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
                         Err(AppStateError::Connector(ConnectorError::Disabled))
                     } else {
                         match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
@@ -585,14 +588,22 @@ impl AppState {
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND && connector.enabled => {
-                    let config: ObservabilityConnectorConfig = match serde_json::from_value(connector.config_metadata) {
-                        Ok(c) => c,
-                        Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
-                    };
-                    
-                    grafana::link(req, &config.base_url, config.datasource_uid.as_deref(), config.default_dashboard_uid.as_deref())
-                        .map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string())))
+                Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND => {
+                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                        Err(AppStateError::Connector(ConnectorError::Disabled))
+                    } else {
+                        match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
+                            Ok(client) => {
+                                let config: ObservabilityConnectorConfig = match serde_json::from_value(connector.config_metadata) {
+                                    Ok(c) => c,
+                                    Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
+                                };
+                                grafana::link(req, &client, config.datasource_uid.as_deref(), config.default_dashboard_uid.as_deref())
+                                    .map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string())))
+                            }
+                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
+                        }
+                    }
                 }
                 Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
                 Err(e) => Err(AppStateError::Connector(e)),
@@ -609,6 +620,10 @@ impl AppState {
 
         match result {
             Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
+                ok: false,
+                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+            },
             Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
         }
     }

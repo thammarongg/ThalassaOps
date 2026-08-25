@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use reqwest::Url;
 use chrono::{DateTime, Utc};
 use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
 
@@ -55,19 +54,23 @@ pub async fn health(
 
 pub fn link(
     request: GrafanaLinkRequest,
-    base_url: &str,
+    client: &ObservabilityClient,
     datasource_uid: Option<&str>,
     default_dashboard_uid: Option<&str>,
 ) -> Result<GrafanaLinkResult, GrafanaError> {
     if request.target != "dashboard" && request.target != "explore" {
         return Err(GrafanaError::Validation("target must be dashboard or explore".into()));
     }
-
-    let base = Url::parse(base_url).map_err(|e| GrafanaError::Validation(e.to_string()))?;
+    if request.query.trim().is_empty() {
+        return Err(GrafanaError::Validation("query cannot be empty".into()));
+    }
+    if request.start >= request.end {
+        return Err(GrafanaError::Validation("start time must be before end time".into()));
+    }
     
     let url = if request.target == "dashboard" {
         let dash_uid = default_dashboard_uid.ok_or_else(|| GrafanaError::Configuration("missing default_dashboard_uid".into()))?;
-        let mut u = base.join(&format!("/d/{}", dash_uid)).map_err(|e| GrafanaError::Validation(e.to_string()))?;
+        let mut u = client.build_url(&format!("/d/{}", dash_uid)).map_err(|e| GrafanaError::Validation(e.to_string()))?;
         u.query_pairs_mut()
             .append_pair("from", &request.start.timestamp_millis().to_string())
             .append_pair("to", &request.end.timestamp_millis().to_string())
@@ -76,7 +79,7 @@ pub fn link(
     } else {
         // Explore
         let ds_uid = datasource_uid.ok_or_else(|| GrafanaError::Configuration("missing datasource_uid".into()))?;
-        let mut u = base.join("/explore").map_err(|e| GrafanaError::Validation(e.to_string()))?;
+        let mut u = client.build_url("/explore").map_err(|e| GrafanaError::Validation(e.to_string()))?;
         
         let left_pane = serde_json::json!({
             "datasource": ds_uid,
@@ -100,4 +103,85 @@ pub fn link(
     Ok(GrafanaLinkResult {
         url: url.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::MockServer;
+    use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use serde_json::json;
+
+    fn test_connector(base_url: &str) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "test-grafana".into(),
+            kind: "grafana".into(),
+            display_name: "Grafana".into(),
+            enabled: true,
+            config_metadata: json!({
+                "base_url": base_url,
+                "auth_mode": "none"
+            }),
+            credential_configured: false,
+            health_state: "healthy".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_health_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/api/health");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(json!({
+                    "database": "ok",
+                    "version": "10.0.0",
+                    "commit": "123"
+                }).to_string());
+        });
+
+        let connector = test_connector(&server.url(""));
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+        
+        let res = health(&client).await.unwrap();
+
+        mock.assert();
+        assert_eq!(res.database, "ok");
+        assert_eq!(res.version, "10.0.0");
+    }
+
+    #[test]
+    fn test_link_dashboard_and_explore() {
+        let store = InMemoryCredentialStore::default();
+        let connector = test_connector("http://localhost/subpath");
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        use chrono::TimeZone;
+        let start = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
+
+        let req = GrafanaLinkRequest {
+            connector_id: "test".into(),
+            target: "dashboard".into(),
+            query: "up".into(),
+            start,
+            end,
+        };
+
+        let res = link(req.clone(), &client, Some("ds1"), Some("dash1")).unwrap();
+        assert!(res.url.starts_with("http://localhost/subpath/d/dash1"));
+        assert!(res.url.contains("from=1704067200000"));
+        assert!(res.url.contains("to=1704070800000"));
+        assert!(res.url.contains("var-query=up"));
+
+        let mut req_explore = req.clone();
+        req_explore.target = "explore".into();
+        let res2 = link(req_explore, &client, Some("ds1"), Some("dash1")).unwrap();
+        assert!(res2.url.starts_with("http://localhost/subpath/explore"));
+        assert!(res2.url.contains("left="));
+    }
 }

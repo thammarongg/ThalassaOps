@@ -240,4 +240,73 @@ mod tests {
         assert_eq!(res.series[0].samples[0].value, "1");
         assert_eq!(res.source.connector_id, "test-prom");
     }
+
+    #[tokio::test]
+    async fn test_query_range_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/api/v1/query_range")
+                .query_param("query", "up")
+                .query_param_exists("start")
+                .query_param_exists("end")
+                .query_param("step", "60");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(json!({
+                    "status": "success",
+                    "data": {
+                        "resultType": "matrix",
+                        "result": [
+                            {
+                                "metric": { "__name__": "up" },
+                                "values": [[123.45, "1"], [183.45, "1"]]
+                            }
+                        ]
+                    }
+                }).to_string());
+        });
+
+        let connector = test_connector(&server.url(""));
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+        
+        use chrono::Utc;
+        let start = Utc::now();
+        let end = start + std::time::Duration::from_secs(60);
+        let res = query_range(&client, PrometheusQueryRangeRequest {
+            connector_id: "test-prom".into(),
+            query: "up".into(),
+            start,
+            end,
+            step_seconds: 60,
+        }).await.unwrap();
+
+        mock.assert();
+        assert_eq!(res.series.len(), 1);
+        assert_eq!(res.series[0].samples.len(), 2);
+    }
+    
+    #[tokio::test]
+    async fn test_query_range_invalid() {
+        let connector = test_connector("http://localhost");
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+        use chrono::Utc;
+        
+        let err1 = query_range(&client, PrometheusQueryRangeRequest {
+            connector_id: "test-prom".into(), query: "".into(), start: Utc::now(), end: Utc::now(), step_seconds: 60,
+        }).await.unwrap_err();
+        assert!(matches!(err1, PrometheusError::Validation(_)));
+
+        let err2 = query_range(&client, PrometheusQueryRangeRequest {
+            connector_id: "test-prom".into(), query: "up".into(), start: Utc::now() + std::time::Duration::from_secs(60), end: Utc::now(), step_seconds: 60,
+        }).await.unwrap_err();
+        assert!(matches!(err2, PrometheusError::Validation(_)));
+
+        let err3 = query_range(&client, PrometheusQueryRangeRequest {
+            connector_id: "test-prom".into(), query: "up".into(), start: Utc::now(), end: Utc::now() + std::time::Duration::from_secs(60), step_seconds: 0,
+        }).await.unwrap_err();
+        assert!(matches!(err3, PrometheusError::Validation(_)));
+    }
 }

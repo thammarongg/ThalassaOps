@@ -36,14 +36,16 @@ impl ObservabilityClient {
         let config: ObservabilityConnectorConfig = serde_json::from_value(connector.config_metadata.clone())
             .map_err(|e| ObservabilityClientError::Configuration(e.to_string()))?;
         
-        let base_url = Url::parse(&config.base_url)
-            .map_err(|e| ObservabilityClientError::InvalidUrl(e.to_string()))?;
-            
         let credential = if config.auth_mode != ObservabilityAuthMode::None && connector.credential_configured {
             store.get(&format!("connector/{}", connector.id)).map_err(ObservabilityClientError::Connector)?
         } else {
             None
         };
+        
+        config.validate(credential.is_some()).map_err(ObservabilityClientError::Configuration)?;
+        
+        let base_url = Url::parse(&config.base_url)
+            .map_err(|e| ObservabilityClientError::InvalidUrl(e.to_string()))?;
 
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
@@ -109,5 +111,114 @@ impl ObservabilityClient {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::MockServer;
+    use crate::connectors::InMemoryCredentialStore;
+    use serde_json::json;
+
+    fn test_connector(base_url: &str, auth_mode: &str) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "test".into(),
+            kind: "prometheus".into(),
+            display_name: "Test".into(),
+            enabled: true,
+            config_metadata: json!({
+                "base_url": base_url,
+                "auth_mode": auth_mode,
+                "username": if auth_mode == "basic" { Some("user") } else { None }
+            }),
+            credential_configured: auth_mode != "none",
+            health_state: "healthy".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_none_auth_and_get_only() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/test");
+            then.status(200).body("{}");
+        });
+
+        let connector = test_connector(&server.url(""), "none");
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        let req = client.prepare_get(client.build_url("/test").unwrap()).unwrap();
+        let _: serde_json::Value = client.execute_json(req).await.unwrap();
+
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_bearer_auth() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/test")
+                .header("Authorization", "Bearer my-token");
+            then.status(200).body("{}");
+        });
+
+        let connector = test_connector(&server.url(""), "bearer");
+        let store = InMemoryCredentialStore::default();
+        store.set("connector/test", "my-token").unwrap();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        let req = client.prepare_get(client.build_url("/test").unwrap()).unwrap();
+        let _: serde_json::Value = client.execute_json(req).await.unwrap();
+
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_basic_auth() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/test")
+                .header("Authorization", "Basic dXNlcjpteS1wYXNz"); // user:my-pass
+            then.status(200).body("{}");
+        });
+
+        let connector = test_connector(&server.url(""), "basic");
+        let store = InMemoryCredentialStore::default();
+        store.set("connector/test", "my-pass").unwrap();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        let req = client.prepare_get(client.build_url("/test").unwrap()).unwrap();
+        let _: serde_json::Value = client.execute_json(req).await.unwrap();
+
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_no_redirects() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/redirect");
+            then.status(301).header("Location", "/test");
+        });
+
+        let connector = test_connector(&server.url(""), "none");
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        let req = client.prepare_get(client.build_url("/redirect").unwrap()).unwrap();
+        let err = client.execute_json::<serde_json::Value>(req).await.unwrap_err();
+
+        match err {
+            ObservabilityClientError::ProviderError(301) => {}
+            _ => panic!("Expected ProviderError(301) due to disabled redirects, got {:?}", err),
+        }
+
+        mock.assert();
     }
 }

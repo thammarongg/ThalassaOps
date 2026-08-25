@@ -108,7 +108,8 @@ const th = {
     credential: "รหัสผ่าน / โทเคน",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
-    httpsGuidance: "ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง"
+    httpsGuidance:
+      "ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง (อนุญาต HTTP สำหรับ localhost/loopback ในการพัฒนาเท่านั้น)"
   },
   observability: {
     empty: "ยังไม่มีการตั้งค่าตัวเชื่อมต่อการสังเกตการณ์",
@@ -125,7 +126,13 @@ const th = {
     instant: "ทันที",
     range: "ช่วงเวลา",
     samples: "{{count}} ตัวอย่าง",
-    grafanaVersion: "Grafana v{{version}} ({{database}})"
+    grafanaVersion: "Grafana v{{version}} ({{database}})",
+    timestamp: "เวลา",
+    resource: "ทรัพยากร",
+    unresolved: "ไม่พบ ({{reason}})",
+    value: "ค่า",
+    unavailable: "การเชื่อมต่อไม่พร้อมใช้งานหรือถูกปิดใช้งาน",
+    malformed: "ได้รับข้อมูลที่ไม่ถูกต้องจากผู้ให้บริการ"
   },
   kubernetes: {
     title: "ตรวจสอบ Kubernetes",

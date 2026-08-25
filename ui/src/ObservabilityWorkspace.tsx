@@ -1,26 +1,47 @@
 import React, { useState, useEffect } from "react";
 import type {
   ConnectorSummary,
-  IpcResult,
   NormalizedAlert,
   PrometheusQueryResult,
   GrafanaHealth,
-  GrafanaLinkResult
+  GrafanaLinkResult,
+  Invoke,
+  AlertmanagerAlertsRequest,
+  PrometheusQueryRequest,
+  PrometheusQueryRangeRequest,
+  GrafanaHealthRequest,
+  GrafanaLinkRequest
 } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
 import { Card, EmptyState, Table } from "./design-system/components";
 import { useTranslation } from "./i18n";
 import { open } from "@tauri-apps/plugin-shell";
 
-type Invoke = (command: string, args: Record<string, unknown>) => Promise<IpcResult<unknown>>;
+const mapIpcError = (err: unknown, t: (key: string) => string) => {
+  const e = err as Record<string, unknown>;
+  const code = e?.code;
+  const msg = typeof e?.message === "string" ? e.message : String(err);
+  if (code === "ConnectorUnavailable" || msg.includes("ConnectorUnavailable"))
+    return t("observability.unavailable");
+  if (msg.includes("malformed") || code === "MalformedResponse")
+    return t("observability.malformed");
+  return msg;
+};
 
 export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAlert, setSelectedAlert] = useState<NormalizedAlert>();
+  const [metricContext, setMetricContext] = useState<{
+    query: string;
+    type: string;
+    start?: string;
+    end?: string;
+  }>();
 
   useEffect(() => {
-    invoke("connector_list", {
+    invoke<null, ConnectorSummary[]>("connector_list", {
       envelope: {
         request_id: crypto.randomUUID(),
         command: command("connector", "list"),
@@ -31,7 +52,7 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
     })
       .then((result) => {
         if (result.ok) {
-          const all = result.value as ConnectorSummary[];
+          const all = result.value;
           setConnectors(
             all.filter(
               (c) => ["prometheus", "alertmanager", "grafana"].includes(c.kind) && c.enabled
@@ -54,31 +75,60 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
       <section aria-label={t("observability.alertmanager")}>
         <h2>{t("observability.alertmanager")}</h2>
         {am.map((c) => (
-          <AlertmanagerPanel key={c.id} connector={c} invoke={invoke} />
+          <AlertmanagerPanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            selectedAlert={selectedAlert}
+            onSelectAlert={setSelectedAlert}
+          />
         ))}
       </section>
       <section aria-label={t("observability.prometheus")}>
         <h2>{t("observability.prometheus")}</h2>
         {prom.map((c) => (
-          <PrometheusPanel key={c.id} connector={c} invoke={invoke} />
+          <PrometheusPanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            onMetricContext={setMetricContext}
+            selectedAlert={selectedAlert}
+          />
         ))}
       </section>
       <section aria-label={t("observability.grafana")}>
         <h2>{t("observability.grafana")}</h2>
         {graf.map((c) => (
-          <GrafanaPanel key={c.id} connector={c} invoke={invoke} />
+          <GrafanaPanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            metricContext={metricContext}
+            selectedAlert={selectedAlert}
+          />
         ))}
       </section>
     </div>
   );
 }
 
-function AlertmanagerPanel({ connector, invoke }: { connector: ConnectorSummary; invoke: Invoke }) {
+function AlertmanagerPanel({
+  connector,
+  invoke,
+  selectedAlert,
+  onSelectAlert
+}: {
+  connector: ConnectorSummary;
+  invoke: Invoke;
+  selectedAlert?: NormalizedAlert;
+  onSelectAlert: (alert: NormalizedAlert) => void;
+}) {
+  const { t } = useTranslation();
   const [alerts, setAlerts] = useState<NormalizedAlert[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    invoke("alertmanager_alerts", {
+    invoke<AlertmanagerAlertsRequest, NormalizedAlert[]>("alertmanager_alerts", {
       envelope: {
         request_id: crypto.randomUUID(),
         command: command("alertmanager", "alerts"),
@@ -88,11 +138,20 @@ function AlertmanagerPanel({ connector, invoke }: { connector: ConnectorSummary;
       }
     })
       .then((res) => {
-        if (res.ok) setAlerts(res.value as NormalizedAlert[]);
-        else setError(res.error.message);
+        if (res.ok) setAlerts(res.value);
+        else setError(mapIpcError(res.error, t));
       })
-      .catch((err) => setError(String(err)));
-  }, [connector, invoke]);
+      .catch((err) => setError(mapIpcError(err, t)));
+  }, [connector, invoke, t]);
+
+  const renderResource = (ref: Record<string, unknown>) => {
+    if ("resolved" in ref) {
+      const r = ref.resolved as Record<string, unknown>;
+      return `${r.kind} ${r.namespace}/${r.name}`;
+    }
+    const unresolved = ref.unresolved as Record<string, unknown> | undefined;
+    return t("observability.unresolved", { reason: unresolved?.reason || "" });
+  };
 
   return (
     <Card titleKey="observability.alertmanager">
@@ -102,58 +161,121 @@ function AlertmanagerPanel({ connector, invoke }: { connector: ConnectorSummary;
           {error}
         </p>
       )}
-      <Table
-        captionKey="observability.alerts"
-        columns={[
-          { key: "state", headerKey: "observability.state" },
-          { key: "fingerprint", headerKey: "observability.fingerprint" },
-          { key: "labels", headerKey: "observability.labels" }
-        ]}
-        rows={alerts.map((a) => ({
-          id: a.fingerprint,
-          state: a.state,
-          fingerprint: a.fingerprint,
-          labels: JSON.stringify(a.labels)
-        }))}
-      />
+      {!error && alerts.length === 0 && <p>{t("observability.empty")}</p>}
+      {alerts.length > 0 && (
+        <Table
+          captionKey="observability.alerts"
+          columns={[
+            { key: "select", headerKey: "observability.state" }, // Reuse state header space or something, wait we can just add a blank header or use 'state' for the first col
+            { key: "state", headerKey: "observability.state" },
+            { key: "timestamp", headerKey: "observability.timestamp" },
+            { key: "labels", headerKey: "observability.labels" },
+            { key: "resource", headerKey: "observability.resource" }
+          ]}
+          rows={alerts.map((a) => ({
+            id: a.fingerprint,
+            select: (
+              <input
+                type="radio"
+                name="selectedAlert"
+                aria-label={`Select alert ${a.fingerprint}`}
+                checked={selectedAlert?.fingerprint === a.fingerprint}
+                onChange={() => onSelectAlert(a)}
+              />
+            ),
+            state: a.state,
+            timestamp: new Date(a.starts_at).toLocaleString(),
+            labels: Object.entries(a.labels)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(", "),
+            resource: renderResource(a.resource_reference)
+          }))}
+        />
+      )}
     </Card>
   );
 }
 
-function PrometheusPanel({ connector, invoke }: { connector: ConnectorSummary; invoke: Invoke }) {
+function PrometheusPanel({
+  connector,
+  invoke,
+  onMetricContext,
+  selectedAlert
+}: {
+  connector: ConnectorSummary;
+  invoke: Invoke;
+  onMetricContext: (ctx: { query: string; type: string; start?: string; end?: string }) => void;
+  selectedAlert?: NormalizedAlert;
+}) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<PrometheusQueryResult>();
   const [error, setError] = useState("");
   const [type, setType] = useState("instant");
 
+  useEffect(() => {
+    if (selectedAlert) {
+      const match = Object.entries(selectedAlert.labels)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(",");
+      setQuery(`{${match}}`);
+    }
+  }, [selectedAlert]);
+
   const run = async () => {
     setError("");
-    const cmd = type === "instant" ? "prometheus_query" : "prometheus_query_range";
-    const payload: Record<string, string> = { connector_id: connector.id, query };
-    if (type === "instant") {
-      payload.time = new Date().toISOString();
-    } else {
-      const end = new Date();
-      const start = new Date(end.getTime() - 3600000);
-      payload.start = start.toISOString();
-      payload.end = end.toISOString();
-      payload.step = "60s";
-    }
     try {
-      const res = await invoke(cmd, {
-        envelope: {
-          request_id: crypto.randomUUID(),
-          command: command("prometheus", type === "instant" ? "query" : "query_range"),
-          capability: "ResourceRead",
-          scope: { resource_ids: [] },
-          payload
+      if (type === "instant") {
+        const payload: PrometheusQueryRequest = { connector_id: connector.id, query };
+        const res = await invoke<PrometheusQueryRequest, PrometheusQueryResult>(
+          "prometheus_query",
+          {
+            envelope: {
+              request_id: crypto.randomUUID(),
+              command: command("prometheus", "query"),
+              capability: "ResourceRead",
+              scope: { resource_ids: [] },
+              payload
+            }
+          }
+        );
+        if (res.ok) {
+          setResult(res.value);
+          onMetricContext({ query, type: "instant" });
+        } else {
+          setError(mapIpcError(res.error, t));
         }
-      });
-      if (res.ok) setResult(res.value as PrometheusQueryResult);
-      else setError(res.error.message);
+      } else {
+        const end = new Date();
+        const start = new Date(end.getTime() - 3600000);
+        const payload: PrometheusQueryRangeRequest = {
+          connector_id: connector.id,
+          query,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          step_seconds: 60
+        };
+        const res = await invoke<PrometheusQueryRangeRequest, PrometheusQueryResult>(
+          "prometheus_query_range",
+          {
+            envelope: {
+              request_id: crypto.randomUUID(),
+              command: command("prometheus", "query_range"),
+              capability: "ResourceRead",
+              scope: { resource_ids: [] },
+              payload
+            }
+          }
+        );
+        if (res.ok) {
+          setResult(res.value);
+          onMetricContext({ query, type: "range", start: payload.start, end: payload.end });
+        } else {
+          setError(mapIpcError(res.error, t));
+        }
+      }
     } catch (err: unknown) {
-      setError(String(err));
+      setError(mapIpcError(err, t));
     }
   };
 
@@ -178,27 +300,54 @@ function PrometheusPanel({ connector, invoke }: { connector: ConnectorSummary; i
       {result && (
         <div>
           <p>{result.source.endpoint}</p>
-          <ul>
-            {result.series.map((s, i) => (
-              <li key={i}>
-                {JSON.stringify(s.labels)}:{" "}
-                {t("observability.samples", { count: String(s.samples.length) })}
-              </li>
-            ))}
-          </ul>
+          {result.series.map((s, i) => (
+            <div key={i}>
+              <h4>
+                {Object.entries(s.labels)
+                  .map(([k, v]) => `${k}="${v}"`)
+                  .join(", ")}
+              </h4>
+              <Table
+                captionKey="observability.samples"
+                columns={[
+                  { key: "timestamp", headerKey: "observability.timestamp" },
+                  { key: "value", headerKey: "observability.value" }
+                ]}
+                rows={s.samples.map((samp, j) => ({
+                  id: `${i}-${j}`,
+                  timestamp: new Date(samp.timestamp).toLocaleString(),
+                  value: samp.value
+                }))}
+              />
+            </div>
+          ))}
         </div>
       )}
     </Card>
   );
 }
 
-function GrafanaPanel({ connector, invoke }: { connector: ConnectorSummary; invoke: Invoke }) {
+function GrafanaPanel({
+  connector,
+  invoke,
+  metricContext,
+  selectedAlert
+}: {
+  connector: ConnectorSummary;
+  invoke: Invoke;
+  metricContext?: { query: string; type: string; start?: string; end?: string };
+  selectedAlert?: NormalizedAlert;
+}) {
   const { t } = useTranslation();
   const [health, setHealth] = useState<GrafanaHealth>();
   const [error, setError] = useState("");
 
+  const config = connector.config_metadata as Record<string, unknown>;
+  const hasDashboard = !!config.default_dashboard_uid;
+  const hasExplore = !!config.datasource_uid;
+
   useEffect(() => {
-    invoke("grafana_health", {
+    invoke<GrafanaHealthRequest, GrafanaHealth>("grafana_health", {
       envelope: {
         request_id: crypto.randomUUID(),
         command: command("grafana", "health"),
@@ -208,24 +357,41 @@ function GrafanaPanel({ connector, invoke }: { connector: ConnectorSummary; invo
       }
     })
       .then((res) => {
-        if (res.ok) setHealth(res.value as GrafanaHealth);
-        else setError(res.error.message);
+        if (res.ok) setHealth(res.value);
+        else setError(mapIpcError(res.error, t));
       })
-      .catch((err) => setError(String(err)));
-  }, [connector, invoke]);
+      .catch((err) => setError(mapIpcError(err, t)));
+  }, [connector, invoke, t]);
 
   const openLink = async (target: string) => {
     try {
-      const end = new Date();
-      const start = new Date(end.getTime() - 3600000);
-      const payload = {
+      let query = "up";
+      if (metricContext?.query) query = metricContext.query;
+      else if (selectedAlert)
+        query = `{${Object.entries(selectedAlert.labels)
+          .map(([k, v]) => `${k}="${v}"`)
+          .join(",")}}`;
+
+      let start = new Date(Date.now() - 3600000);
+      let end = new Date();
+      if (metricContext?.start && metricContext?.end) {
+        start = new Date(metricContext.start);
+        end = new Date(metricContext.end);
+      } else if (selectedAlert) {
+        start = new Date(selectedAlert.starts_at);
+        if (selectedAlert.state === "resolved" && selectedAlert.ends_at) {
+          end = new Date(selectedAlert.ends_at);
+        }
+      }
+
+      const payload: GrafanaLinkRequest = {
         connector_id: connector.id,
         target,
-        query: "up",
+        query,
         start: start.toISOString(),
         end: end.toISOString()
       };
-      const res = await invoke("grafana_link", {
+      const res = await invoke<GrafanaLinkRequest, GrafanaLinkResult>("grafana_link", {
         envelope: {
           request_id: crypto.randomUUID(),
           command: command("grafana", "link"),
@@ -235,13 +401,13 @@ function GrafanaPanel({ connector, invoke }: { connector: ConnectorSummary; invo
         }
       });
       if (res.ok) {
-        const url = (res.value as GrafanaLinkResult).url;
+        const url = res.value.url;
         await open(url);
       } else {
-        setError(res.error.message);
+        setError(mapIpcError(res.error, t));
       }
     } catch (err: unknown) {
-      setError(String(err));
+      setError(mapIpcError(err, t));
     }
   };
 
@@ -261,12 +427,16 @@ function GrafanaPanel({ connector, invoke }: { connector: ConnectorSummary; invo
           })}
         </p>
       )}
-      <button type="button" onClick={() => openLink("dashboard")}>
-        {t("observability.openDashboard")}
-      </button>
-      <button type="button" onClick={() => openLink("explore")}>
-        {t("observability.openExplore")}
-      </button>
+      {hasDashboard && (
+        <button type="button" onClick={() => openLink("dashboard")}>
+          {t("observability.openDashboard")}
+        </button>
+      )}
+      {hasExplore && (
+        <button type="button" onClick={() => openLink("explore")}>
+          {t("observability.openExplore")}
+        </button>
+      )}
     </Card>
   );
 }

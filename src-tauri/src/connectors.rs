@@ -224,9 +224,11 @@ pub fn grafana_manifest() -> ConnectorManifest {
 pub fn add(
     connection: &Connection,
     store: &dyn CredentialStore,
-    request: AddConnectorRequest,
+    mut request: AddConnectorRequest,
 ) -> Result<ConnectorSummary, ConnectorError> {
-    validate_add_request(&request)?;
+    if let Some(canonical) = validate_add_request(&request)? {
+        request.config_metadata = canonical;
+    }
     let id = Uuid::new_v4().to_string();
     let credential_reference = request
         .credential_value
@@ -248,13 +250,13 @@ pub fn add(
     get(connection, store, &id)?.ok_or(ConnectorError::NotFound)
 }
 
-fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorError> {
+fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, ConnectorError> {
     use crate::observability::{
-        ObservabilityAuthMode, ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND,
+        ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND,
         GRAFANA_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND,
     };
     match request.kind.as_str() {
-        FIXTURE_CONNECTOR_KIND => Ok(()),
+        FIXTURE_CONNECTOR_KIND => Ok(None),
         KUBERNETES_CONNECTOR_KIND => {
             let config: KubernetesConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
@@ -264,70 +266,17 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorEr
                     "kubeconfig_path and context_name are required".into(),
                 ));
             }
-            Ok(())
+            Ok(Some(serde_json::to_value(&config).unwrap()))
         }
         PROMETHEUS_CONNECTOR_KIND | ALERTMANAGER_CONNECTOR_KIND | GRAFANA_CONNECTOR_KIND => {
             let config: ObservabilityConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
                     .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
             
-            if config.base_url.trim().is_empty() {
-                return Err(ConnectorError::InvalidConfiguration(
-                    "base_url is required".into(),
-                ));
-            }
-            if config.base_url.contains('@') {
-                 return Err(ConnectorError::InvalidConfiguration(
-                    "base_url cannot contain embedded credentials".into(),
-                ));
-            }
-            // Require valid url format and scheme
-            match reqwest::Url::parse(&config.base_url) {
-                Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {}
-                _ => return Err(ConnectorError::InvalidConfiguration(
-                    "base_url must be a valid http or https URL".into(),
-                )),
-            }
+            let has_credential = !request.credential_value.as_deref().unwrap_or_default().trim().is_empty();
+            config.validate(has_credential).map_err(ConnectorError::InvalidConfiguration)?;
 
-            match config.auth_mode {
-                ObservabilityAuthMode::None => {
-                    if request.credential_value.is_some() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "credentials cannot be provided for 'none' auth mode".into(),
-                        ));
-                    }
-                    if config.username.is_some() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "username cannot be provided for 'none' auth mode".into(),
-                        ));
-                    }
-                }
-                ObservabilityAuthMode::Bearer => {
-                    if request.credential_value.as_deref().unwrap_or_default().trim().is_empty() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "credential_value is required for 'bearer' auth mode".into(),
-                        ));
-                    }
-                    if config.username.is_some() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "username cannot be provided for 'bearer' auth mode".into(),
-                        ));
-                    }
-                }
-                ObservabilityAuthMode::Basic => {
-                    if request.credential_value.as_deref().unwrap_or_default().trim().is_empty() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "credential_value is required for 'basic' auth mode".into(),
-                        ));
-                    }
-                    if config.username.as_deref().unwrap_or_default().trim().is_empty() {
-                        return Err(ConnectorError::InvalidConfiguration(
-                            "username is required for 'basic' auth mode".into(),
-                        ));
-                    }
-                }
-            }
-            Ok(())
+            Ok(Some(serde_json::to_value(&config).unwrap()))
         }
         _ => Err(ConnectorError::InvalidConfiguration(format!(
             "unsupported connector kind: {}",

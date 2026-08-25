@@ -105,6 +105,14 @@ export type NormalizedAlert = {
 export type GrafanaHealth = { database: string; version: string };
 export type GrafanaLinkResult = { url: string };
 
+export type GrafanaLinkRequest = { connector_id: string; target: string; query: string; start: string; end: string };
+export type AlertmanagerAlertsRequest = { connector_id: string };
+export type PrometheusQueryRequest = { connector_id: string; query: string };
+export type PrometheusQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; step_seconds: number };
+export type GrafanaHealthRequest = { id: string };
+
+export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;
+
 /**
  * Tauri command names use lowercase resource.verb components. Commands must
  * be registered with an explicit capability and permission on the Rust side.
