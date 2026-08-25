@@ -1,9 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CommandEnvelope, ConnectorDiagnostics, ConnectorSummary, IpcResult, KubernetesEvent, KubernetesInventory, KubernetesManifest, KubernetesResource, WorkspaceContext } from "../contracts/ipc";
+import { useEffect, useMemo, useState, useRef } from "react";
+import type {
+  CommandEnvelope,
+  ConnectorDiagnostics,
+  ConnectorSummary,
+  IpcResult,
+  KubernetesEvent,
+  KubernetesInventory,
+  KubernetesManifest,
+  KubernetesResource,
+  WorkspaceContext
+} from "../contracts/ipc";
 import { open } from "@tauri-apps/plugin-shell";
 import { command } from "../contracts/ipc";
-import { Card, CommandSurface, Drawer, EmptyState, StatusIndicator, Table } from "./design-system/components";
+import {
+  Card,
+  CommandSurface,
+  Drawer,
+  EmptyState,
+  StatusIndicator,
+  Table
+} from "./design-system/components";
 import { useTranslation } from "./i18n";
+import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 
 type Invoke = (command: string, args: Record<string, unknown>) => Promise<IpcResult<unknown>>;
 type Area =
@@ -190,7 +208,13 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </aside>
       <main className="shell-main">
         <h1>{t(`shell.${active}`)}</h1>
-        {active === "integrations" ? <Integrations invoke={invoke} /> : <EmptyState titleKey="shell.routeUnavailable" />}
+        {active === "integrations" ? (
+          <Integrations invoke={invoke} />
+        ) : active === "observability" ? (
+          <ObservabilityWorkspace invoke={invoke} />
+        ) : (
+          <EmptyState titleKey="shell.routeUnavailable" />
+        )}
       </main>
       <aside className="shell-status">
         <StatusIndicator state="unavailable" /> <span>{t("shell.connectorStatus")}</span>
@@ -244,75 +268,540 @@ export function Shell({ invoke }: { invoke: Invoke }) {
   );
 }
 
-const connectorEnvelope = <T,>(verb: string, capability: "ConnectorRead" | "ConnectorAct", payload: T): CommandEnvelope<T> => ({
-  request_id: crypto.randomUUID(), command: command("connector", verb), capability, scope: { resource_ids: [] }, payload
+const connectorEnvelope = <T,>(
+  verb: string,
+  capability: "ConnectorRead" | "ConnectorAct",
+  payload: T
+): CommandEnvelope<T> => ({
+  request_id: crypto.randomUUID(),
+  command: command("connector", verb),
+  capability,
+  scope: { resource_ids: [] },
+  payload
 });
+
+function AddConnectorForm({
+  onAdd,
+  onCancel
+}: {
+  onAdd: (payload: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const [kind, setKind] = useState("fixture");
+  const [displayName, setDisplayName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [authMode, setAuthMode] = useState("none");
+  const [username, setUsername] = useState("");
+  const [datasourceUid, setDatasourceUid] = useState("");
+  const [defaultDashboardUid, setDefaultDashboardUid] = useState("");
+  const credentialRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    let config_metadata: Record<string, unknown> = {};
+    if (kind === "fixture") {
+      config_metadata = { fixture_health: "healthy" };
+    } else {
+      config_metadata = {
+        base_url: baseUrl,
+        auth_mode: authMode
+      };
+      if (authMode === "basic") {
+        config_metadata.username = username;
+      }
+      if (kind === "grafana") {
+        if (datasourceUid) config_metadata.datasource_uid = datasourceUid;
+        if (defaultDashboardUid) config_metadata.default_dashboard_uid = defaultDashboardUid;
+      }
+    }
+
+    const credential_value = credentialRef.current?.value || undefined;
+    if (credentialRef.current) {
+      credentialRef.current.value = ""; // clear password
+    }
+
+    try {
+      await onAdd({
+        kind,
+        display_name: displayName,
+        config_metadata,
+        credential_value: authMode === "none" || kind === "fixture" ? undefined : credential_value
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="add-connector-form">
+      <h2>{t("integrations.addConnector")}</h2>
+      {error && (
+        <p role="status" className="error">
+          {error}
+        </p>
+      )}
+      <label>
+        {t("integrations.kind")}{" "}
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="fixture">{t("integrations.fixtureName")}</option>
+          <option value="prometheus">{t("observability.prometheus")}</option>
+          <option value="alertmanager">{t("observability.alertmanager")}</option>
+          <option value="grafana">{t("observability.grafana")}</option>
+        </select>
+      </label>
+      <label>
+        {t("integrations.name")}{" "}
+        <input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+      </label>
+
+      {kind !== "fixture" && (
+        <>
+          <p>{t("integrations.httpsGuidance")}</p>
+          <label>
+            {t("integrations.baseUrl")}{" "}
+            <input
+              required
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
+          </label>
+          <label>
+            {t("integrations.authMode")}{" "}
+            <select value={authMode} onChange={(e) => setAuthMode(e.target.value)}>
+              <option value="none">{t("integrations.authNone")}</option>
+              <option value="bearer">{t("integrations.authBearer")}</option>
+              <option value="basic">{t("integrations.authBasic")}</option>
+            </select>
+          </label>
+          {authMode === "basic" && (
+            <label>
+              {t("integrations.username")}{" "}
+              <input required value={username} onChange={(e) => setUsername(e.target.value)} />
+            </label>
+          )}
+          {authMode !== "none" && (
+            <label>
+              {t("integrations.credential")} <input type="password" ref={credentialRef} required />
+            </label>
+          )}
+          {kind === "grafana" && (
+            <>
+              <label>
+                {t("integrations.datasourceUid")}{" "}
+                <input value={datasourceUid} onChange={(e) => setDatasourceUid(e.target.value)} />
+              </label>
+              <label>
+                {t("integrations.defaultDashboardUid")}{" "}
+                <input
+                  value={defaultDashboardUid}
+                  onChange={(e) => setDefaultDashboardUid(e.target.value)}
+                />
+              </label>
+            </>
+          )}
+        </>
+      )}
+
+      <div className="actions">
+        <button type="submit">{t("integrations.save")}</button>
+        <button type="button" onClick={onCancel}>
+          {t("integrations.cancel")}
+        </button>
+      </div>
+    </form>
+  );
+}
 
 function Integrations({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
   const [diagnostics, setDiagnostics] = useState<ConnectorDiagnostics>();
   const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
   const load = () => {
     setLoading(true);
     invoke("connector_list", { envelope: connectorEnvelope("list", "ConnectorRead", null) })
-      .then((result) => { if (result.ok) setConnectors(result.value as ConnectorSummary[]); })
+      .then((result) => {
+        if (result.ok) setConnectors(result.value as ConnectorSummary[]);
+      })
       .finally(() => setLoading(false));
   };
   useEffect(load, [invoke]);
   const act = (verb: "test" | "enable" | "disable" | "remove", id: string) =>
-    invoke(`connector_${verb}`, { envelope: connectorEnvelope(verb, "ConnectorAct", { id }) }).then(() => {
-      if (verb === "remove") setDiagnostics(undefined);
-      load();
+    invoke(`connector_${verb}`, { envelope: connectorEnvelope(verb, "ConnectorAct", { id }) }).then(
+      () => {
+        if (verb === "remove") setDiagnostics(undefined);
+        load();
+      }
+    );
+  const diagnose = (id: string) =>
+    invoke("connector_diagnose", {
+      envelope: connectorEnvelope("diagnose", "ConnectorRead", { id })
+    }).then((result) => {
+      if (result.ok) setDiagnostics(result.value as ConnectorDiagnostics);
     });
-  const diagnose = (id: string) => invoke("connector_diagnose", { envelope: connectorEnvelope("diagnose", "ConnectorRead", { id }) })
-    .then((result) => { if (result.ok) setDiagnostics(result.value as ConnectorDiagnostics); });
-  const add = () => invoke("connector_add", { envelope: connectorEnvelope("add", "ConnectorAct", { kind: "fixture", display_name: t("integrations.fixtureName"), config_metadata: { fixture_health: "healthy" } }) }).then(load);
+
+  const handleAdd = async (payload: Record<string, unknown>) => {
+    const result = await invoke("connector_add", {
+      envelope: connectorEnvelope("add", "ConnectorAct", payload)
+    });
+    if (result.ok) {
+      setShowAddForm(false);
+      load();
+    } else {
+      throw new Error(result.error.message);
+    }
+  };
+
   if (loading) return <p role="status">{t("integrations.loading")}</p>;
-  if (!connectors.length) return <EmptyState titleKey="integrations.empty"><button type="button" onClick={add}>{t("integrations.addFixture")}</button></EmptyState>;
-  const kubernetesConnectors = connectors.filter((item) => item.kind === "kubernetes" && item.enabled);
-  return <div className="integrations">
-    <button type="button" onClick={add}>{t("integrations.addFixture")}</button>
-    <Table captionKey="integrations.tableCaption" columns={[
-      { key: "name", headerKey: "integrations.name" }, { key: "status", headerKey: "integrations.status" }, { key: "actions", headerKey: "integrations.actions" }
-    ]} rows={connectors.map((item) => ({ id: item.id, name: <><strong>{item.display_name}</strong><small>{item.kind}</small></>, status: <StatusIndicator state={item.health_state} />, actions: <div className="connector-actions"><button type="button" onClick={() => act("test", item.id)}>{t("integrations.test")}</button><button type="button" onClick={() => diagnose(item.id)}>{t("integrations.diagnose")}</button><button type="button" onClick={() => act(item.enabled ? "disable" : "enable", item.id)}>{t(item.enabled ? "integrations.disable" : "integrations.enable")}</button><button type="button" onClick={() => act("remove", item.id)}>{t("integrations.remove")}</button></div> }))} />
-    {diagnostics && <Card titleKey="integrations.diagnostics"><p>{t("integrations.capabilities")}: {diagnostics.manifest.capabilities.map((capability) => capability.key).join(", ")}</p><p>{t("integrations.lastSync")}: {diagnostics.connector.last_successful_sync_at ?? t("integrations.never")}</p>{diagnostics.logs.length ? <ul>{diagnostics.logs.map((entry) => <li key={entry.id}><StatusIndicator state={entry.outcome} /> {entry.message}</li>)}</ul> : <p>{t("integrations.noLogs")}</p>}</Card>}
-    {kubernetesConnectors.length > 0 && <KubernetesInspector invoke={invoke} connectors={kubernetesConnectors} />}
-  </div>;
+  if (showAddForm)
+    return <AddConnectorForm onAdd={handleAdd} onCancel={() => setShowAddForm(false)} />;
+  if (!connectors.length)
+    return (
+      <EmptyState titleKey="integrations.empty">
+        <button type="button" onClick={() => setShowAddForm(true)}>
+          {t("integrations.addConnector")}
+        </button>
+      </EmptyState>
+    );
+  const kubernetesConnectors = connectors.filter(
+    (item) => item.kind === "kubernetes" && item.enabled
+  );
+  return (
+    <div className="integrations">
+      <button type="button" onClick={() => setShowAddForm(true)}>
+        {t("integrations.addConnector")}
+      </button>
+      <Table
+        captionKey="integrations.tableCaption"
+        columns={[
+          { key: "name", headerKey: "integrations.name" },
+          { key: "status", headerKey: "integrations.status" },
+          { key: "actions", headerKey: "integrations.actions" }
+        ]}
+        rows={connectors.map((item) => ({
+          id: item.id,
+          name: (
+            <>
+              <strong>{item.display_name}</strong>
+              <small>{item.kind}</small>
+            </>
+          ),
+          status: <StatusIndicator state={item.health_state} />,
+          actions: (
+            <div className="connector-actions">
+              <button type="button" onClick={() => act("test", item.id)}>
+                {t("integrations.test")}
+              </button>
+              <button type="button" onClick={() => diagnose(item.id)}>
+                {t("integrations.diagnose")}
+              </button>
+              <button
+                type="button"
+                onClick={() => act(item.enabled ? "disable" : "enable", item.id)}
+              >
+                {t(item.enabled ? "integrations.disable" : "integrations.enable")}
+              </button>
+              <button type="button" onClick={() => act("remove", item.id)}>
+                {t("integrations.remove")}
+              </button>
+            </div>
+          )
+        }))}
+      />
+      {diagnostics && (
+        <Card titleKey="integrations.diagnostics">
+          <p>
+            {t("integrations.capabilities")}:{" "}
+            {diagnostics.manifest.capabilities.map((capability) => capability.key).join(", ")}
+          </p>
+          <p>
+            {t("integrations.lastSync")}:{" "}
+            {diagnostics.connector.last_successful_sync_at ?? t("integrations.never")}
+          </p>
+          {diagnostics.logs.length ? (
+            <ul>
+              {diagnostics.logs.map((entry) => (
+                <li key={entry.id}>
+                  <StatusIndicator state={entry.outcome} /> {entry.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>{t("integrations.noLogs")}</p>
+          )}
+        </Card>
+      )}
+      {kubernetesConnectors.length > 0 && (
+        <KubernetesInspector invoke={invoke} connectors={kubernetesConnectors} />
+      )}
+    </div>
+  );
 }
 
-const kubernetesEnvelope = <T,>(verb: string, capability: "EnvironmentRead" | "ResourceRead", payload: T): CommandEnvelope<T> => ({
-  request_id: crypto.randomUUID(), command: command("kubernetes", verb), capability, scope: { resource_ids: [] }, payload
+const kubernetesEnvelope = <T,>(
+  verb: string,
+  capability: "EnvironmentRead" | "ResourceRead",
+  payload: T
+): CommandEnvelope<T> => ({
+  request_id: crypto.randomUUID(),
+  command: command("kubernetes", verb),
+  capability,
+  scope: { resource_ids: [] },
+  payload
 });
 
-function KubernetesInspector({ invoke, connectors }: { invoke: Invoke; connectors: ConnectorSummary[] }) {
+function KubernetesInspector({
+  invoke,
+  connectors
+}: {
+  invoke: Invoke;
+  connectors: ConnectorSummary[];
+}) {
   const { t } = useTranslation();
   const [connectorId, setConnectorId] = useState(connectors[0]?.id ?? "");
   const [inventory, setInventory] = useState<KubernetesInventory>();
   const [pod, setPod] = useState<KubernetesResource>();
   const [logs, setLogs] = useState("");
   const [events, setEvents] = useState<KubernetesEvent[]>([]);
-  const [query, setQuery] = useState(""); const [kind, setKind] = useState(""); const [namespace, setNamespace] = useState(""); const [health, setHealth] = useState("");
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("");
+  const [namespace, setNamespace] = useState("");
+  const [health, setHealth] = useState("");
   const [manifest, setManifest] = useState<KubernetesManifest>();
-  const inspect = () => invoke("kubernetes_inventory", { envelope: kubernetesEnvelope("inventory", "EnvironmentRead", { connector_id: connectorId }) })
-    .then((result) => { if (result.ok) { setInventory(result.value as KubernetesInventory); setPod(undefined); setLogs(""); setEvents([]); } });
+  const inspect = () =>
+    invoke("kubernetes_inventory", {
+      envelope: kubernetesEnvelope("inventory", "EnvironmentRead", { connector_id: connectorId })
+    }).then((result) => {
+      if (result.ok) {
+        setInventory(result.value as KubernetesInventory);
+        setPod(undefined);
+        setLogs("");
+        setEvents([]);
+      }
+    });
   const selectPod = (item: KubernetesResource) => {
     const [namespace, name] = item.resource.name.split("/", 2);
-    setPod(item); setLogs(""); setEvents([]);
+    setPod(item);
+    setLogs("");
+    setEvents([]);
     const payload = { connector_id: connectorId, namespace, pod: name };
-    void invoke("kubernetes_pod_logs", { envelope: kubernetesEnvelope("pod_logs", "ResourceRead", payload) }).then((result) => { if (result.ok) setLogs(result.value as string); });
-    void invoke("kubernetes_pod_events", { envelope: kubernetesEnvelope("pod_events", "ResourceRead", payload) }).then((result) => { if (result.ok) setEvents(result.value as KubernetesEvent[]); });
+    void invoke("kubernetes_pod_logs", {
+      envelope: kubernetesEnvelope("pod_logs", "ResourceRead", payload)
+    }).then((result) => {
+      if (result.ok) setLogs(result.value as string);
+    });
+    void invoke("kubernetes_pod_events", {
+      envelope: kubernetesEnvelope("pod_events", "ResourceRead", payload)
+    }).then((result) => {
+      if (result.ok) setEvents(result.value as KubernetesEvent[]);
+    });
   };
-  const parts = (item: KubernetesResource) => item.resource.name.includes("/") ? item.resource.name.split("/", 2) : ["", item.resource.name];
-  const select = (item: KubernetesResource) => { setPod(item); setManifest(undefined); if (item.resource.kind === "Pod") selectPod(item); };
-  const viewManifest = (item: KubernetesResource) => { const [itemNamespace, name] = parts(item); void invoke("kubernetes_resource_manifest", { envelope: kubernetesEnvelope("resource_manifest", "ResourceRead", { connector_id: connectorId, namespace: itemNamespace, kind: item.resource.kind, name }) }).then((result) => { if (result.ok) setManifest(result.value as KubernetesManifest); }); };
-  const copyCommand = (item: KubernetesResource) => { const [itemNamespace, name] = parts(item); const context = String(connectors.find((connector) => connector.id === connectorId)?.config_metadata.context_name ?? ""); const command = item.resource.kind === "Pod" ? `kubectl --context ${context} -n ${itemNamespace} logs ${name} --tail=200` : `kubectl --context ${context}${itemNamespace ? ` -n ${itemNamespace}` : ""} get ${item.resource.kind.toLowerCase()} ${name} -o yaml`; void navigator.clipboard?.writeText(command); };
-  const consoleUrl = (item: KubernetesResource) => { const template = connectors.find((connector) => connector.id === connectorId)?.config_metadata.console_url_template; const [itemNamespace, name] = parts(item); return typeof template === "string" ? template.replaceAll("{namespace}", itemNamespace).replaceAll("{name}", name) : undefined; };
-  return <Card titleKey="kubernetes.title">
-    <label>{t("kubernetes.cluster")} <select value={connectorId} onChange={(event) => setConnectorId(event.target.value)}>{connectors.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
-    <button type="button" onClick={inspect}>{t("kubernetes.inspect")}</button>
-    {inventory && <>{(() => { const resources = inventory.resources.filter((item) => { const [itemNamespace] = parts(item); return item.resource.name.toLowerCase().includes(query.toLowerCase()) && (!kind || item.resource.kind === kind) && (!namespace || itemNamespace === namespace) && (!health || item.health === health); }); const kinds = [...new Set(inventory.resources.map((item) => item.resource.kind))]; const namespaces = [...new Set(inventory.resources.map((item) => parts(item)[0]).filter(Boolean))]; return <><p>{t("kubernetes.availability")}: {inventory.availability.filter((item) => item.available).length}/{inventory.availability.length}</p><label>{t("kubernetes.search")} <input value={query} onChange={(event) => setQuery(event.target.value)} /></label><label>{t("kubernetes.kind")} <select value={kind} onChange={(event) => setKind(event.target.value)}><option value="">{t("kubernetes.all")}</option>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label>{t("kubernetes.namespace")} <select value={namespace} onChange={(event) => setNamespace(event.target.value)}><option value="">{t("kubernetes.all")}</option>{namespaces.map((value) => <option key={value}>{value}</option>)}</select></label><label>{t("kubernetes.health")} <select value={health} onChange={(event) => setHealth(event.target.value)}><option value="">{t("kubernetes.all")}</option>{["healthy", "degraded", "crash_loop_back_off", "oom_killed", "pending"].map((value) => <option key={value}>{value}</option>)}</select></label><h3>{t("kubernetes.hierarchy")}</h3><ul>{resources.map((item) => { const children = inventory.topology.filter((edge) => edge.from_kind === item.resource.kind && edge.from_name === item.resource.name); return <li key={`${item.resource.kind}-${item.resource.name}`}><button type="button" onClick={() => select(item)}>{item.resource.kind}/{item.resource.name}</button> — <StatusIndicator state={item.health === "healthy" ? "healthy" : item.health === "unknown" ? "unavailable" : "degraded"} /> {item.health} {item.replicas && `${item.replicas.ready}/${item.replicas.desired} ${t("kubernetes.replicas")}`}{children.length > 0 && <ul><li>{item.resource.kind === "Service" ? t("kubernetes.servicePods") : t("kubernetes.owner")}: {children.map((edge) => `${edge.to_kind}/${edge.to_name}`).join(", ")}</li></ul>}</li>; })}</ul></>; })()}
-      {pod && <section aria-label={t("kubernetes.podDetails")}><h3>{pod.resource.name}</h3><p>{t("kubernetes.readOnly")}</p><button type="button" onClick={() => viewManifest(pod)}>{t("kubernetes.showManifest")}</button><button type="button" onClick={() => copyCommand(pod)}>{t("kubernetes.copyKubectl")}</button>{consoleUrl(pod) && <button type="button" onClick={() => void open(consoleUrl(pod)!)}>{t("kubernetes.openConsole")}</button>}<p>{t("kubernetes.owner")}: {pod.owner ? `${pod.owner.kind}/${pod.owner.name}` : "—"}</p><ul>{pod.conditions.map((condition) => <li key={condition.type_}>{condition.type_}: {condition.status} {condition.reason ?? ""} {condition.message ?? ""}</li>)}</ul><h4>{t("kubernetes.events")}</h4><ul>{events.map((event, index) => <li key={`${event.reason}-${index}`}>{event.reason}: {event.message}</li>)}</ul><h4>{t("kubernetes.logs")}</h4><pre>{logs}</pre>{manifest && <section aria-label={t("kubernetes.manifest")}>{manifest.masked && <p role="status">{t("kubernetes.sensitiveRedacted")}</p>}<pre>{manifest.yaml}</pre></section>}</section>}
-    </>}
-  </Card>;
+  const parts = (item: KubernetesResource) =>
+    item.resource.name.includes("/") ? item.resource.name.split("/", 2) : ["", item.resource.name];
+  const select = (item: KubernetesResource) => {
+    setPod(item);
+    setManifest(undefined);
+    if (item.resource.kind === "Pod") selectPod(item);
+  };
+  const viewManifest = (item: KubernetesResource) => {
+    const [itemNamespace, name] = parts(item);
+    void invoke("kubernetes_resource_manifest", {
+      envelope: kubernetesEnvelope("resource_manifest", "ResourceRead", {
+        connector_id: connectorId,
+        namespace: itemNamespace,
+        kind: item.resource.kind,
+        name
+      })
+    }).then((result) => {
+      if (result.ok) setManifest(result.value as KubernetesManifest);
+    });
+  };
+  const copyCommand = (item: KubernetesResource) => {
+    const [itemNamespace, name] = parts(item);
+    const context = String(
+      connectors.find((connector) => connector.id === connectorId)?.config_metadata.context_name ??
+        ""
+    );
+    const command =
+      item.resource.kind === "Pod"
+        ? `kubectl --context ${context} -n ${itemNamespace} logs ${name} --tail=200`
+        : `kubectl --context ${context}${itemNamespace ? ` -n ${itemNamespace}` : ""} get ${item.resource.kind.toLowerCase()} ${name} -o yaml`;
+    void navigator.clipboard?.writeText(command);
+  };
+  const consoleUrl = (item: KubernetesResource) => {
+    const template = connectors.find((connector) => connector.id === connectorId)?.config_metadata
+      .console_url_template;
+    const [itemNamespace, name] = parts(item);
+    return typeof template === "string"
+      ? template.replaceAll("{namespace}", itemNamespace).replaceAll("{name}", name)
+      : undefined;
+  };
+  return (
+    <Card titleKey="kubernetes.title">
+      <label>
+        {t("kubernetes.cluster")}{" "}
+        <select value={connectorId} onChange={(event) => setConnectorId(event.target.value)}>
+          {connectors.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.display_name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" onClick={inspect}>
+        {t("kubernetes.inspect")}
+      </button>
+      {inventory && (
+        <>
+          {(() => {
+            const resources = inventory.resources.filter((item) => {
+              const [itemNamespace] = parts(item);
+              return (
+                item.resource.name.toLowerCase().includes(query.toLowerCase()) &&
+                (!kind || item.resource.kind === kind) &&
+                (!namespace || itemNamespace === namespace) &&
+                (!health || item.health === health)
+              );
+            });
+            const kinds = [...new Set(inventory.resources.map((item) => item.resource.kind))];
+            const namespaces = [
+              ...new Set(inventory.resources.map((item) => parts(item)[0]).filter(Boolean))
+            ];
+            return (
+              <>
+                <p>
+                  {t("kubernetes.availability")}:{" "}
+                  {inventory.availability.filter((item) => item.available).length}/
+                  {inventory.availability.length}
+                </p>
+                <label>
+                  {t("kubernetes.search")}{" "}
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} />
+                </label>
+                <label>
+                  {t("kubernetes.kind")}{" "}
+                  <select value={kind} onChange={(event) => setKind(event.target.value)}>
+                    <option value="">{t("kubernetes.all")}</option>
+                    {kinds.map((value) => (
+                      <option key={value}>{value}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t("kubernetes.namespace")}{" "}
+                  <select value={namespace} onChange={(event) => setNamespace(event.target.value)}>
+                    <option value="">{t("kubernetes.all")}</option>
+                    {namespaces.map((value) => (
+                      <option key={value}>{value}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t("kubernetes.health")}{" "}
+                  <select value={health} onChange={(event) => setHealth(event.target.value)}>
+                    <option value="">{t("kubernetes.all")}</option>
+                    {["healthy", "degraded", "crash_loop_back_off", "oom_killed", "pending"].map(
+                      (value) => (
+                        <option key={value}>{value}</option>
+                      )
+                    )}
+                  </select>
+                </label>
+                <h3>{t("kubernetes.hierarchy")}</h3>
+                <ul>
+                  {resources.map((item) => {
+                    const children = inventory.topology.filter(
+                      (edge) =>
+                        edge.from_kind === item.resource.kind &&
+                        edge.from_name === item.resource.name
+                    );
+                    return (
+                      <li key={`${item.resource.kind}-${item.resource.name}`}>
+                        <button type="button" onClick={() => select(item)}>
+                          {item.resource.kind}/{item.resource.name}
+                        </button>{" "}
+                        —{" "}
+                        <StatusIndicator
+                          state={
+                            item.health === "healthy"
+                              ? "healthy"
+                              : item.health === "unknown"
+                                ? "unavailable"
+                                : "degraded"
+                          }
+                        />{" "}
+                        {item.health}{" "}
+                        {item.replicas &&
+                          `${item.replicas.ready}/${item.replicas.desired} ${t("kubernetes.replicas")}`}
+                        {children.length > 0 && (
+                          <ul>
+                            <li>
+                              {item.resource.kind === "Service"
+                                ? t("kubernetes.servicePods")
+                                : t("kubernetes.owner")}
+                              :{" "}
+                              {children.map((edge) => `${edge.to_kind}/${edge.to_name}`).join(", ")}
+                            </li>
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            );
+          })()}
+          {pod && (
+            <section aria-label={t("kubernetes.podDetails")}>
+              <h3>{pod.resource.name}</h3>
+              <p>{t("kubernetes.readOnly")}</p>
+              <button type="button" onClick={() => viewManifest(pod)}>
+                {t("kubernetes.showManifest")}
+              </button>
+              <button type="button" onClick={() => copyCommand(pod)}>
+                {t("kubernetes.copyKubectl")}
+              </button>
+              {consoleUrl(pod) && (
+                <button type="button" onClick={() => void open(consoleUrl(pod)!)}>
+                  {t("kubernetes.openConsole")}
+                </button>
+              )}
+              <p>
+                {t("kubernetes.owner")}: {pod.owner ? `${pod.owner.kind}/${pod.owner.name}` : "—"}
+              </p>
+              <ul>
+                {pod.conditions.map((condition) => (
+                  <li key={condition.type_}>
+                    {condition.type_}: {condition.status} {condition.reason ?? ""}{" "}
+                    {condition.message ?? ""}
+                  </li>
+                ))}
+              </ul>
+              <h4>{t("kubernetes.events")}</h4>
+              <ul>
+                {events.map((event, index) => (
+                  <li key={`${event.reason}-${index}`}>
+                    {event.reason}: {event.message}
+                  </li>
+                ))}
+              </ul>
+              <h4>{t("kubernetes.logs")}</h4>
+              <pre>{logs}</pre>
+              {manifest && (
+                <section aria-label={t("kubernetes.manifest")}>
+                  {manifest.masked && <p role="status">{t("kubernetes.sensitiveRedacted")}</p>}
+                  <pre>{manifest.yaml}</pre>
+                </section>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </Card>
+  );
 }

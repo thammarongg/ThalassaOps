@@ -91,6 +91,44 @@ connector_command!(
     thalassaops::connectors::ConnectorDiagnostics
 );
 
+#[tauri::command]
+async fn prometheus_query(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::prometheus::PrometheusQueryResult>, String> {
+    Ok(state.inner().clone().prometheus_query(envelope).await)
+}
+#[tauri::command]
+async fn prometheus_query_range(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::prometheus::PrometheusQueryResult>, String> {
+    Ok(state.inner().clone().prometheus_query_range(envelope).await)
+}
+
+#[tauri::command]
+async fn alertmanager_alerts(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<Vec<thalassaops::observability::alertmanager::NormalizedAlert>>, String> {
+    Ok(state.inner().clone().alertmanager_alerts(envelope).await)
+}
+
+#[tauri::command]
+async fn grafana_health(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::grafana::GrafanaHealth>, String> {
+    Ok(state.inner().clone().grafana_health(envelope).await)
+}
+#[tauri::command]
+async fn grafana_link(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::grafana::GrafanaLinkResult>, String> {
+    Ok(state.inner().clone().grafana_link(envelope).await)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -112,6 +150,11 @@ fn main() {
             connector_remove,
             connector_test,
             connector_diagnose,
+            prometheus_query,
+            prometheus_query_range,
+            alertmanager_alerts,
+            grafana_health,
+            grafana_link,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,

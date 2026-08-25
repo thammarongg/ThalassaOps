@@ -79,6 +79,7 @@ const en = {
   integrations: {
     loading: "Loading integrations…",
     empty: "No connectors are configured.",
+    addConnector: "Add connector",
     addFixture: "Add fixture connector",
     fixtureName: "Fixture connector",
     tableCaption: "Configured connectors",
@@ -94,7 +95,37 @@ const en = {
     capabilities: "Capabilities",
     lastSync: "Last successful sync",
     never: "Never",
-    noLogs: "No connection tests have been recorded."
+    noLogs: "No connection tests have been recorded.",
+    save: "Save configuration",
+    cancel: "Cancel",
+    kind: "Kind",
+    baseUrl: "Base URL",
+    authMode: "Auth mode",
+    authNone: "None",
+    authBearer: "Bearer token",
+    authBasic: "Basic Auth",
+    username: "Username",
+    credential: "Credential",
+    datasourceUid: "Datasource UID",
+    defaultDashboardUid: "Default Dashboard UID",
+    httpsGuidance: "Use HTTPS for production configurations."
+  },
+  observability: {
+    empty: "No observability connectors are configured.",
+    alertmanager: "Alertmanager",
+    prometheus: "Prometheus",
+    grafana: "Grafana",
+    alerts: "Alerts",
+    state: "State",
+    fingerprint: "Fingerprint",
+    labels: "Labels",
+    runQuery: "Run Query",
+    openDashboard: "Open Dashboard",
+    openExplore: "Open Explore",
+    instant: "Instant",
+    range: "Range",
+    samples: "{{count}} samples",
+    grafanaVersion: "Grafana v{{version}} ({{database}})"
   },
   kubernetes: {
     title: "Kubernetes inspection",
@@ -107,8 +138,21 @@ const en = {
     owner: "Owning workload",
     podDetails: "Pod investigation",
     events: "Events",
-    logs: "Logs"
-    ,search: "Search resources", kind: "Kind", namespace: "Namespace", health: "Health", all: "All", hierarchy: "Resource hierarchy", manifest: "YAML manifest", showManifest: "View manifest", sensitiveRedacted: "Sensitive fields redacted", copyKubectl: "Copy kubectl command", openConsole: "Open in console", readOnly: "Read-only", replicas: "Replicas", servicePods: "Selected pods"
+    logs: "Logs",
+    search: "Search resources",
+    kind: "Kind",
+    namespace: "Namespace",
+    health: "Health",
+    all: "All",
+    hierarchy: "Resource hierarchy",
+    manifest: "YAML manifest",
+    showManifest: "View manifest",
+    sensitiveRedacted: "Sensitive fields redacted",
+    copyKubectl: "Copy kubectl command",
+    openConsole: "Open in console",
+    readOnly: "Read-only",
+    replicas: "Replicas",
+    servicePods: "Selected pods"
   }
 } as const;
 

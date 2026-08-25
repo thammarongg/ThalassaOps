@@ -79,6 +79,7 @@ const th = {
   integrations: {
     loading: "กำลังโหลดการเชื่อมต่อ…",
     empty: "ยังไม่ได้ตั้งค่าตัวเชื่อมต่อ",
+    addConnector: "เพิ่มตัวเชื่อมต่อ",
     addFixture: "เพิ่มตัวเชื่อมต่อทดสอบ",
     fixtureName: "ตัวเชื่อมต่อทดสอบ",
     tableCaption: "ตัวเชื่อมต่อที่ตั้งค่าแล้ว",
@@ -94,7 +95,37 @@ const th = {
     capabilities: "ความสามารถ",
     lastSync: "ซิงก์สำเร็จล่าสุด",
     never: "ไม่เคย",
-    noLogs: "ยังไม่มีการบันทึกการทดสอบการเชื่อมต่อ"
+    noLogs: "ยังไม่มีการบันทึกการทดสอบการเชื่อมต่อ",
+    save: "บันทึกการตั้งค่า",
+    cancel: "ยกเลิก",
+    kind: "ชนิด",
+    baseUrl: "Base URL",
+    authMode: "โหมดการยืนยันตัวตน",
+    authNone: "ไม่มี",
+    authBearer: "Bearer token",
+    authBasic: "Basic Auth",
+    username: "ชื่อผู้ใช้",
+    credential: "รหัสผ่าน / โทเคน",
+    datasourceUid: "Datasource UID",
+    defaultDashboardUid: "Default Dashboard UID",
+    httpsGuidance: "ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง"
+  },
+  observability: {
+    empty: "ยังไม่มีการตั้งค่าตัวเชื่อมต่อการสังเกตการณ์",
+    alertmanager: "Alertmanager",
+    prometheus: "Prometheus",
+    grafana: "Grafana",
+    alerts: "การแจ้งเตือน",
+    state: "สถานะ",
+    fingerprint: "ลายนิ้วมือ",
+    labels: "ป้ายกำกับ",
+    runQuery: "ประมวลผลคำสั่ง",
+    openDashboard: "เปิดแดชบอร์ด",
+    openExplore: "เปิด Explore",
+    instant: "ทันที",
+    range: "ช่วงเวลา",
+    samples: "{{count}} ตัวอย่าง",
+    grafanaVersion: "Grafana v{{version}} ({{database}})"
   },
   kubernetes: {
     title: "ตรวจสอบ Kubernetes",
@@ -108,7 +139,20 @@ const th = {
     podDetails: "ตรวจสอบ Pod",
     events: "เหตุการณ์",
     logs: "บันทึก",
-    search: "ค้นหาทรัพยากร", kind: "ชนิด", namespace: "เนมสเปซ", health: "สถานะสุขภาพ", all: "ทั้งหมด", hierarchy: "ลำดับชั้นทรัพยากร", manifest: "YAML manifest", showManifest: "ดู manifest", sensitiveRedacted: "มีการปกปิดข้อมูลสำคัญ", copyKubectl: "คัดลอกคำสั่ง kubectl", openConsole: "เปิดในคอนโซล", readOnly: "อ่านอย่างเดียว", replicas: "เรพลิกา", servicePods: "พ็อดที่เลือก"
+    search: "ค้นหาทรัพยากร",
+    kind: "ชนิด",
+    namespace: "เนมสเปซ",
+    health: "สถานะสุขภาพ",
+    all: "ทั้งหมด",
+    hierarchy: "ลำดับชั้นทรัพยากร",
+    manifest: "YAML manifest",
+    showManifest: "ดู manifest",
+    sensitiveRedacted: "มีการปกปิดข้อมูลสำคัญ",
+    copyKubectl: "คัดลอกคำสั่ง kubectl",
+    openConsole: "เปิดในคอนโซล",
+    readOnly: "อ่านอย่างเดียว",
+    replicas: "เรพลิกา",
+    servicePods: "พ็อดที่เลือก"
   }
 } as const;
 
