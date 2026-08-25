@@ -145,11 +145,16 @@ pub fn kubectl_command(kind: &str, namespace: Option<&str>, name: &str, context:
 }
 const REDACTED: &str = "<REDACTED>";
 fn sensitive_key(key: &str) -> bool { let key = key.to_ascii_lowercase(); ["password", "secret", "token", "key", "credential"].iter().any(|needle| key.contains(needle)) }
+fn mask_containers(value: &mut serde_json::Value, pointer: &str) -> bool {
+    let mut masked = false;
+    if let Some(containers) = value.pointer_mut(pointer).and_then(serde_json::Value::as_array_mut) { for container in containers { if let Some(env) = container.get_mut("env").and_then(serde_json::Value::as_array_mut) { for entry in env { if entry.get("name").and_then(|item| item.as_str()).is_some_and(sensitive_key) { if let Some(item) = entry.get_mut("value") { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } } } }
+    masked
+}
 pub fn mask_sensitive_manifest(value: &mut serde_json::Value) -> bool {
     let mut masked = false;
     if value.get("kind").and_then(|item| item.as_str()) == Some("Secret") { for field in ["data", "stringData"] { if let Some(object) = value.get_mut(field).and_then(serde_json::Value::as_object_mut) { for item in object.values_mut() { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } }
     if let Some(metadata) = value.get_mut("metadata").and_then(serde_json::Value::as_object_mut) { for field in ["annotations", "labels"] { if let Some(object) = metadata.get_mut(field).and_then(serde_json::Value::as_object_mut) { for (key, item) in object { if sensitive_key(key) { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } } }
-    if let Some(containers) = value.pointer_mut("/spec/containers").and_then(serde_json::Value::as_array_mut) { for container in containers { if let Some(env) = container.get_mut("env").and_then(serde_json::Value::as_array_mut) { for entry in env { if entry.get("name").and_then(|item| item.as_str()).is_some_and(sensitive_key) { if let Some(item) = entry.get_mut("value") { *item = serde_json::Value::String(REDACTED.into()); masked = true; } } } } } }
+    for pointer in ["/spec/containers", "/spec/initContainers", "/spec/ephemeralContainers", "/spec/template/spec/containers", "/spec/template/spec/initContainers", "/spec/template/spec/ephemeralContainers"] { masked |= mask_containers(value, pointer); }
     masked
 }
 
@@ -385,6 +390,12 @@ mod tests {
         assert_eq!(value["stringData"]["token"], REDACTED);
         assert_eq!(value["metadata"]["annotations"]["api-token"], REDACTED);
         assert_eq!(value["metadata"]["name"], "safe");
+    }
+    #[test]
+    fn masking_redacts_sensitive_deployment_container_environment_values() {
+        let mut value = serde_json::json!({"kind":"Deployment","spec":{"template":{"spec":{"containers":[{"name":"api","env":[{"name":"PASSWORD","value":"raw-secret"}]}]}}}});
+        assert!(mask_sensitive_manifest(&mut value));
+        assert_eq!(value["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"], REDACTED);
     }
     #[test]
     fn topology_and_kubectl_commands_are_read_only() {
