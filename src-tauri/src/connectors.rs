@@ -205,7 +205,10 @@ pub fn prometheus_manifest() -> ConnectorManifest {
     use crate::observability::PROMETHEUS_CONNECTOR_KIND;
     ConnectorManifest::new(PROMETHEUS_CONNECTOR_KIND, "Prometheus", "0.1.0")
         .with_capability(ConnectorCapability::read("prometheus.query", ["query"]))
-        .with_capability(ConnectorCapability::read("prometheus.query_range", ["query_range"]))
+        .with_capability(ConnectorCapability::read(
+            "prometheus.query_range",
+            ["query_range"],
+        ))
 }
 
 pub fn alertmanager_manifest() -> ConnectorManifest {
@@ -252,8 +255,8 @@ pub fn add(
 
 fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, ConnectorError> {
     use crate::observability::{
-        ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND,
-        GRAFANA_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND,
+        ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
+        PROMETHEUS_CONNECTOR_KIND,
     };
     match request.kind.as_str() {
         FIXTURE_CONNECTOR_KIND => Ok(None),
@@ -272,9 +275,16 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, 
             let config: ObservabilityConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
                     .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
-            
-            let has_credential = !request.credential_value.as_deref().unwrap_or_default().trim().is_empty();
-            config.validate(has_credential).map_err(ConnectorError::InvalidConfiguration)?;
+
+            let has_credential = !request
+                .credential_value
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty();
+            config
+                .validate(has_credential)
+                .map_err(ConnectorError::InvalidConfiguration)?;
 
             Ok(Some(serde_json::to_value(&config).unwrap()))
         }
@@ -419,10 +429,13 @@ fn fixture_duration(connector: &ConnectorSummary, key: &str, default_ms: u64) ->
     Duration::from_millis(configured_ms.clamp(1, default_ms))
 }
 
-async fn run_connection_test(connector: &ConnectorSummary, store: &dyn CredentialStore) -> ConnectionTestResult {
+async fn run_connection_test(
+    connector: &ConnectorSummary,
+    store: &dyn CredentialStore,
+) -> ConnectionTestResult {
     use crate::observability::{
-        ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND,
-        client::ObservabilityClient,
+        client::ObservabilityClient, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
+        PROMETHEUS_CONNECTOR_KIND,
     };
     if connector.kind == KUBERNETES_CONNECTOR_KIND {
         return kubernetes_connection_test(connector).await;
@@ -437,7 +450,10 @@ async fn run_connection_test(connector: &ConnectorSummary, store: &dyn Credentia
             "/-/ready"
         };
         return match ObservabilityClient::new(connector, store) {
-            Ok(client) => match client.build_url(health_path).and_then(|u| client.prepare_get(u)) {
+            Ok(client) => match client
+                .build_url(health_path)
+                .and_then(|u| client.prepare_get(u))
+            {
                 Ok(req) => match client.execute_empty(req).await {
                     Ok(_) => ConnectionTestResult {
                         outcome: "healthy",
@@ -647,10 +663,13 @@ mod tests {
     async fn fixture_connection_retries_until_a_transient_failure_recovers() {
         let store = InMemoryCredentialStore::default();
         let started = Instant::now();
-        let result = run_connection_test(&fixture(json!({
-            "fails_then_recovers": 2,
-            "fixture_retry_backoff_ms": 5,
-        })), &store)
+        let result = run_connection_test(
+            &fixture(json!({
+                "fails_then_recovers": 2,
+                "fixture_retry_backoff_ms": 5,
+            })),
+            &store,
+        )
         .await;
 
         assert_eq!(result.outcome, "healthy");
@@ -662,11 +681,14 @@ mod tests {
     async fn fixture_connection_stops_after_the_configured_attempt_limit() {
         let store = InMemoryCredentialStore::default();
         let started = Instant::now();
-        let result = run_connection_test(&fixture(json!({
-            "fixture_health": "timeout",
-            "fixture_timeout_ms": 1,
-            "fixture_retry_backoff_ms": 1,
-        })), &store)
+        let result = run_connection_test(
+            &fixture(json!({
+                "fixture_health": "timeout",
+                "fixture_timeout_ms": 1,
+                "fixture_retry_backoff_ms": 1,
+            })),
+            &store,
+        )
         .await;
 
         assert_eq!(result.outcome, "unavailable");

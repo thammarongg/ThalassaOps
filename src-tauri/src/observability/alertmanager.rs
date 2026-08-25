@@ -1,7 +1,7 @@
+use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
 
 #[derive(Debug, Deserialize)]
 pub struct AlertmanagerAlert {
@@ -67,7 +67,9 @@ pub enum AlertmanagerError {
 pub fn resolve_resource_reference(labels: &BTreeMap<String, String>) -> ResourceReference {
     let namespace = labels.get("namespace");
     if namespace.is_none() {
-        return ResourceReference::Unresolved { reason: "missing namespace label".into() };
+        return ResourceReference::Unresolved {
+            reason: "missing namespace label".into(),
+        };
     }
     let namespace = namespace.unwrap().clone();
 
@@ -83,10 +85,14 @@ pub fn resolve_resource_reference(labels: &BTreeMap<String, String>) -> Resource
     }
 
     if targets.is_empty() {
-        return ResourceReference::Unresolved { reason: "missing target label (pod, service, or deployment)".into() };
+        return ResourceReference::Unresolved {
+            reason: "missing target label (pod, service, or deployment)".into(),
+        };
     }
     if targets.len() > 1 {
-        return ResourceReference::Unresolved { reason: "ambiguous resource reference (multiple target labels found)".into() };
+        return ResourceReference::Unresolved {
+            reason: "ambiguous resource reference (multiple target labels found)".into(),
+        };
     }
 
     let (kind, name) = targets.into_iter().next().unwrap();
@@ -101,28 +107,33 @@ pub async fn alerts(
     client: &ObservabilityClient,
     request: AlertmanagerAlertsRequest,
 ) -> Result<Vec<NormalizedAlert>, AlertmanagerError> {
-    let url = client.build_url("/api/v2/alerts").map_err(AlertmanagerError::Client)?;
+    let url = client
+        .build_url("/api/v2/alerts")
+        .map_err(AlertmanagerError::Client)?;
     let req = client.prepare_get(url).map_err(AlertmanagerError::Client)?;
 
     let response: Vec<AlertmanagerAlert> = client.execute_json(req).await?;
 
-    let normalized = response.into_iter().map(|alert| {
-        let resource_reference = resolve_resource_reference(&alert.labels);
-        NormalizedAlert {
-            fingerprint: alert.fingerprint,
-            state: alert.status.state,
-            starts_at: alert.starts_at.to_rfc3339(),
-            ends_at: alert.ends_at.to_rfc3339(),
-            labels: alert.labels,
-            annotations: alert.annotations,
-            generator_url: alert.generator_url,
-            source: AlertSourceReference {
-                connector_id: request.connector_id.clone(),
-                endpoint: "/api/v2/alerts".into(),
-            },
-            resource_reference,
-        }
-    }).collect();
+    let normalized = response
+        .into_iter()
+        .map(|alert| {
+            let resource_reference = resolve_resource_reference(&alert.labels);
+            NormalizedAlert {
+                fingerprint: alert.fingerprint,
+                state: alert.status.state,
+                starts_at: alert.starts_at.to_rfc3339(),
+                ends_at: alert.ends_at.to_rfc3339(),
+                labels: alert.labels,
+                annotations: alert.annotations,
+                generator_url: alert.generator_url,
+                source: AlertSourceReference {
+                    connector_id: request.connector_id.clone(),
+                    endpoint: "/api/v2/alerts".into(),
+                },
+                resource_reference,
+            }
+        })
+        .collect();
 
     Ok(normalized)
 }
@@ -130,8 +141,8 @@ pub async fn alerts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use httpmock::MockServer;
     use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use httpmock::MockServer;
     use serde_json::json;
 
     fn test_connector(base_url: &str) -> ConnectorSummary {
@@ -158,26 +169,34 @@ mod tests {
             when.method("GET").path("/api/v2/alerts");
             then.status(200)
                 .header("content-type", "application/json")
-                .body(json!([
-                    {
-                        "fingerprint": "123",
-                        "status": { "state": "active" },
-                        "startsAt": "2024-01-01T00:00:00Z",
-                        "endsAt": "2024-01-01T01:00:00Z",
-                        "labels": { "alertname": "TestAlert", "severity": "critical" },
-                        "annotations": { "summary": "Test" },
-                        "generatorURL": "http://localhost/graph"
-                    }
-                ]).to_string());
+                .body(
+                    json!([
+                        {
+                            "fingerprint": "123",
+                            "status": { "state": "active" },
+                            "startsAt": "2024-01-01T00:00:00Z",
+                            "endsAt": "2024-01-01T01:00:00Z",
+                            "labels": { "alertname": "TestAlert", "severity": "critical" },
+                            "annotations": { "summary": "Test" },
+                            "generatorURL": "http://localhost/graph"
+                        }
+                    ])
+                    .to_string(),
+                );
         });
 
         let connector = test_connector(&server.url(""));
         let store = InMemoryCredentialStore::default();
         let client = ObservabilityClient::new(&connector, &store).unwrap();
-        
-        let res = alerts(&client, AlertmanagerAlertsRequest {
-            connector_id: "test-am".into(),
-        }).await.unwrap();
+
+        let res = alerts(
+            &client,
+            AlertmanagerAlertsRequest {
+                connector_id: "test-am".into(),
+            },
+        )
+        .await
+        .unwrap();
 
         mock.assert();
         assert_eq!(res.len(), 1);
@@ -190,9 +209,13 @@ mod tests {
         let mut labels = BTreeMap::new();
         labels.insert("namespace".into(), "default".into());
         labels.insert("pod".into(), "my-pod".into());
-        
+
         match resolve_resource_reference(&labels) {
-            ResourceReference::Resolved { namespace, kind, name } => {
+            ResourceReference::Resolved {
+                namespace,
+                kind,
+                name,
+            } => {
                 assert_eq!(namespace, "default");
                 assert_eq!(kind, "Pod");
                 assert_eq!(name, "my-pod");

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct GrafanaHealthResponse {
@@ -38,10 +38,10 @@ pub enum GrafanaError {
     Validation(String),
 }
 
-pub async fn health(
-    client: &ObservabilityClient,
-) -> Result<GrafanaHealth, GrafanaError> {
-    let url = client.build_url("/api/health").map_err(GrafanaError::Client)?;
+pub async fn health(client: &ObservabilityClient) -> Result<GrafanaHealth, GrafanaError> {
+    let url = client
+        .build_url("/api/health")
+        .map_err(GrafanaError::Client)?;
     let req = client.prepare_get(url).map_err(GrafanaError::Client)?;
 
     let response: GrafanaHealthResponse = client.execute_json(req).await?;
@@ -59,18 +59,25 @@ pub fn link(
     default_dashboard_uid: Option<&str>,
 ) -> Result<GrafanaLinkResult, GrafanaError> {
     if request.target != "dashboard" && request.target != "explore" {
-        return Err(GrafanaError::Validation("target must be dashboard or explore".into()));
+        return Err(GrafanaError::Validation(
+            "target must be dashboard or explore".into(),
+        ));
     }
     if request.query.trim().is_empty() {
         return Err(GrafanaError::Validation("query cannot be empty".into()));
     }
     if request.start >= request.end {
-        return Err(GrafanaError::Validation("start time must be before end time".into()));
+        return Err(GrafanaError::Validation(
+            "start time must be before end time".into(),
+        ));
     }
-    
+
     let url = if request.target == "dashboard" {
-        let dash_uid = default_dashboard_uid.ok_or_else(|| GrafanaError::Configuration("missing default_dashboard_uid".into()))?;
-        let mut u = client.build_url(&format!("/d/{}", dash_uid)).map_err(|e| GrafanaError::Validation(e.to_string()))?;
+        let dash_uid = default_dashboard_uid
+            .ok_or_else(|| GrafanaError::Configuration("missing default_dashboard_uid".into()))?;
+        let mut u = client
+            .build_url(&format!("/d/{}", dash_uid))
+            .map_err(|e| GrafanaError::Validation(e.to_string()))?;
         u.query_pairs_mut()
             .append_pair("from", &request.start.timestamp_millis().to_string())
             .append_pair("to", &request.end.timestamp_millis().to_string())
@@ -78,9 +85,12 @@ pub fn link(
         u
     } else {
         // Explore
-        let ds_uid = datasource_uid.ok_or_else(|| GrafanaError::Configuration("missing datasource_uid".into()))?;
-        let mut u = client.build_url("/explore").map_err(|e| GrafanaError::Validation(e.to_string()))?;
-        
+        let ds_uid = datasource_uid
+            .ok_or_else(|| GrafanaError::Configuration("missing datasource_uid".into()))?;
+        let mut u = client
+            .build_url("/explore")
+            .map_err(|e| GrafanaError::Validation(e.to_string()))?;
+
         let left_pane = serde_json::json!({
             "datasource": ds_uid,
             "queries": [
@@ -95,8 +105,9 @@ pub fn link(
                 "to": request.end.timestamp_millis().to_string()
             }
         });
-        
-        u.query_pairs_mut().append_pair("left", &left_pane.to_string());
+
+        u.query_pairs_mut()
+            .append_pair("left", &left_pane.to_string());
         u
     };
 
@@ -108,8 +119,8 @@ pub fn link(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use httpmock::MockServer;
     use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use httpmock::MockServer;
     use serde_json::json;
 
     fn test_connector(base_url: &str) -> ConnectorSummary {
@@ -136,17 +147,20 @@ mod tests {
             when.method("GET").path("/api/health");
             then.status(200)
                 .header("content-type", "application/json")
-                .body(json!({
-                    "database": "ok",
-                    "version": "10.0.0",
-                    "commit": "123"
-                }).to_string());
+                .body(
+                    json!({
+                        "database": "ok",
+                        "version": "10.0.0",
+                        "commit": "123"
+                    })
+                    .to_string(),
+                );
         });
 
         let connector = test_connector(&server.url(""));
         let store = InMemoryCredentialStore::default();
         let client = ObservabilityClient::new(&connector, &store).unwrap();
-        
+
         let res = health(&client).await.unwrap();
 
         mock.assert();

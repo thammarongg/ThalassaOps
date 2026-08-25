@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-pub mod client;
-pub mod prometheus;
 pub mod alertmanager;
+pub mod client;
 pub mod grafana;
+pub mod prometheus;
 
 pub const PROMETHEUS_CONNECTOR_KIND: &str = "prometheus";
 pub const ALERTMANAGER_CONNECTOR_KIND: &str = "alertmanager";
@@ -33,10 +33,10 @@ impl ObservabilityConnectorConfig {
         if self.base_url.trim().is_empty() {
             return Err("base_url is required".into());
         }
-        
+
         let url = reqwest::Url::parse(&self.base_url)
             .map_err(|e| format!("base_url is invalid: {}", e))?;
-        
+
         if url.scheme() == "http" {
             let host = url.host_str().unwrap_or_default();
             if host != "localhost" && host != "127.0.0.1" && host != "::1" {
@@ -79,12 +79,18 @@ impl ObservabilityConnectorConfig {
                 if !has_credential {
                     return Err("credential_value is required for 'basic' auth mode".into());
                 }
-                if self.username.as_deref().unwrap_or_default().trim().is_empty() {
+                if self
+                    .username
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+                {
                     return Err("username is required for 'basic' auth mode".into());
                 }
             }
         }
-        
+
         Ok(())
     }
 }

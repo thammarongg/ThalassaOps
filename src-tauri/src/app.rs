@@ -1,12 +1,12 @@
-use crate::observability::client::ObservabilityClient;
 use crate::connectors::{
     self, AddConnectorRequest, ConnectorDiagnostics, ConnectorError, ConnectorIdRequest,
     ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
 };
 use crate::kubernetes::{
-    client_from_kubeconfig, discover, pod_events, pod_logs, resource_manifest, KubernetesConnectorConfig,
-    KubernetesEvent, KubernetesInventory, KubernetesManifest,
+    client_from_kubeconfig, discover, pod_events, pod_logs, resource_manifest,
+    KubernetesConnectorConfig, KubernetesEvent, KubernetesInventory, KubernetesManifest,
 };
+use crate::observability::client::ObservabilityClient;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -328,9 +328,18 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<crate::observability::prometheus::PrometheusQueryResult> {
-        use crate::observability::{PROMETHEUS_CONNECTOR_KIND, client::ObservabilityClient, prometheus::{self, PrometheusQueryRequest}};
-        
-        let descriptor = CommandDescriptor::new("prometheus", "query", Capability::ResourceRead, thalassa_domain::Permission::Read);
+        use crate::observability::{
+            client::ObservabilityClient,
+            prometheus::{self, PrometheusQueryRequest},
+            PROMETHEUS_CONNECTOR_KIND,
+        };
+
+        let descriptor = CommandDescriptor::new(
+            "prometheus",
+            "query",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
@@ -342,34 +351,69 @@ impl AppState {
                 error: IpcError::permission_denied(descriptor.name.to_string(), envelope.scope),
             };
         }
-        
+
         let req = match serde_json::from_value::<PrometheusQueryRequest>(envelope.payload.clone()) {
             Ok(r) => r,
-            Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
+            Err(e) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(e)),
+                }
+            }
         };
 
         let result = match Connection::open(&self.database_path) {
-            Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
-                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled))
-                    } else {
-                        match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
-                            Ok(client) => prometheus::query(&client, req).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
+            Ok(conn) => {
+                match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
+                    Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
+                        if !connector.enabled
+                            || !self
+                                .policy
+                                .evaluate_egress(EgressRequest::verified(
+                                    DataClass::Internal,
+                                    EgressDestination::ExternalIntegration,
+                                ))
+                                .is_allowed()
+                        {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => prometheus::query(&client, req).await.map_err(|e| {
+                                    AppStateError::Connector(ConnectorError::InvalidConfiguration(
+                                        e.to_string(),
+                                    ))
+                                }),
+                                Err(e) => Err(AppStateError::Connector(
+                                    ConnectorError::InvalidConfiguration(e.to_string()),
+                                )),
+                            }
                         }
                     }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(e) => Err(AppStateError::Connector(e)),
                 }
-                Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
-                Err(e) => Err(AppStateError::Connector(e)),
             }
             Err(e) => Err(AppStateError::Database(e)),
         };
-        
-        if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::Ui)).is_allowed() {
-             return IpcResult::Err {
+
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied prometheus response", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied prometheus response",
+                    json!({}),
+                ),
             };
         }
 
@@ -377,9 +421,16 @@ impl AppState {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied external integration",
+                    json!({}),
+                ),
             },
-            Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
         }
     }
 
@@ -387,9 +438,18 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<crate::observability::prometheus::PrometheusQueryResult> {
-        use crate::observability::{PROMETHEUS_CONNECTOR_KIND, client::ObservabilityClient, prometheus::{self, PrometheusQueryRangeRequest}};
-        
-        let descriptor = CommandDescriptor::new("prometheus", "query_range", Capability::ResourceRead, thalassa_domain::Permission::Read);
+        use crate::observability::{
+            client::ObservabilityClient,
+            prometheus::{self, PrometheusQueryRangeRequest},
+            PROMETHEUS_CONNECTOR_KIND,
+        };
+
+        let descriptor = CommandDescriptor::new(
+            "prometheus",
+            "query_range",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
@@ -402,33 +462,71 @@ impl AppState {
             };
         }
 
-        let req = match serde_json::from_value::<PrometheusQueryRangeRequest>(envelope.payload.clone()) {
-            Ok(r) => r,
-            Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
-        };
-
-        let result = match Connection::open(&self.database_path) {
-            Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
-                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled))
-                    } else {
-                        match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
-                            Ok(client) => prometheus::query_range(&client, req).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                        }
+        let req =
+            match serde_json::from_value::<PrometheusQueryRangeRequest>(envelope.payload.clone()) {
+                Ok(r) => r,
+                Err(e) => {
+                    return IpcResult::Err {
+                        ok: false,
+                        error: ipc_error_for(AppStateError::Serialization(e)),
                     }
                 }
-                Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
-                Err(e) => Err(AppStateError::Connector(e)),
+            };
+
+        let result = match Connection::open(&self.database_path) {
+            Ok(conn) => {
+                match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
+                    Ok(Some(connector)) if connector.kind == PROMETHEUS_CONNECTOR_KIND => {
+                        if !connector.enabled
+                            || !self
+                                .policy
+                                .evaluate_egress(EgressRequest::verified(
+                                    DataClass::Internal,
+                                    EgressDestination::ExternalIntegration,
+                                ))
+                                .is_allowed()
+                        {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => {
+                                    prometheus::query_range(&client, req).await.map_err(|e| {
+                                        AppStateError::Connector(
+                                            ConnectorError::InvalidConfiguration(e.to_string()),
+                                        )
+                                    })
+                                }
+                                Err(e) => Err(AppStateError::Connector(
+                                    ConnectorError::InvalidConfiguration(e.to_string()),
+                                )),
+                            }
+                        }
+                    }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(e) => Err(AppStateError::Connector(e)),
+                }
             }
             Err(e) => Err(AppStateError::Database(e)),
         };
 
-        if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::Ui)).is_allowed() {
-             return IpcResult::Err {
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied prometheus response", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied prometheus response",
+                    json!({}),
+                ),
             };
         }
 
@@ -436,9 +534,16 @@ impl AppState {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied external integration",
+                    json!({}),
+                ),
             },
-            Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
         }
     }
 
@@ -446,11 +551,16 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<Vec<crate::observability::alertmanager::NormalizedAlert>> {
+        use crate::observability::alertmanager::{self, AlertmanagerAlertsRequest};
         use crate::observability::client::ObservabilityClient;
         use crate::observability::ALERTMANAGER_CONNECTOR_KIND;
-        use crate::observability::alertmanager::{self, AlertmanagerAlertsRequest};
-        
-        let descriptor = CommandDescriptor::new("alertmanager", "alerts", Capability::ResourceRead, thalassa_domain::Permission::Read);
+
+        let descriptor = CommandDescriptor::new(
+            "alertmanager",
+            "alerts",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
@@ -463,33 +573,71 @@ impl AppState {
             };
         }
 
-        let req = match serde_json::from_value::<AlertmanagerAlertsRequest>(envelope.payload.clone()) {
-            Ok(r) => r,
-            Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
-        };
-
-        let result = match Connection::open(&self.database_path) {
-            Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == ALERTMANAGER_CONNECTOR_KIND => {
-                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled))
-                    } else {
-                        match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
-                            Ok(client) => alertmanager::alerts(&client, req).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                        }
+        let req =
+            match serde_json::from_value::<AlertmanagerAlertsRequest>(envelope.payload.clone()) {
+                Ok(r) => r,
+                Err(e) => {
+                    return IpcResult::Err {
+                        ok: false,
+                        error: ipc_error_for(AppStateError::Serialization(e)),
                     }
                 }
-                Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
-                Err(e) => Err(AppStateError::Connector(e)),
+            };
+
+        let result = match Connection::open(&self.database_path) {
+            Ok(conn) => {
+                match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
+                    Ok(Some(connector)) if connector.kind == ALERTMANAGER_CONNECTOR_KIND => {
+                        if !connector.enabled
+                            || !self
+                                .policy
+                                .evaluate_egress(EgressRequest::verified(
+                                    DataClass::Internal,
+                                    EgressDestination::ExternalIntegration,
+                                ))
+                                .is_allowed()
+                        {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => {
+                                    alertmanager::alerts(&client, req).await.map_err(|e| {
+                                        AppStateError::Connector(
+                                            ConnectorError::InvalidConfiguration(e.to_string()),
+                                        )
+                                    })
+                                }
+                                Err(e) => Err(AppStateError::Connector(
+                                    ConnectorError::InvalidConfiguration(e.to_string()),
+                                )),
+                            }
+                        }
+                    }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(e) => Err(AppStateError::Connector(e)),
+                }
             }
             Err(e) => Err(AppStateError::Database(e)),
         };
 
-        if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::Ui)).is_allowed() {
-             return IpcResult::Err {
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied alertmanager response", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied alertmanager response",
+                    json!({}),
+                ),
             };
         }
 
@@ -497,9 +645,16 @@ impl AppState {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied external integration",
+                    json!({}),
+                ),
             },
-            Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
         }
     }
 
@@ -507,9 +662,14 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<crate::observability::grafana::GrafanaHealth> {
-        use crate::observability::{GRAFANA_CONNECTOR_KIND, client::ObservabilityClient, grafana};
-        
-        let descriptor = CommandDescriptor::new("grafana", "health", Capability::ResourceRead, thalassa_domain::Permission::Read);
+        use crate::observability::{client::ObservabilityClient, grafana, GRAFANA_CONNECTOR_KIND};
+
+        let descriptor = CommandDescriptor::new(
+            "grafana",
+            "health",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
@@ -524,31 +684,61 @@ impl AppState {
 
         let req = match serde_json::from_value::<ConnectorIdRequest>(envelope.payload.clone()) {
             Ok(r) => r,
-            Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
+            Err(e) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(e)),
+                }
+            }
         };
 
         let result = match Connection::open(&self.database_path) {
             Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.id) {
                 Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND => {
-                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
+                    if !connector.enabled
+                        || !self
+                            .policy
+                            .evaluate_egress(EgressRequest::verified(
+                                DataClass::Internal,
+                                EgressDestination::ExternalIntegration,
+                            ))
+                            .is_allowed()
+                    {
                         Err(AppStateError::Connector(ConnectorError::Disabled))
                     } else {
                         match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
-                            Ok(client) => grafana::health(&client).await.map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
-                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
+                            Ok(client) => grafana::health(&client).await.map_err(|e| {
+                                AppStateError::Connector(ConnectorError::InvalidConfiguration(
+                                    e.to_string(),
+                                ))
+                            }),
+                            Err(e) => Err(AppStateError::Connector(
+                                ConnectorError::InvalidConfiguration(e.to_string()),
+                            )),
                         }
                     }
                 }
                 Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
                 Err(e) => Err(AppStateError::Connector(e)),
-            }
+            },
             Err(e) => Err(AppStateError::Database(e)),
         };
 
-        if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::Ui)).is_allowed() {
-             return IpcResult::Err {
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied grafana response", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied grafana response",
+                    json!({}),
+                ),
             };
         }
 
@@ -556,9 +746,16 @@ impl AppState {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied external integration",
+                    json!({}),
+                ),
             },
-            Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
         }
     }
 
@@ -566,9 +763,17 @@ impl AppState {
         &self,
         envelope: CommandEnvelope<Value>,
     ) -> IpcResult<crate::observability::grafana::GrafanaLinkResult> {
-        use crate::observability::{GRAFANA_CONNECTOR_KIND, grafana::{self, GrafanaLinkRequest}, ObservabilityConnectorConfig};
-        
-        let descriptor = CommandDescriptor::new("grafana", "link", Capability::ResourceRead, thalassa_domain::Permission::Read);
+        use crate::observability::{
+            grafana::{self, GrafanaLinkRequest},
+            ObservabilityConnectorConfig, GRAFANA_CONNECTOR_KIND,
+        };
+
+        let descriptor = CommandDescriptor::new(
+            "grafana",
+            "link",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
@@ -583,38 +788,86 @@ impl AppState {
 
         let req = match serde_json::from_value::<GrafanaLinkRequest>(envelope.payload.clone()) {
             Ok(r) => r,
-            Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
+            Err(e) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(e)),
+                }
+            }
         };
 
         let result = match Connection::open(&self.database_path) {
-            Ok(conn) => match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
-                Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND => {
-                    if !connector.enabled || !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::ExternalIntegration)).is_allowed() {
-                        Err(AppStateError::Connector(ConnectorError::Disabled))
-                    } else {
-                        match ObservabilityClient::new(&connector, self.credential_store.as_ref()) {
-                            Ok(client) => {
-                                let config: ObservabilityConnectorConfig = match serde_json::from_value(connector.config_metadata) {
-                                    Ok(c) => c,
-                                    Err(e) => return IpcResult::Err { ok: false, error: ipc_error_for(AppStateError::Serialization(e)) }
-                                };
-                                grafana::link(req, &client, config.datasource_uid.as_deref(), config.default_dashboard_uid.as_deref())
-                                    .map_err(|e| AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string())))
+            Ok(conn) => {
+                match connectors::get(&conn, self.credential_store.as_ref(), &req.connector_id) {
+                    Ok(Some(connector)) if connector.kind == GRAFANA_CONNECTOR_KIND => {
+                        if !connector.enabled
+                            || !self
+                                .policy
+                                .evaluate_egress(EgressRequest::verified(
+                                    DataClass::Internal,
+                                    EgressDestination::ExternalIntegration,
+                                ))
+                                .is_allowed()
+                        {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => {
+                                    let config: ObservabilityConnectorConfig =
+                                        match serde_json::from_value(connector.config_metadata) {
+                                            Ok(c) => c,
+                                            Err(e) => {
+                                                return IpcResult::Err {
+                                                    ok: false,
+                                                    error: ipc_error_for(
+                                                        AppStateError::Serialization(e),
+                                                    ),
+                                                }
+                                            }
+                                        };
+                                    grafana::link(
+                                        req,
+                                        &client,
+                                        config.datasource_uid.as_deref(),
+                                        config.default_dashboard_uid.as_deref(),
+                                    )
+                                    .map_err(|e| {
+                                        AppStateError::Connector(
+                                            ConnectorError::InvalidConfiguration(e.to_string()),
+                                        )
+                                    })
+                                }
+                                Err(e) => Err(AppStateError::Connector(
+                                    ConnectorError::InvalidConfiguration(e.to_string()),
+                                )),
                             }
-                            Err(e) => Err(AppStateError::Connector(ConnectorError::InvalidConfiguration(e.to_string()))),
                         }
                     }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(e) => Err(AppStateError::Connector(e)),
                 }
-                Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
-                Err(e) => Err(AppStateError::Connector(e)),
             }
             Err(e) => Err(AppStateError::Database(e)),
         };
 
-        if !self.policy.evaluate_egress(EgressRequest::verified(DataClass::Internal, EgressDestination::Ui)).is_allowed() {
-             return IpcResult::Err {
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied grafana response", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied grafana response",
+                    json!({}),
+                ),
             };
         }
 
@@ -622,9 +875,16 @@ impl AppState {
             Ok(value) => IpcResult::Ok { ok: true, value },
             Err(AppStateError::Connector(ConnectorError::Disabled)) => IpcResult::Err {
                 ok: false,
-                error: IpcError::new(IpcErrorCode::PolicyDenied, "policy denied external integration", json!({})),
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied external integration",
+                    json!({}),
+                ),
             },
-            Err(error) => IpcResult::Err { ok: false, error: ipc_error_for(error) },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
         }
     }
 
@@ -679,10 +939,21 @@ impl AppState {
         .await
     }
 
-    pub async fn kubernetes_resource_manifest(&self, envelope: CommandEnvelope<Value>) -> IpcResult<KubernetesManifest> {
-        self.kubernetes_command(envelope, "resource_manifest", Capability::ResourceRead, |client, request| async move {
-            resource_manifest(client, &request.kind, &request.namespace, &request.name).await.map_err(|error| AppStateError::Kubernetes(error.to_string()))
-        }).await
+    pub async fn kubernetes_resource_manifest(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<KubernetesManifest> {
+        self.kubernetes_command(
+            envelope,
+            "resource_manifest",
+            Capability::ResourceRead,
+            |client, request| async move {
+                resource_manifest(client, &request.kind, &request.namespace, &request.name)
+                    .await
+                    .map_err(|error| AppStateError::Kubernetes(error.to_string()))
+            },
+        )
+        .await
     }
 
     async fn kubernetes_command<T, F, Fut>(

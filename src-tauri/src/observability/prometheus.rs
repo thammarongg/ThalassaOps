@@ -1,7 +1,7 @@
+use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
 
 #[derive(Debug, Deserialize)]
 struct PrometheusResponse {
@@ -91,29 +91,41 @@ pub async fn query(
         return Err(PrometheusError::Validation("query cannot be empty".into()));
     }
 
-    let url = client.build_url("/api/v1/query").map_err(PrometheusError::Client)?;
-    let req = client.prepare_get(url.clone())
+    let url = client
+        .build_url("/api/v1/query")
+        .map_err(PrometheusError::Client)?;
+    let req = client
+        .prepare_get(url.clone())
         .map_err(PrometheusError::Client)?
         .query(&[("query", &request.query)]);
 
     let response: PrometheusResponse = client.execute_json(req).await?;
-    
+
     if response.status != "success" {
-        return Err(PrometheusError::Provider("prometheus returned error status".into()));
+        return Err(PrometheusError::Provider(
+            "prometheus returned error status".into(),
+        ));
     }
 
-    let data = response.data.ok_or_else(|| PrometheusError::Provider("missing data field".into()))?;
-    
+    let data = response
+        .data
+        .ok_or_else(|| PrometheusError::Provider("missing data field".into()))?;
+
     let series = match data {
-        PrometheusData::Vector(results) => results.into_iter().map(|res| MetricSeries {
-            labels: res.metric,
-            samples: vec![MetricSample {
-                timestamp: res.value.0,
-                value: res.value.1,
-            }],
-        }).collect(),
+        PrometheusData::Vector(results) => results
+            .into_iter()
+            .map(|res| MetricSeries {
+                labels: res.metric,
+                samples: vec![MetricSample {
+                    timestamp: res.value.0,
+                    value: res.value.1,
+                }],
+            })
+            .collect(),
         PrometheusData::Matrix(_) => {
-            return Err(PrometheusError::Provider("expected vector result for instant query".into()));
+            return Err(PrometheusError::Provider(
+                "expected vector result for instant query".into(),
+            ));
         }
     };
 
@@ -123,7 +135,7 @@ pub async fn query(
             connector_id: request.connector_id,
             query: request.query,
             endpoint: "/api/v1/query".into(),
-        }
+        },
     })
 }
 
@@ -135,14 +147,21 @@ pub async fn query_range(
         return Err(PrometheusError::Validation("query cannot be empty".into()));
     }
     if request.start > request.end {
-        return Err(PrometheusError::Validation("start time must be before end time".into()));
+        return Err(PrometheusError::Validation(
+            "start time must be before end time".into(),
+        ));
     }
     if request.step_seconds == 0 {
-        return Err(PrometheusError::Validation("step_seconds must be positive".into()));
+        return Err(PrometheusError::Validation(
+            "step_seconds must be positive".into(),
+        ));
     }
 
-    let url = client.build_url("/api/v1/query_range").map_err(PrometheusError::Client)?;
-    let req = client.prepare_get(url.clone())
+    let url = client
+        .build_url("/api/v1/query_range")
+        .map_err(PrometheusError::Client)?;
+    let req = client
+        .prepare_get(url.clone())
         .map_err(PrometheusError::Client)?
         .query(&[
             ("query", &request.query),
@@ -154,18 +173,34 @@ pub async fn query_range(
     let response: PrometheusResponse = client.execute_json(req).await?;
 
     if response.status != "success" {
-        return Err(PrometheusError::Provider("prometheus returned error status".into()));
+        return Err(PrometheusError::Provider(
+            "prometheus returned error status".into(),
+        ));
     }
 
-    let data = response.data.ok_or_else(|| PrometheusError::Provider("missing data field".into()))?;
+    let data = response
+        .data
+        .ok_or_else(|| PrometheusError::Provider("missing data field".into()))?;
 
     let series = match data {
-        PrometheusData::Matrix(results) => results.into_iter().map(|res| MetricSeries {
-            labels: res.metric,
-            samples: res.values.into_iter().map(|t| MetricSample { timestamp: t.0, value: t.1 }).collect(),
-        }).collect(),
+        PrometheusData::Matrix(results) => results
+            .into_iter()
+            .map(|res| MetricSeries {
+                labels: res.metric,
+                samples: res
+                    .values
+                    .into_iter()
+                    .map(|t| MetricSample {
+                        timestamp: t.0,
+                        value: t.1,
+                    })
+                    .collect(),
+            })
+            .collect(),
         PrometheusData::Vector(_) => {
-            return Err(PrometheusError::Provider("expected matrix result for range query".into()));
+            return Err(PrometheusError::Provider(
+                "expected matrix result for range query".into(),
+            ));
         }
     };
 
@@ -175,15 +210,15 @@ pub async fn query_range(
             connector_id: request.connector_id,
             query: request.query,
             endpoint: "/api/v1/query_range".into(),
-        }
+        },
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use httpmock::MockServer;
     use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use httpmock::MockServer;
     use serde_json::json;
 
     fn test_connector(base_url: &str) -> ConnectorSummary {
@@ -212,28 +247,36 @@ mod tests {
                 .query_param("query", "up");
             then.status(200)
                 .header("content-type", "application/json")
-                .body(json!({
-                    "status": "success",
-                    "data": {
-                        "resultType": "vector",
-                        "result": [
-                            {
-                                "metric": { "__name__": "up" },
-                                "value": [123.45, "1"]
-                            }
-                        ]
-                    }
-                }).to_string());
+                .body(
+                    json!({
+                        "status": "success",
+                        "data": {
+                            "resultType": "vector",
+                            "result": [
+                                {
+                                    "metric": { "__name__": "up" },
+                                    "value": [123.45, "1"]
+                                }
+                            ]
+                        }
+                    })
+                    .to_string(),
+                );
         });
 
         let connector = test_connector(&server.url(""));
         let store = InMemoryCredentialStore::default();
         let client = ObservabilityClient::new(&connector, &store).unwrap();
-        
-        let res = query(&client, PrometheusQueryRequest {
-            connector_id: "test-prom".into(),
-            query: "up".into(),
-        }).await.unwrap();
+
+        let res = query(
+            &client,
+            PrometheusQueryRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+            },
+        )
+        .await
+        .unwrap();
 
         mock.assert();
         assert_eq!(res.series.len(), 1);
@@ -253,60 +296,95 @@ mod tests {
                 .query_param("step", "60");
             then.status(200)
                 .header("content-type", "application/json")
-                .body(json!({
-                    "status": "success",
-                    "data": {
-                        "resultType": "matrix",
-                        "result": [
-                            {
-                                "metric": { "__name__": "up" },
-                                "values": [[123.45, "1"], [183.45, "1"]]
-                            }
-                        ]
-                    }
-                }).to_string());
+                .body(
+                    json!({
+                        "status": "success",
+                        "data": {
+                            "resultType": "matrix",
+                            "result": [
+                                {
+                                    "metric": { "__name__": "up" },
+                                    "values": [[123.45, "1"], [183.45, "1"]]
+                                }
+                            ]
+                        }
+                    })
+                    .to_string(),
+                );
         });
 
         let connector = test_connector(&server.url(""));
         let store = InMemoryCredentialStore::default();
         let client = ObservabilityClient::new(&connector, &store).unwrap();
-        
+
         use chrono::Utc;
         let start = Utc::now();
         let end = start + std::time::Duration::from_secs(60);
-        let res = query_range(&client, PrometheusQueryRangeRequest {
-            connector_id: "test-prom".into(),
-            query: "up".into(),
-            start,
-            end,
-            step_seconds: 60,
-        }).await.unwrap();
+        let res = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+                start,
+                end,
+                step_seconds: 60,
+            },
+        )
+        .await
+        .unwrap();
 
         mock.assert();
         assert_eq!(res.series.len(), 1);
         assert_eq!(res.series[0].samples.len(), 2);
     }
-    
+
     #[tokio::test]
     async fn test_query_range_invalid() {
         let connector = test_connector("http://localhost");
         let store = InMemoryCredentialStore::default();
         let client = ObservabilityClient::new(&connector, &store).unwrap();
         use chrono::Utc;
-        
-        let err1 = query_range(&client, PrometheusQueryRangeRequest {
-            connector_id: "test-prom".into(), query: "".into(), start: Utc::now(), end: Utc::now(), step_seconds: 60,
-        }).await.unwrap_err();
+
+        let err1 = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "".into(),
+                start: Utc::now(),
+                end: Utc::now(),
+                step_seconds: 60,
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err1, PrometheusError::Validation(_)));
 
-        let err2 = query_range(&client, PrometheusQueryRangeRequest {
-            connector_id: "test-prom".into(), query: "up".into(), start: Utc::now() + std::time::Duration::from_secs(60), end: Utc::now(), step_seconds: 60,
-        }).await.unwrap_err();
+        let err2 = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+                start: Utc::now() + std::time::Duration::from_secs(60),
+                end: Utc::now(),
+                step_seconds: 60,
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err2, PrometheusError::Validation(_)));
 
-        let err3 = query_range(&client, PrometheusQueryRangeRequest {
-            connector_id: "test-prom".into(), query: "up".into(), start: Utc::now(), end: Utc::now() + std::time::Duration::from_secs(60), step_seconds: 0,
-        }).await.unwrap_err();
+        let err3 = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+                start: Utc::now(),
+                end: Utc::now() + std::time::Duration::from_secs(60),
+                step_seconds: 0,
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err3, PrometheusError::Validation(_)));
     }
 }
