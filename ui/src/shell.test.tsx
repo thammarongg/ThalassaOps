@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import { I18nProvider } from "./i18n";
+import { I18nProvider, i18n } from "./i18n";
 import { Shell } from "./shell";
 import { open } from "@tauri-apps/plugin-shell";
 
@@ -123,6 +123,40 @@ it("adds and tests a fixture connector through the integrations IPC commands", a
       envelope: expect.objectContaining({ command: "connector.test", capability: "ConnectorAct" })
     })
   );
+});
+
+it("warns when an observability connector uses HTTP without blocking save", async () => {
+  const user = userEvent.setup();
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list") return Promise.resolve({ ok: true, value: [] });
+    if (name === "connector_add") return Promise.resolve({ ok: true, value: {} });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Integrations" }));
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+  await user.type(screen.getByLabelText("Connector"), "HTTP Prometheus");
+  await user.selectOptions(screen.getByLabelText("Kind"), "prometheus");
+  await user.type(screen.getByLabelText("Base URL"), "https://observability.example.test:9090");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+  await user.clear(screen.getByLabelText("Base URL"));
+  await user.type(screen.getByLabelText("Base URL"), "http://observability.example.test:9090");
+  expect(screen.getByRole("alert")).toHaveTextContent("HTTP");
+  expect(screen.getByRole("alert")).toHaveTextContent("HTTPS");
+  await i18n.changeLanguage("th");
+  expect(screen.getByRole("alert")).toHaveTextContent("อนุญาต");
+  await i18n.changeLanguage("en");
+
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  expect(invoke).toHaveBeenCalledWith("connector_add", expect.anything());
 });
 
 it("filters Kubernetes resources by health and shows a masked manifest banner", async () => {

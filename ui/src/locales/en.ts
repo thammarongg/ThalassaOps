@@ -109,8 +109,8 @@ const en = {
     credential: "Credential",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
-    httpsGuidance:
-      "Use HTTPS for production configurations (HTTP is permitted only for localhost/loopback development)."
+    httpsGuidance: "Use HTTPS for production configurations.",
+    httpWarning: "HTTP endpoints are allowed, but they do not provide HTTPS transport protection."
   },
   observability: {
     empty: "No observability connectors are configured.",

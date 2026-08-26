@@ -37,17 +37,8 @@ impl ObservabilityConnectorConfig {
         let url = reqwest::Url::parse(&self.base_url)
             .map_err(|e| format!("base_url is invalid: {}", e))?;
 
-        if url.scheme() == "http" {
-            let host = url.host_str().unwrap_or_default();
-            let normalized_host = host.trim_start_matches('[').trim_end_matches(']');
-            if normalized_host != "localhost"
-                && normalized_host != "127.0.0.1"
-                && normalized_host != "::1"
-            {
-                return Err("base_url must use https scheme (http is only permitted for localhost/loopback for dev)".into());
-            }
-        } else if url.scheme() != "https" {
-            return Err("base_url must use https scheme".into());
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err("base_url must use http or https scheme".into());
         }
         if !url.username().is_empty() || url.password().is_some() {
             return Err("base_url cannot contain embedded credentials or userinfo".into());
@@ -134,15 +125,42 @@ mod tests {
     }
 
     #[test]
-    fn allows_http_ipv6_loopback() {
-        let config = ObservabilityConnectorConfig {
-            base_url: "http://[::1]:9090".into(),
-            auth_mode: ObservabilityAuthMode::None,
-            username: None,
-            datasource_uid: None,
-            default_dashboard_uid: None,
-        };
+    fn allows_http_and_https_endpoints_for_any_host() {
+        for base_url in [
+            "http://observability.example.test:9090",
+            "http://localhost:9090",
+            "http://[::1]:9090",
+            "https://observability.example.test:9090",
+        ] {
+            let config = ObservabilityConnectorConfig {
+                base_url: base_url.into(),
+                auth_mode: ObservabilityAuthMode::None,
+                username: None,
+                datasource_uid: None,
+                default_dashboard_uid: None,
+            };
 
-        assert!(config.validate(None).is_ok());
+            assert!(config.validate(None).is_ok(), "{base_url}");
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_schemes_and_url_components() {
+        for base_url in [
+            "ftp://observability.example.test",
+            "https://user:password@observability.example.test",
+            "https://observability.example.test?query=value",
+            "https://observability.example.test#fragment",
+        ] {
+            let config = ObservabilityConnectorConfig {
+                base_url: base_url.into(),
+                auth_mode: ObservabilityAuthMode::None,
+                username: None,
+                datasource_uid: None,
+                default_dashboard_uid: None,
+            };
+
+            assert!(config.validate(None).is_err(), "{base_url}");
+        }
     }
 }

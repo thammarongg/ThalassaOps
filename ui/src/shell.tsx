@@ -295,6 +295,13 @@ function AddConnectorForm({
   const [defaultDashboardUid, setDefaultDashboardUid] = useState("");
   const credentialRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
+  const showHttpWarning = useMemo(() => {
+    try {
+      return new URL(baseUrl).protocol === "http:";
+    } catch {
+      return false;
+    }
+  }, [baseUrl]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -363,6 +370,7 @@ function AddConnectorForm({
       {kind !== "fixture" && (
         <>
           <p>{t("integrations.httpsGuidance")}</p>
+          {showHttpWarning && <p role="alert">{t("integrations.httpWarning")}</p>}
           <label>
             {t("integrations.baseUrl")}{" "}
             <input

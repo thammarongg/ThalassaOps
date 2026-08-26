@@ -109,8 +109,8 @@ const th = {
     credential: "รหัสผ่าน / โทเคน",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
-    httpsGuidance:
-      "ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง (อนุญาต HTTP สำหรับ localhost/loopback ในการพัฒนาเท่านั้น)"
+    httpsGuidance: "แนะนำให้ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง",
+    httpWarning: "อนุญาตปลายทางแบบ HTTP แต่จะไม่มีการป้องกันการรับส่งข้อมูลแบบ HTTPS"
   },
   observability: {
     empty: "ยังไม่มีการตั้งค่าตัวเชื่อมต่อการสังเกตการณ์",
