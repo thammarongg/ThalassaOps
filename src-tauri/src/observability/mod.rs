@@ -6,6 +6,7 @@ pub mod grafana;
 pub mod loki;
 pub mod masking;
 pub mod prometheus;
+pub mod tempo;
 
 pub const PROMETHEUS_CONNECTOR_KIND: &str = "prometheus";
 pub const ALERTMANAGER_CONNECTOR_KIND: &str = "alertmanager";

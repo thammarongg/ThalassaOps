@@ -99,6 +99,20 @@ export type LogStream = { labels: Record<string, string>; entries: LogEntry[] };
 export type LogSourceReference = { connector_id: string; query: string; endpoint: string };
 export type LokiQueryResult = { streams: LogStream[]; source: LogSourceReference; unparsed_count: number };
 
+export type SpanSummary = {
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string | null;
+  name: string;
+  service_name: string;
+  start_time_unix_nano: string;
+  duration_nano: string;
+  status: string;
+  attributes: Record<string, string>;
+};
+export type TraceSourceReference = { connector_id: string; trace_id: string; endpoint: string };
+export type TraceResult = { trace_id: string; spans: SpanSummary[]; source: TraceSourceReference };
+
 export type ResourceReference =
   | { resolved: { namespace: string; kind: string; name: string } }
   | { unresolved: { reason: string } };
@@ -123,6 +137,8 @@ export type AlertmanagerAlertsRequest = { connector_id: string };
 export type PrometheusQueryRequest = { connector_id: string; query: string };
 export type PrometheusQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; step_seconds: number };
 export type LokiQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; limit: number };
+export type TempoTraceRequest = { connector_id: string; trace_id: string };
+export type TempoHealthRequest = { id: string };
 export type GrafanaHealthRequest = { id: string };
 
 export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;

@@ -602,6 +602,188 @@ impl AppState {
         }
     }
 
+    pub async fn tempo_trace(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<crate::observability::tempo::TraceResult> {
+        use crate::observability::{
+            client::ObservabilityClient,
+            tempo::{self, TempoTraceRequest},
+            TEMPO_CONNECTOR_KIND,
+        };
+
+        let descriptor = CommandDescriptor::new(
+            "tempo",
+            "trace",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
+        if let Err(error) = self.authorize_observability(&envelope, &descriptor) {
+            return IpcResult::Err { ok: false, error };
+        }
+
+        let req = match serde_json::from_value::<TempoTraceRequest>(envelope.payload.clone()) {
+            Ok(request) => request,
+            Err(error) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(error)),
+                }
+            }
+        };
+
+        let result = match Connection::open(&self.database_path) {
+            Ok(connection) => {
+                match connectors::get(
+                    &connection,
+                    self.credential_store.as_ref(),
+                    &req.connector_id,
+                ) {
+                    Ok(Some(connector)) if connector.kind == TEMPO_CONNECTOR_KIND => {
+                        if !connector.enabled {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else if !self
+                            .policy
+                            .evaluate_egress(EgressRequest::verified(
+                                DataClass::Internal,
+                                EgressDestination::ExternalIntegration,
+                            ))
+                            .is_allowed()
+                        {
+                            Err(AppStateError::PolicyDenied)
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => tempo::trace(&client, req)
+                                    .await
+                                    .map_err(AppStateError::from),
+                                Err(error) => Err(AppStateError::ObservabilityClient(error)),
+                            }
+                        }
+                    }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(error) => Err(AppStateError::Connector(error)),
+                }
+            }
+            Err(error) => Err(AppStateError::Database(error)),
+        };
+
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied Tempo response",
+                    json!({}),
+                ),
+            };
+        }
+
+        match result {
+            Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
+    }
+
+    pub async fn tempo_health(&self, envelope: CommandEnvelope<Value>) -> IpcResult<()> {
+        use crate::observability::{client::ObservabilityClient, tempo, TEMPO_CONNECTOR_KIND};
+
+        let descriptor = CommandDescriptor::new(
+            "tempo",
+            "health",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
+        if let Err(error) = self.authorize_observability(&envelope, &descriptor) {
+            return IpcResult::Err { ok: false, error };
+        }
+
+        let req = match serde_json::from_value::<ConnectorIdRequest>(envelope.payload.clone()) {
+            Ok(request) => request,
+            Err(error) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(error)),
+                }
+            }
+        };
+
+        let result = match Connection::open(&self.database_path) {
+            Ok(connection) => {
+                match connectors::get(&connection, self.credential_store.as_ref(), &req.id) {
+                    Ok(Some(connector)) if connector.kind == TEMPO_CONNECTOR_KIND => {
+                        if !connector.enabled {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else if !self
+                            .policy
+                            .evaluate_egress(EgressRequest::verified(
+                                DataClass::Internal,
+                                EgressDestination::ExternalIntegration,
+                            ))
+                            .is_allowed()
+                        {
+                            Err(AppStateError::PolicyDenied)
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => {
+                                    tempo::health(&client).await.map_err(AppStateError::from)
+                                }
+                                Err(error) => Err(AppStateError::ObservabilityClient(error)),
+                            }
+                        }
+                    }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(error) => Err(AppStateError::Connector(error)),
+                }
+            }
+            Err(error) => Err(AppStateError::Database(error)),
+        };
+
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied Tempo response",
+                    json!({}),
+                ),
+            };
+        }
+
+        match result {
+            Ok(()) => IpcResult::Ok {
+                ok: true,
+                value: (),
+            },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
+    }
+
     pub async fn alertmanager_alerts(
         &self,
         envelope: CommandEnvelope<Value>,
@@ -1319,6 +1501,8 @@ pub enum AppStateError {
     Grafana(#[from] crate::observability::grafana::GrafanaError),
     #[error("loki error: {0}")]
     Loki(#[from] crate::observability::loki::LokiError),
+    #[error("tempo error: {0}")]
+    Tempo(#[from] crate::observability::tempo::TempoError),
     #[error("policy denied")]
     PolicyDenied,
     #[error("kubernetes error: {0}")]
@@ -1358,6 +1542,7 @@ fn ipc_error_for(error: AppStateError) -> IpcError {
         )
         | AppStateError::Grafana(crate::observability::grafana::GrafanaError::Client(err))
         | AppStateError::Loki(crate::observability::loki::LokiError::Client(err))
+        | AppStateError::Tempo(crate::observability::tempo::TempoError::Client(err))
         | AppStateError::ObservabilityClient(err) => match err {
             crate::observability::client::ObservabilityClientError::MalformedResponse => {
                 IpcError::new(
@@ -1392,6 +1577,16 @@ fn ipc_error_for(error: AppStateError) -> IpcError {
             "malformed response from provider",
             json!({}),
         ),
+        AppStateError::Tempo(crate::observability::tempo::TempoError::Validation(_)) => {
+            IpcError::new(IpcErrorCode::InvalidRequest, "invalid request", json!({}))
+        }
+        AppStateError::Tempo(crate::observability::tempo::TempoError::Provider(_)) => {
+            IpcError::new(
+                IpcErrorCode::MalformedResponse,
+                "malformed response from provider",
+                json!({}),
+            )
+        }
         _ => IpcError::new(
             IpcErrorCode::InternalError,
             "connector operation failed",
@@ -2648,5 +2843,309 @@ mod tests {
         );
         assert_eq!(value.unparsed_count, 0);
         query_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn tempo_commands_enforce_authorization_and_return_allow_listed_data() {
+        let (_directory, mut state) = test_state();
+        let server = MockServer::start();
+        let tempo = add_observability_connector(
+            &state,
+            "tempo",
+            &server.url(""),
+            "bearer",
+            Some("tempo-secret"),
+        );
+        let wrong_kind = add_observability_connector(&state, "loki", &server.url(""), "none", None);
+        let trace_id = "4bf92f3577b34da6a3ce929d0e0e4736";
+        let trace = |connector_id: &str| {
+            json!({
+                "connector_id": connector_id,
+                "trace_id": trace_id,
+            })
+        };
+        let health = |connector_id: &str| json!({ "id": connector_id });
+
+        let response = json!({
+            "trace": {
+                "resourceSpans": [{
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "api"}}
+                    ]
+                },
+                "scopeSpans": [{
+                    "spans": [{
+                        "traceId": trace_id,
+                        "spanId": "0123456789abcdef",
+                        "name": "GET /orders",
+                        "startTimeUnixNano": "1735689600000000000",
+                        "endTimeUnixNano": "1735689600000000123",
+                        "attributes": [
+                            {"key": "http.status_code", "value": {"intValue": "200"}},
+                            {"key": "http.url", "value": {"stringValue": "https://api.test/orders?token=tempo-secret"}},
+                            {"key": "db.statement", "value": {"stringValue": "select * from users"}},
+                            {"key": "app.customer_email", "value": {"stringValue": "alice@example.test"}}
+                        ],
+                        "status": {"code": "STATUS_CODE_OK"}
+                    }]
+                }]
+                }]
+            }
+        });
+        let trace_mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/api/traces/4bf92f3577b34da6a3ce929d0e0e4736")
+                .header("Authorization", "Bearer tempo-secret");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(response.to_string());
+        });
+        let health_mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/ready")
+                .header("Authorization", "Bearer tempo-secret");
+            then.status(200).body("ready");
+        });
+
+        let wrong_command = observability_envelope(
+            &state,
+            "tempo",
+            "health",
+            Capability::ResourceRead,
+            trace(&tempo.id),
+        );
+        assert_error_code(
+            state.tempo_trace(wrong_command).await,
+            IpcErrorCode::PermissionDenied,
+        );
+        let wrong_command = observability_envelope(
+            &state,
+            "tempo",
+            "trace",
+            Capability::ResourceRead,
+            health(&tempo.id),
+        );
+        assert_error_code(
+            state.tempo_health(wrong_command).await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        let mut wrong_capability = observability_envelope(
+            &state,
+            "tempo",
+            "trace",
+            Capability::ResourceRead,
+            trace(&tempo.id),
+        );
+        wrong_capability.capability = Capability::WorkspaceRead;
+        assert_error_code(
+            state.tempo_trace(wrong_capability).await,
+            IpcErrorCode::PermissionDenied,
+        );
+        let mut wrong_capability = observability_envelope(
+            &state,
+            "tempo",
+            "health",
+            Capability::ResourceRead,
+            health(&tempo.id),
+        );
+        wrong_capability.capability = Capability::WorkspaceRead;
+        assert_error_code(
+            state.tempo_health(wrong_capability).await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        let bounded_scope = ResourceScope::workspace(
+            state.bootstrap.workspace.id,
+            state.bootstrap.team.id,
+            state.bootstrap.organization.id,
+        );
+        assert_error_code(
+            state
+                .tempo_trace(observability_envelope_with_scope(
+                    bounded_scope.clone(),
+                    "tempo",
+                    "trace",
+                    Capability::ResourceRead,
+                    trace(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+        assert_error_code(
+            state
+                .tempo_health(observability_envelope_with_scope(
+                    bounded_scope,
+                    "tempo",
+                    "health",
+                    Capability::ResourceRead,
+                    health(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        state.bootstrap.membership.status = MembershipStatus::Suspended;
+        assert_error_code(
+            state
+                .tempo_trace(observability_envelope(
+                    &state,
+                    "tempo",
+                    "trace",
+                    Capability::ResourceRead,
+                    trace(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+        assert_error_code(
+            state
+                .tempo_health(observability_envelope(
+                    &state,
+                    "tempo",
+                    "health",
+                    Capability::ResourceRead,
+                    health(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+        state.bootstrap.membership.status = MembershipStatus::Active;
+
+        assert_error_code(
+            state
+                .tempo_trace(observability_envelope(
+                    &state,
+                    "tempo",
+                    "trace",
+                    Capability::ResourceRead,
+                    trace(&wrong_kind.id),
+                ))
+                .await,
+            IpcErrorCode::NotFound,
+        );
+        assert_error_code(
+            state
+                .tempo_health(observability_envelope(
+                    &state,
+                    "tempo",
+                    "health",
+                    Capability::ResourceRead,
+                    health(&wrong_kind.id),
+                ))
+                .await,
+            IpcErrorCode::NotFound,
+        );
+
+        state.policy = PolicyRuntime::load(
+            PolicyDocument::baseline(2).with_external_integration_data_classes(vec![]),
+        )
+        .unwrap();
+        assert_error_code(
+            state
+                .tempo_trace(observability_envelope(
+                    &state,
+                    "tempo",
+                    "trace",
+                    Capability::ResourceRead,
+                    trace(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PolicyDenied,
+        );
+        assert_error_code(
+            state
+                .tempo_health(observability_envelope(
+                    &state,
+                    "tempo",
+                    "health",
+                    Capability::ResourceRead,
+                    health(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::PolicyDenied,
+        );
+        state.policy = PolicyRuntime::baseline();
+
+        assert!(matches!(
+            state.connector_disable(connector_envelope(
+                &state,
+                "disable",
+                Capability::ConnectorAct,
+                json!({ "id": tempo.id }),
+            )),
+            IpcResult::Ok { .. }
+        ));
+        assert_error_code(
+            state
+                .tempo_trace(observability_envelope(
+                    &state,
+                    "tempo",
+                    "trace",
+                    Capability::ResourceRead,
+                    trace(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::ConnectorUnavailable,
+        );
+        assert_error_code(
+            state
+                .tempo_health(observability_envelope(
+                    &state,
+                    "tempo",
+                    "health",
+                    Capability::ResourceRead,
+                    health(&tempo.id),
+                ))
+                .await,
+            IpcErrorCode::ConnectorUnavailable,
+        );
+        assert!(matches!(
+            state.connector_enable(connector_envelope(
+                &state,
+                "enable",
+                Capability::ConnectorAct,
+                json!({ "id": tempo.id }),
+            )),
+            IpcResult::Ok { .. }
+        ));
+
+        let trace_result = state
+            .tempo_trace(observability_envelope(
+                &state,
+                "tempo",
+                "trace",
+                Capability::ResourceRead,
+                trace(&tempo.id),
+            ))
+            .await;
+        assert_result_has_no_secret_or_credential_reference(&trace_result, "tempo-secret");
+        let serialized = serde_json::to_string(&trace_result).unwrap();
+        assert!(!serialized.contains("tempo-secret"));
+        assert!(!serialized.contains("http.url"));
+        assert!(!serialized.contains("db.statement"));
+        assert!(!serialized.contains("app.customer_email"));
+        let IpcResult::Ok { value, .. } = trace_result else {
+            panic!("Tempo trace should succeed")
+        };
+        assert_eq!(value.spans[0].service_name, "api");
+        assert_eq!(value.spans[0].duration_nano, "123");
+        assert_eq!(value.spans[0].status, "STATUS_CODE_OK");
+        assert_eq!(value.spans[0].attributes["http.status_code"], "200");
+
+        let health_result = state
+            .tempo_health(observability_envelope(
+                &state,
+                "tempo",
+                "health",
+                Capability::ResourceRead,
+                health(&tempo.id),
+            ))
+            .await;
+        assert_result_has_no_secret_or_credential_reference(&health_result, "tempo-secret");
+        assert!(matches!(health_result, IpcResult::Ok { .. }));
+        trace_mock.assert();
+        health_mock.assert();
     }
 }

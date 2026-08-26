@@ -126,6 +126,22 @@ async fn loki_query_range(
 }
 
 #[tauri::command]
+async fn tempo_trace(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::tempo::TraceResult>, String> {
+    Ok(state.inner().clone().tempo_trace(envelope).await)
+}
+
+#[tauri::command]
+async fn tempo_health(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<()>, String> {
+    Ok(state.inner().clone().tempo_health(envelope).await)
+}
+
+#[tauri::command]
 async fn alertmanager_alerts(
     envelope: CommandEnvelope<serde_json::Value>,
     state: tauri::State<'_, thalassaops::app::AppState>,
@@ -179,6 +195,8 @@ fn main() {
             prometheus_query,
             prometheus_query_range,
             loki_query_range,
+            tempo_trace,
+            tempo_health,
             alertmanager_alerts,
             grafana_health,
             grafana_link,
