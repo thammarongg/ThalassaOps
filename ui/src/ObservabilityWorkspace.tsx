@@ -1,22 +1,15 @@
-import React, { useState, useEffect } from "react";
-import type {
-  ConnectorSummary,
-  NormalizedAlert,
-  PrometheusQueryResult,
-  GrafanaHealth,
-  GrafanaLinkResult,
-  Invoke,
-  AlertmanagerAlertsRequest,
-  PrometheusQueryRequest,
-  PrometheusQueryRangeRequest,
-  GrafanaHealthRequest,
-  GrafanaLinkRequest,
-  ResourceReference
-} from "../contracts/ipc";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ConnectorSummary, Invoke, NormalizedAlert } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
-import { Card, EmptyState, Table } from "./design-system/components";
+import { EmptyState } from "./design-system/components";
 import { useTranslation } from "./i18n";
-import { open } from "@tauri-apps/plugin-shell";
+import { AlertsPanel } from "./observability/AlertsPanel";
+import { GrafanaPanel } from "./observability/GrafanaPanel";
+import { LogsPanel } from "./observability/LogsPanel";
+import { MetricsPanel } from "./observability/MetricsPanel";
+import { TimeRangeControl } from "./observability/TimeRangeControl";
+import { TracePanel } from "./observability/TracePanel";
+import { timeContextFromAlert, type TimeContext } from "./observability/timeContext";
 
 const mapIpcError = (err: unknown, t: (key: string) => string) => {
   const e = err as Record<string, unknown>;
@@ -32,14 +25,48 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAlert, setSelectedAlert] = useState<NormalizedAlert>();
+  const [timeContext, setTimeContext] = useState<TimeContext>();
   const [metricContext, setMetricContext] = useState<{
     query: string;
     type: string;
     start?: string;
     end?: string;
   }>();
+  const [logTraceIds, setLogTraceIds] = useState<string[] | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string>();
+  const [investigationRevision, setInvestigationRevision] = useState(0);
+  const investigationRevisionRef = useRef(0);
 
   const [error, setError] = useState("");
+  const invalidateInvestigation = useCallback(() => {
+    investigationRevisionRef.current += 1;
+    setInvestigationRevision(investigationRevisionRef.current);
+    setMetricContext(undefined);
+    setLogTraceIds(null);
+    setSelectedTraceId(undefined);
+  }, []);
+
+  const handleMetricContext = useCallback(
+    (
+      revision: number,
+      metricContext: { query: string; type: string; start?: string; end?: string }
+    ) => {
+      if (revision !== investigationRevisionRef.current) return;
+      setMetricContext(metricContext);
+    },
+    []
+  );
+
+  const handleLogTraceIds = useCallback((revision: number, traceIds: string[] | null) => {
+    if (revision !== investigationRevisionRef.current) return;
+    setLogTraceIds(traceIds);
+    setSelectedTraceId(undefined);
+  }, []);
+
+  const handleTraceSelect = useCallback((revision: number, traceId: string) => {
+    if (revision !== investigationRevisionRef.current) return;
+    setSelectedTraceId(traceId);
+  }, []);
 
   useEffect(() => {
     invoke<null, ConnectorSummary[]>("connector_list", {
@@ -56,7 +83,9 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
           const all = result.value;
           setConnectors(
             all.filter(
-              (c) => ["prometheus", "alertmanager", "grafana"].includes(c.kind) && c.enabled
+              (c) =>
+                ["prometheus", "alertmanager", "grafana", "loki", "tempo"].includes(c.kind) &&
+                c.enabled
             )
           );
         } else {
@@ -79,30 +108,54 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   const am = connectors.filter((c) => c.kind === "alertmanager");
   const prom = connectors.filter((c) => c.kind === "prometheus");
   const graf = connectors.filter((c) => c.kind === "grafana");
+  const loki = connectors.filter((c) => c.kind === "loki");
+  const tempo = connectors.filter((c) => c.kind === "tempo");
+
+  const selectAlert = (alert: NormalizedAlert) => {
+    setSelectedAlert(alert);
+    setTimeContext(timeContextFromAlert(alert, new Date()));
+    invalidateInvestigation();
+  };
+
+  const handleTimeContextChange = (nextTimeContext: TimeContext) => {
+    setTimeContext(nextTimeContext);
+    invalidateInvestigation();
+  };
 
   return (
     <div className="observability-workspace">
+      {timeContext && (
+        <div>
+          <TimeRangeControl timeContext={timeContext} onChange={handleTimeContextChange} />
+          {timeContext.source === "manual" && (
+            <p role="status">{t("observability.manualTimeContext")}</p>
+          )}
+        </div>
+      )}
       <section aria-label={t("observability.alertmanager")}>
         <h2>{t("observability.alertmanager")}</h2>
         {am.map((c) => (
-          <AlertmanagerPanel
+          <AlertsPanel
             key={c.id}
             connector={c}
             invoke={invoke}
             selectedAlert={selectedAlert}
-            onSelectAlert={setSelectedAlert}
+            onSelectAlert={selectAlert}
+            timeContext={timeContext}
           />
         ))}
       </section>
       <section aria-label={t("observability.prometheus")}>
         <h2>{t("observability.prometheus")}</h2>
         {prom.map((c) => (
-          <PrometheusPanel
+          <MetricsPanel
             key={c.id}
             connector={c}
             invoke={invoke}
-            onMetricContext={setMetricContext}
+            onMetricContext={handleMetricContext}
             selectedAlert={selectedAlert}
+            timeContext={timeContext}
+            resetKey={investigationRevision}
           />
         ))}
       </section>
@@ -115,394 +168,40 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             invoke={invoke}
             metricContext={metricContext}
             selectedAlert={selectedAlert}
+            timeContext={timeContext}
+            resetKey={investigationRevision}
+          />
+        ))}
+      </section>
+      <section aria-label={t("observability.loki")}>
+        <h2>{t("observability.loki")}</h2>
+        {loki.map((c) => (
+          <LogsPanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            selectedAlert={selectedAlert}
+            timeContext={timeContext}
+            onTraceIdsChange={handleLogTraceIds}
+            onTraceSelect={handleTraceSelect}
+            resetKey={investigationRevision}
+          />
+        ))}
+      </section>
+      <section aria-label={t("observability.tempo")}>
+        <h2>{t("observability.tempo")}</h2>
+        {tempo.map((c) => (
+          <TracePanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            timeContext={timeContext}
+            traceId={selectedTraceId}
+            traceIds={logTraceIds}
+            resetKey={investigationRevision}
           />
         ))}
       </section>
     </div>
-  );
-}
-
-function AlertmanagerPanel({
-  connector,
-  invoke,
-  selectedAlert,
-  onSelectAlert
-}: {
-  connector: ConnectorSummary;
-  invoke: Invoke;
-  selectedAlert?: NormalizedAlert;
-  onSelectAlert: (alert: NormalizedAlert) => void;
-}) {
-  const { t } = useTranslation();
-  const [alerts, setAlerts] = useState<NormalizedAlert[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    invoke<AlertmanagerAlertsRequest, NormalizedAlert[]>("alertmanager_alerts", {
-      envelope: {
-        request_id: crypto.randomUUID(),
-        command: command("alertmanager", "alerts"),
-        capability: "ResourceRead",
-        scope: { resource_ids: [] },
-        payload: { connector_id: connector.id }
-      }
-    })
-      .then((res) => {
-        if (res.ok) setAlerts(res.value);
-        else setError(mapIpcError(res.error, t));
-      })
-      .catch((err) => setError(mapIpcError(err, t)))
-      .finally(() => setLoading(false));
-  }, [connector, invoke, t]);
-
-  const renderResource = (ref: ResourceReference) => {
-    if ("resolved" in ref) {
-      const r = ref.resolved;
-      return `${r.kind} ${r.namespace}/${r.name}`;
-    }
-    return t("observability.unresolved", { reason: ref.unresolved.reason });
-  };
-
-  return (
-    <Card titleKey="observability.alertmanager">
-      <h3>{connector.display_name}</h3>
-      {loading && <p role="status">{t("integrations.loading")}</p>}
-      {!loading && error && (
-        <p role="status" className="error">
-          {error}
-        </p>
-      )}
-      {!loading && !error && alerts.length === 0 && <p>{t("observability.empty")}</p>}
-      {!loading && !error && alerts.length > 0 && (
-        <Table
-          captionKey="observability.alerts"
-          columns={[
-            { key: "select", headerKey: "observability.state" }, // Reuse state header space or something, wait we can just add a blank header or use 'state' for the first col
-            { key: "state", headerKey: "observability.state" },
-            { key: "timestamp", headerKey: "observability.timestamp" },
-            { key: "labels", headerKey: "observability.labels" },
-            { key: "resource", headerKey: "observability.resource" }
-          ]}
-          rows={alerts.map((a) => ({
-            id: a.fingerprint,
-            select: (
-              <input
-                type="radio"
-                name="selectedAlert"
-                aria-label={t("observability.selectAlert", { fingerprint: a.fingerprint })}
-                checked={selectedAlert?.fingerprint === a.fingerprint}
-                onChange={() => onSelectAlert(a)}
-              />
-            ),
-            state: a.state,
-            timestamp: new Date(a.starts_at).toLocaleString(),
-            labels: Object.entries(a.labels)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(", "),
-            resource: renderResource(a.resource_reference)
-          }))}
-        />
-      )}
-    </Card>
-  );
-}
-
-function PrometheusPanel({
-  connector,
-  invoke,
-  onMetricContext,
-  selectedAlert
-}: {
-  connector: ConnectorSummary;
-  invoke: Invoke;
-  onMetricContext: (ctx: { query: string; type: string; start?: string; end?: string }) => void;
-  selectedAlert?: NormalizedAlert;
-}) {
-  const { t } = useTranslation();
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState<PrometheusQueryResult>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [type, setType] = useState("instant");
-
-  useEffect(() => {
-    if (selectedAlert) {
-      const match = Object.entries(selectedAlert.labels)
-        .map(
-          ([k, v]) =>
-            `${k}="${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`
-        )
-        .join(",");
-      setQuery(`{${match}}`);
-    }
-  }, [selectedAlert]);
-
-  const run = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      if (type === "instant") {
-        const payload: PrometheusQueryRequest = { connector_id: connector.id, query };
-        const res = await invoke<PrometheusQueryRequest, PrometheusQueryResult>(
-          "prometheus_query",
-          {
-            envelope: {
-              request_id: crypto.randomUUID(),
-              command: command("prometheus", "query"),
-              capability: "ResourceRead",
-              scope: { resource_ids: [] },
-              payload
-            }
-          }
-        );
-        if (res.ok) {
-          setResult(res.value);
-          onMetricContext({ query, type: "instant" });
-        } else {
-          setError(mapIpcError(res.error, t));
-        }
-      } else {
-        const end = new Date();
-        const start = new Date(end.getTime() - 3600000);
-        const payload: PrometheusQueryRangeRequest = {
-          connector_id: connector.id,
-          query,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          step_seconds: 60
-        };
-        const res = await invoke<PrometheusQueryRangeRequest, PrometheusQueryResult>(
-          "prometheus_query_range",
-          {
-            envelope: {
-              request_id: crypto.randomUUID(),
-              command: command("prometheus", "query_range"),
-              capability: "ResourceRead",
-              scope: { resource_ids: [] },
-              payload
-            }
-          }
-        );
-        if (res.ok) {
-          setResult(res.value);
-          onMetricContext({ query, type: "range", start: payload.start, end: payload.end });
-        } else {
-          setError(mapIpcError(res.error, t));
-        }
-      }
-    } catch (err: unknown) {
-      setError(mapIpcError(err, t));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderResource = (ref: ResourceReference) => {
-    if ("resolved" in ref) {
-      const r = ref.resolved;
-      return `${r.kind} ${r.namespace}/${r.name}`;
-    }
-    return t("observability.unresolved", { reason: ref.unresolved.reason });
-  };
-
-  return (
-    <Card titleKey="observability.prometheus">
-      <h3>{connector.display_name}</h3>
-      {selectedAlert && (
-        <div style={{ marginBottom: "1rem", padding: "0.5rem", background: "#f5f5f5" }}>
-          <strong>{t("observability.context")}: </strong>
-          <span>{renderResource(selectedAlert.resource_reference)}</span>
-          <br />
-          <small>
-            {Object.entries(selectedAlert.labels)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(", ")}
-          </small>
-        </div>
-      )}
-      <div className="query-builder">
-        <label>
-          {t("observability.queryType")}:
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="instant">{t("observability.instant")}</option>
-            <option value="range">{t("observability.range")}</option>
-          </select>
-        </label>
-        <label>
-          {t("observability.promqlQuery")}:
-          <input value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
-        <button type="button" onClick={run} disabled={loading}>
-          {t("observability.runQuery")}
-        </button>
-      </div>
-      {loading && <p role="status">{t("integrations.loading")}</p>}
-      {!loading && error && (
-        <p role="status" className="error">
-          {error}
-        </p>
-      )}
-      {!loading && !error && result && result.series.length === 0 && (
-        <p role="status">{t("observability.noData")}</p>
-      )}
-      {!loading && !error && result && result.series.length > 0 && (
-        <div>
-          <p>{result.source.endpoint}</p>
-          {result.series.map((s, i) => (
-            <div key={i}>
-              <h4>
-                {Object.entries(s.labels)
-                  .map(([k, v]) => `${k}="${v}"`)
-                  .join(", ")}
-              </h4>
-              <Table
-                captionKey="observability.samples"
-                columns={[
-                  { key: "timestamp", headerKey: "observability.timestamp" },
-                  { key: "value", headerKey: "observability.value" }
-                ]}
-                rows={s.samples.map((samp, j) => ({
-                  id: `${i}-${j}`,
-                  timestamp: new Date(samp.timestamp * 1000).toLocaleString(),
-                  value: samp.value
-                }))}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function GrafanaPanel({
-  connector,
-  invoke,
-  metricContext,
-  selectedAlert
-}: {
-  connector: ConnectorSummary;
-  invoke: Invoke;
-  metricContext?: { query: string; type: string; start?: string; end?: string };
-  selectedAlert?: NormalizedAlert;
-}) {
-  const { t } = useTranslation();
-  const [health, setHealth] = useState<GrafanaHealth>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const config = connector.config_metadata as Record<string, unknown>;
-  const hasDashboard = !!config.default_dashboard_uid;
-  const hasExplore = !!config.datasource_uid;
-
-  useEffect(() => {
-    setLoading(true);
-    invoke<GrafanaHealthRequest, GrafanaHealth>("grafana_health", {
-      envelope: {
-        request_id: crypto.randomUUID(),
-        command: command("grafana", "health"),
-        capability: "ResourceRead",
-        scope: { resource_ids: [] },
-        payload: { id: connector.id }
-      }
-    })
-      .then((res) => {
-        if (res.ok) setHealth(res.value);
-        else setError(mapIpcError(res.error, t));
-      })
-      .catch((err) => setError(mapIpcError(err, t)))
-      .finally(() => setLoading(false));
-  }, [connector, invoke, t]);
-
-  const openLink = async (target: string) => {
-    try {
-      if (!metricContext && !selectedAlert) return;
-      let query = "";
-      if (metricContext?.query) query = metricContext.query;
-      else if (selectedAlert)
-        query = `{${Object.entries(selectedAlert.labels)
-          .map(
-            ([k, v]) =>
-              `${k}="${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`
-          )
-          .join(",")}}`;
-
-      let start = new Date(Date.now() - 3600000);
-      let end = new Date();
-      if (metricContext?.start && metricContext?.end) {
-        start = new Date(metricContext.start);
-        end = new Date(metricContext.end);
-      } else if (selectedAlert) {
-        start = new Date(selectedAlert.starts_at);
-        if (selectedAlert.state === "resolved" && selectedAlert.ends_at) {
-          end = new Date(selectedAlert.ends_at);
-        }
-      }
-
-      const payload: GrafanaLinkRequest = {
-        connector_id: connector.id,
-        target,
-        query,
-        start: start.toISOString(),
-        end: end.toISOString()
-      };
-      const res = await invoke<GrafanaLinkRequest, GrafanaLinkResult>("grafana_link", {
-        envelope: {
-          request_id: crypto.randomUUID(),
-          command: command("grafana", "link"),
-          capability: "ResourceRead",
-          scope: { resource_ids: [] },
-          payload
-        }
-      });
-      if (res.ok) {
-        const url = res.value.url;
-        await open(url);
-      } else {
-        setError(mapIpcError(res.error, t));
-      }
-    } catch (err: unknown) {
-      setError(mapIpcError(err, t));
-    }
-  };
-
-  return (
-    <Card titleKey="observability.grafana">
-      <h3>{connector.display_name}</h3>
-      {loading && <p role="status">{t("integrations.loading")}</p>}
-      {!loading && error && (
-        <p role="status" className="error">
-          {error}
-        </p>
-      )}
-      {!loading && health && (
-        <p>
-          {t("observability.grafanaVersion", {
-            version: health.version,
-            database: health.database
-          })}
-        </p>
-      )}
-      {hasDashboard && (
-        <button
-          type="button"
-          onClick={() => openLink("dashboard")}
-          disabled={!metricContext && !selectedAlert}
-        >
-          {t("observability.openDashboard")}
-        </button>
-      )}
-      {hasExplore && (
-        <button
-          type="button"
-          onClick={() => openLink("explore")}
-          disabled={!metricContext && !selectedAlert}
-        >
-          {t("observability.openExplore")}
-        </button>
-      )}
-    </Card>
   );
 }

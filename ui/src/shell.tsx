@@ -291,6 +291,7 @@ function AddConnectorForm({
   const [baseUrl, setBaseUrl] = useState("");
   const [authMode, setAuthMode] = useState("none");
   const [username, setUsername] = useState("");
+  const [tenantId, setTenantId] = useState("");
   const [datasourceUid, setDatasourceUid] = useState("");
   const [defaultDashboardUid, setDefaultDashboardUid] = useState("");
   const credentialRef = useRef<HTMLInputElement>(null);
@@ -316,6 +317,9 @@ function AddConnectorForm({
       };
       if (authMode === "basic") {
         config_metadata.username = username;
+      }
+      if ((kind === "loki" || kind === "tempo") && tenantId.trim()) {
+        config_metadata.tenant_id = tenantId.trim();
       }
       if (kind === "grafana") {
         if (datasourceUid) config_metadata.datasource_uid = datasourceUid;
@@ -360,6 +364,8 @@ function AddConnectorForm({
           <option value="prometheus">{t("observability.prometheus")}</option>
           <option value="alertmanager">{t("observability.alertmanager")}</option>
           <option value="grafana">{t("observability.grafana")}</option>
+          <option value="loki">{t("observability.loki")}</option>
+          <option value="tempo">{t("observability.tempo")}</option>
         </select>
       </label>
       <label>
@@ -380,6 +386,12 @@ function AddConnectorForm({
               onChange={(e) => setBaseUrl(e.target.value)}
             />
           </label>
+          {(kind === "loki" || kind === "tempo") && (
+            <label>
+              {t("integrations.tenantId")}{" "}
+              <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
+            </label>
+          )}
           <label>
             {t("integrations.authMode")}{" "}
             <select value={authMode} onChange={(e) => setAuthMode(e.target.value)}>

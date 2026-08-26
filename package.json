@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --force",
     "test": "vitest run",
     "lint": "eslint ui",
     "format:check": "prettier --check package.json tsconfig.json tsconfig.app.json vite.config.ts eslint.config.js .prettierrc.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json ui/index.html ui/src .github/workflows/ci.yml README.md",

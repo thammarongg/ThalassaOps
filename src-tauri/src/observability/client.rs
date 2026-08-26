@@ -1,5 +1,7 @@
 use crate::connectors::{ConnectorError, ConnectorSummary, CredentialStore};
-use crate::observability::{ObservabilityAuthMode, ObservabilityConnectorConfig};
+use crate::observability::{
+    ObservabilityAuthMode, ObservabilityConnectorConfig, LOKI_CONNECTOR_KIND, TEMPO_CONNECTOR_KIND,
+};
 use reqwest::{Client, Method, RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -26,6 +28,7 @@ pub struct ObservabilityClient {
     auth_mode: ObservabilityAuthMode,
     username: Option<String>,
     credential: Option<String>,
+    tenant_id: Option<String>,
 }
 
 impl ObservabilityClient {
@@ -53,6 +56,11 @@ impl ObservabilityClient {
         let base_url = Url::parse(&config.base_url)
             .map_err(|e| ObservabilityClientError::InvalidUrl(e.to_string()))?;
 
+        let tenant_id = match connector.kind.as_str() {
+            LOKI_CONNECTOR_KIND | TEMPO_CONNECTOR_KIND => config.tenant_id,
+            _ => None,
+        };
+
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
@@ -67,6 +75,7 @@ impl ObservabilityClient {
             auth_mode: config.auth_mode,
             username: config.username,
             credential,
+            tenant_id,
         })
     }
 
@@ -79,6 +88,9 @@ impl ObservabilityClient {
 
     pub fn prepare_get(&self, url: Url) -> Result<RequestBuilder, ObservabilityClientError> {
         let mut builder = self.client.request(Method::GET, url);
+        if let Some(tenant_id) = &self.tenant_id {
+            builder = builder.header("X-Scope-OrgID", tenant_id);
+        }
         match self.auth_mode {
             ObservabilityAuthMode::None => {}
             ObservabilityAuthMode::Bearer => {
@@ -160,6 +172,24 @@ mod tests {
                 "username": if auth_mode == "basic" { Some("user") } else { None }
             }),
             credential_configured: auth_mode != "none",
+            health_state: "healthy".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    fn tenant_connector(base_url: &str, kind: &str, tenant_id: Option<&str>) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "tenant-test".into(),
+            kind: kind.into(),
+            display_name: "Tenant test".into(),
+            enabled: true,
+            config_metadata: json!({
+                "base_url": base_url,
+                "auth_mode": "none",
+                "tenant_id": tenant_id,
+            }),
+            credential_configured: false,
             health_state: "healthy".into(),
             last_checked_at: None,
             last_successful_sync_at: None,
@@ -260,6 +290,88 @@ mod tests {
             ),
         }
 
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn sends_scope_org_id_when_tenant_is_configured() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/ready")
+                .header("X-Scope-OrgID", "team-a");
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "loki", Some("team-a"));
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn omits_scope_org_id_for_non_tenant_kinds_and_when_absent() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/ready").matches(|req| {
+                !req.headers
+                    .iter()
+                    .flatten()
+                    .any(|(name, _)| name.eq_ignore_ascii_case("x-scope-orgid"))
+            });
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "prometheus", Some("team-a"));
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn sends_scope_org_id_for_tempo_when_tenant_is_configured() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/ready")
+                .header("X-Scope-OrgID", "team-a");
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "tempo", Some("team-a"));
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn omits_scope_org_id_for_tempo_when_tenant_is_absent() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/ready").matches(|req| {
+                !req.headers
+                    .iter()
+                    .flatten()
+                    .any(|(name, _)| name.eq_ignore_ascii_case("x-scope-orgid"))
+            });
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "tempo", None);
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
         mock.assert();
     }
 }

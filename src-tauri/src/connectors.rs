@@ -224,6 +224,20 @@ pub fn grafana_manifest() -> ConnectorManifest {
         .with_capability(ConnectorCapability::read("grafana.link", ["link"]))
 }
 
+pub fn loki_manifest() -> ConnectorManifest {
+    use crate::observability::LOKI_CONNECTOR_KIND;
+    ConnectorManifest::new(LOKI_CONNECTOR_KIND, "Loki", "0.1.0").with_capability(
+        ConnectorCapability::read("loki.query_range", ["query_range"]),
+    )
+}
+
+pub fn tempo_manifest() -> ConnectorManifest {
+    use crate::observability::TEMPO_CONNECTOR_KIND;
+    ConnectorManifest::new(TEMPO_CONNECTOR_KIND, "Tempo", "0.1.0")
+        .with_capability(ConnectorCapability::read("tempo.trace", ["trace"]))
+        .with_capability(ConnectorCapability::read("tempo.health", ["health"]))
+}
+
 pub fn add(
     connection: &Connection,
     store: &dyn CredentialStore,
@@ -256,7 +270,7 @@ pub fn add(
 fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, ConnectorError> {
     use crate::observability::{
         ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
-        PROMETHEUS_CONNECTOR_KIND,
+        LOKI_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND, TEMPO_CONNECTOR_KIND,
     };
     match request.kind.as_str() {
         FIXTURE_CONNECTOR_KIND => Ok(None),
@@ -271,7 +285,11 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, 
             }
             Ok(Some(serde_json::to_value(&config).unwrap()))
         }
-        PROMETHEUS_CONNECTOR_KIND | ALERTMANAGER_CONNECTOR_KIND | GRAFANA_CONNECTOR_KIND => {
+        PROMETHEUS_CONNECTOR_KIND
+        | ALERTMANAGER_CONNECTOR_KIND
+        | GRAFANA_CONNECTOR_KIND
+        | LOKI_CONNECTOR_KIND
+        | TEMPO_CONNECTOR_KIND => {
             let config: ObservabilityConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
                     .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
@@ -429,7 +447,7 @@ async fn run_connection_test(
 ) -> ConnectionTestResult {
     use crate::observability::{
         client::ObservabilityClient, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
-        PROMETHEUS_CONNECTOR_KIND,
+        LOKI_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND, TEMPO_CONNECTOR_KIND,
     };
     if connector.kind == KUBERNETES_CONNECTOR_KIND {
         return kubernetes_connection_test(connector).await;
@@ -437,9 +455,13 @@ async fn run_connection_test(
     if connector.kind == PROMETHEUS_CONNECTOR_KIND
         || connector.kind == ALERTMANAGER_CONNECTOR_KIND
         || connector.kind == GRAFANA_CONNECTOR_KIND
+        || connector.kind == LOKI_CONNECTOR_KIND
+        || connector.kind == TEMPO_CONNECTOR_KIND
     {
         let health_path = if connector.kind == GRAFANA_CONNECTOR_KIND {
             "/api/health"
+        } else if connector.kind == LOKI_CONNECTOR_KIND || connector.kind == TEMPO_CONNECTOR_KIND {
+            "/ready"
         } else {
             "/-/ready"
         };
@@ -582,7 +604,8 @@ async fn fixture_test(
 
 fn manifest_for(kind: &str) -> ConnectorManifest {
     use crate::observability::{
-        ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND,
+        ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND, LOKI_CONNECTOR_KIND,
+        PROMETHEUS_CONNECTOR_KIND, TEMPO_CONNECTOR_KIND,
     };
     if kind == FIXTURE_CONNECTOR_KIND {
         fixture_manifest()
@@ -594,6 +617,10 @@ fn manifest_for(kind: &str) -> ConnectorManifest {
         alertmanager_manifest()
     } else if kind == GRAFANA_CONNECTOR_KIND {
         grafana_manifest()
+    } else if kind == LOKI_CONNECTOR_KIND {
+        loki_manifest()
+    } else if kind == TEMPO_CONNECTOR_KIND {
+        tempo_manifest()
     } else {
         ConnectorManifest::new(kind, kind, "unavailable")
     }
@@ -753,5 +780,17 @@ mod tests {
         assert_eq!(result.outcome, "unavailable");
         assert_eq!(result.attempts, CONNECTION_MAX_ATTEMPTS);
         assert!(started.elapsed() >= Duration::from_millis(3));
+    }
+
+    #[test]
+    fn observability_manifests_declare_loki_and_tempo_read_capabilities() {
+        let loki = loki_manifest();
+        assert_eq!(loki.id, "loki");
+        assert!(loki.can_read("loki.query_range", "query_range"));
+
+        let tempo = tempo_manifest();
+        assert_eq!(tempo.id, "tempo");
+        assert!(tempo.can_read("tempo.trace", "trace"));
+        assert!(tempo.can_read("tempo.health", "health"));
     }
 }
