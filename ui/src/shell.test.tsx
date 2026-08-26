@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { I18nProvider, i18n } from "./i18n";
@@ -385,6 +385,247 @@ it("renders observability workspace, lists alerts, runs metric query, and handle
       expect(openMock.mock.calls[0]?.[0]).not.toContain("var-query");
     })
   );
+});
+
+it("follows an alert through masked Loki logs into an explicit Tempo trace", async () => {
+  const user = userEvent.setup();
+  const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+  const alertmanager = {
+    id: "am-logs-1",
+    kind: "alertmanager",
+    display_name: "AM logs",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const loki = {
+    id: "loki-1",
+    kind: "loki",
+    display_name: "Loki fixture",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const tempo = {
+    id: "tempo-1",
+    kind: "tempo",
+    display_name: "Tempo fixture",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const alert = {
+    fingerprint: "logs-123",
+    state: "firing",
+    starts_at: "2026-08-26T00:00:00Z",
+    ends_at: "",
+    labels: { alertname: "ApiError", namespace: "prod", pod: "api-0" },
+    annotations: {},
+    generator_url: null,
+    source: { connector_id: "am-logs-1", endpoint: "/api/v2/alerts" },
+    resource_reference: { resolved: { namespace: "prod", kind: "Pod", name: "api-0" } }
+  };
+  const logResult = {
+    streams: [
+      {
+        labels: { namespace: "prod", pod: "api-0" },
+        entries: [
+          {
+            timestamp_ns: "1735689600000000001",
+            line: `{"msg":"boom","api_key":"<REDACTED>","trace_id":"${traceId}"}`,
+            parsed: true,
+            masked: true,
+            fields: { api_key: "<REDACTED>", msg: "boom", trace_id: traceId },
+            trace_id: traceId
+          },
+          {
+            timestamp_ns: "1735689600000000002",
+            line: "plain text line with api_key=sk-live-2",
+            parsed: false,
+            masked: false,
+            fields: null,
+            trace_id: null
+          }
+        ]
+      }
+    ],
+    source: {
+      connector_id: "loki-1",
+      query: '{namespace="prod", pod="api-0"}',
+      endpoint: "/loki/api/v1/query_range"
+    },
+    unparsed_count: 1
+  };
+  const traceResult = {
+    trace_id: traceId,
+    spans: [
+      {
+        trace_id: traceId,
+        span_id: "0123456789abcdef",
+        parent_span_id: null,
+        name: "GET /orders",
+        service_name: "api",
+        start_time_unix_nano: "1735689600000000000",
+        duration_nano: "123",
+        status: "STATUS_CODE_OK",
+        attributes: { "http.status_code": "200" }
+      }
+    ],
+    source: { connector_id: "tempo-1", trace_id: traceId, endpoint: `/api/traces/${traceId}` }
+  };
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list")
+      return Promise.resolve({ ok: true, value: [alertmanager, loki, tempo] });
+    if (name === "alertmanager_alerts") return Promise.resolve({ ok: true, value: [alert] });
+    if (name === "loki_query_range") return Promise.resolve({ ok: true, value: logResult });
+    if (name === "tempo_trace") return Promise.resolve({ ok: true, value: traceResult });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Observability" }));
+  await screen.findByRole("heading", { name: "AM logs" });
+  await user.click(screen.getByRole("radio", { name: "Select alert logs-123" }));
+
+  const logQuery = await screen.findByRole("textbox", { name: "LogQL query" });
+  expect(logQuery).toHaveValue('{namespace="prod", pod="api-0"}');
+  expect(screen.getByText(/Investigation window:/)).toHaveAttribute(
+    "data-start",
+    alert.starts_at
+  );
+  await user.click(screen.getByRole("button", { name: "Run Query" }));
+
+  expect(await screen.findByText(/<REDACTED>/)).toBeInTheDocument();
+  expect(screen.getByText(/could not be parsed.*not masked/i)).toHaveTextContent("1");
+  const logCall = await waitFor(() => {
+    const call = invoke.mock.calls.find(([name]) => name === "loki_query_range");
+    if (!call) throw new Error("loki_query_range was not invoked");
+    return call;
+  });
+  expect(logCall[1].envelope.payload).toEqual(
+    expect.objectContaining({
+      connector_id: "loki-1",
+      query: '{namespace="prod", pod="api-0"}',
+      start: "2026-08-26T00:00:00Z"
+    })
+  );
+
+  await user.click(screen.getByRole("button", { name: new RegExp(`Open trace.*${traceId}`) }));
+  expect(await screen.findByText("api")).toBeInTheDocument();
+  expect(screen.getByText("123")).toBeInTheDocument();
+  expect(screen.getByText("http.status_code")).toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledWith(
+    "tempo_trace",
+    expect.objectContaining({
+      envelope: expect.objectContaining({
+        payload: { connector_id: "tempo-1", trace_id: traceId }
+      })
+    })
+  );
+});
+
+it("states explicitly when the current Loki window has no trace ID", async () => {
+  const user = userEvent.setup();
+  const alertmanager = {
+    id: "am-no-trace",
+    kind: "alertmanager",
+    display_name: "AM no trace",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const loki = {
+    id: "loki-no-trace",
+    kind: "loki",
+    display_name: "Loki no trace",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const tempo = {
+    id: "tempo-no-trace",
+    kind: "tempo",
+    display_name: "Tempo no trace",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const alert = {
+    fingerprint: "logs-no-trace",
+    state: "firing",
+    starts_at: "2026-08-26T00:00:00Z",
+    ends_at: "",
+    labels: { alertname: "NoTrace", namespace: "prod", service: "api" },
+    annotations: {},
+    generator_url: null,
+    source: { connector_id: "am-no-trace", endpoint: "/api/v2/alerts" },
+    resource_reference: { resolved: { namespace: "prod", kind: "Service", name: "api" } }
+  };
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list")
+      return Promise.resolve({ ok: true, value: [alertmanager, loki, tempo] });
+    if (name === "alertmanager_alerts") return Promise.resolve({ ok: true, value: [alert] });
+    if (name === "loki_query_range")
+      return Promise.resolve({
+        ok: true,
+        value: {
+          streams: [
+            {
+              labels: { namespace: "prod", service: "api" },
+              entries: [
+                {
+                  timestamp_ns: "1735689600000000001",
+                  line: '{"msg":"healthy"}',
+                  parsed: true,
+                  masked: false,
+                  fields: { msg: "healthy" },
+                  trace_id: null
+                }
+              ]
+            }
+          ],
+          source: {
+            connector_id: "loki-no-trace",
+            query: '{namespace="prod", service="api"}',
+            endpoint: "/loki/api/v1/query_range"
+          },
+          unparsed_count: 0
+        }
+      });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Observability" }));
+  await screen.findByRole("heading", { name: "AM no trace" });
+  await user.click(screen.getByRole("radio", { name: "Select alert logs-no-trace" }));
+  expect(await screen.findByRole("textbox", { name: "LogQL query" })).toHaveValue(
+    '{namespace="prod", service="api"}'
+  );
+  await user.click(screen.getByRole("button", { name: "Run Query" }));
+
+  expect(
+    await screen.findByText("No trace ID was found in the current log window.")
+  ).toBeInTheDocument();
+  expect(invoke).not.toHaveBeenCalledWith("tempo_trace", expect.anything());
 });
 
 it("renders loading state in Thai", async () => {

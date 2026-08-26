@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ConnectorSummary, Invoke, NormalizedAlert } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
 import { EmptyState } from "./design-system/components";
 import { useTranslation } from "./i18n";
 import { AlertsPanel } from "./observability/AlertsPanel";
 import { GrafanaPanel } from "./observability/GrafanaPanel";
+import { LogsPanel } from "./observability/LogsPanel";
 import { MetricsPanel } from "./observability/MetricsPanel";
 import { TimeRangeControl } from "./observability/TimeRangeControl";
+import { TracePanel } from "./observability/TracePanel";
 import { timeContextFromAlert, type TimeContext } from "./observability/timeContext";
 
 const mapIpcError = (err: unknown, t: (key: string) => string) => {
@@ -30,8 +32,14 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
     start?: string;
     end?: string;
   }>();
+  const [logTraceIds, setLogTraceIds] = useState<string[] | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string>();
 
   const [error, setError] = useState("");
+  const handleLogTraceIds = useCallback((traceIds: string[] | null) => {
+    setLogTraceIds(traceIds);
+    setSelectedTraceId(undefined);
+  }, []);
 
   useEffect(() => {
     invoke<null, ConnectorSummary[]>("connector_list", {
@@ -48,7 +56,9 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
           const all = result.value;
           setConnectors(
             all.filter(
-              (c) => ["prometheus", "alertmanager", "grafana"].includes(c.kind) && c.enabled
+              (c) =>
+                ["prometheus", "alertmanager", "grafana", "loki", "tempo"].includes(c.kind) &&
+                c.enabled
             )
           );
         } else {
@@ -71,10 +81,14 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   const am = connectors.filter((c) => c.kind === "alertmanager");
   const prom = connectors.filter((c) => c.kind === "prometheus");
   const graf = connectors.filter((c) => c.kind === "grafana");
+  const loki = connectors.filter((c) => c.kind === "loki");
+  const tempo = connectors.filter((c) => c.kind === "tempo");
 
   const selectAlert = (alert: NormalizedAlert) => {
     setSelectedAlert(alert);
     setTimeContext(timeContextFromAlert(alert, new Date()));
+    setLogTraceIds(null);
+    setSelectedTraceId(undefined);
   };
 
   return (
@@ -124,6 +138,33 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             metricContext={metricContext}
             selectedAlert={selectedAlert}
             timeContext={timeContext}
+          />
+        ))}
+      </section>
+      <section aria-label={t("observability.loki")}>
+        <h2>{t("observability.loki")}</h2>
+        {loki.map((c) => (
+          <LogsPanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            selectedAlert={selectedAlert}
+            timeContext={timeContext}
+            onTraceIdsChange={handleLogTraceIds}
+            onTraceSelect={setSelectedTraceId}
+          />
+        ))}
+      </section>
+      <section aria-label={t("observability.tempo")}>
+        <h2>{t("observability.tempo")}</h2>
+        {tempo.map((c) => (
+          <TracePanel
+            key={c.id}
+            connector={c}
+            invoke={invoke}
+            timeContext={timeContext}
+            traceId={selectedTraceId}
+            traceIds={logTraceIds}
           />
         ))}
       </section>
