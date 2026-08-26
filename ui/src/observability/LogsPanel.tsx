@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ConnectorSummary,
   Invoke,
@@ -69,14 +69,16 @@ export function LogsPanel({
   selectedAlert,
   timeContext,
   onTraceIdsChange,
-  onTraceSelect
+  onTraceSelect,
+  resetKey
 }: {
   connector: ConnectorSummary;
   invoke: Invoke;
   selectedAlert?: NormalizedAlert;
   timeContext?: TimeContext;
-  onTraceIdsChange?: (traceIds: string[] | null) => void;
-  onTraceSelect?: (traceId: string) => void;
+  onTraceIdsChange?: (resetKey: number, traceIds: string[] | null) => void;
+  onTraceSelect?: (resetKey: number, traceId: string) => void;
+  resetKey: number;
 }) {
   const { t } = useTranslation();
   const alertQuery = logQueryFromAlert(selectedAlert);
@@ -84,28 +86,46 @@ export function LogsPanel({
   const [result, setResult] = useState<LokiQueryResult>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const resetKeyRef = useRef(resetKey);
+  resetKeyRef.current = resetKey;
+  const [resultKey, setResultKey] = useState<number>();
+  const [errorKey, setErrorKey] = useState<number>();
+  const [loadingKey, setLoadingKey] = useState<number>();
 
   useEffect(() => {
     setQuery(logQueryFromAlert(selectedAlert).query);
+  }, [selectedAlert]);
+
+  useEffect(() => {
     setResult(undefined);
+    setResultKey(undefined);
     setError("");
-    onTraceIdsChange?.(null);
-  }, [onTraceIdsChange, selectedAlert]);
+    setErrorKey(undefined);
+    setLoading(false);
+    setLoadingKey(undefined);
+    onTraceIdsChange?.(resetKey, null);
+  }, [onTraceIdsChange, resetKey]);
 
   const run = async () => {
+    const requestKey = resetKey;
     setError("");
+    setErrorKey(undefined);
     setResult(undefined);
-    onTraceIdsChange?.(null);
+    setResultKey(undefined);
+    onTraceIdsChange?.(requestKey, null);
     if (!timeContext) {
       setError(t("observability.selectAlertFirst"));
+      setErrorKey(requestKey);
       return;
     }
     if (!query.trim()) {
       setError(t("observability.queryRequired"));
+      setErrorKey(requestKey);
       return;
     }
 
     setLoading(true);
+    setLoadingKey(requestKey);
     try {
       const payload: LokiQueryRangeRequest = {
         connector_id: connector.id,
@@ -127,19 +147,30 @@ export function LogsPanel({
         }
       );
       if (response.ok) {
+        if (requestKey !== resetKeyRef.current) return;
         setResult(response.value);
-        onTraceIdsChange?.(uniqueTraceIds(response.value));
+        setResultKey(requestKey);
+        onTraceIdsChange?.(requestKey, uniqueTraceIds(response.value));
       } else {
+        if (requestKey !== resetKeyRef.current) return;
         setError(mapIpcError(response.error, t));
+        setErrorKey(requestKey);
       }
     } catch (err: unknown) {
+      if (requestKey !== resetKeyRef.current) return;
       setError(mapIpcError(err, t));
+      setErrorKey(requestKey);
     } finally {
-      setLoading(false);
+      if (requestKey === resetKeyRef.current) {
+        setLoading(false);
+      }
     }
   };
 
-  const hasEntries = result?.streams.some((stream) => stream.entries.length > 0) ?? false;
+  const visibleResult = resultKey === resetKey ? result : undefined;
+  const visibleError = errorKey === resetKey ? error : "";
+  const visibleLoading = loadingKey === resetKey && loading;
+  const hasEntries = visibleResult?.streams.some((stream) => stream.entries.length > 0) ?? false;
 
   return (
     <Card titleKey="observability.loki">
@@ -152,7 +183,7 @@ export function LogsPanel({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <button type="button" onClick={run} disabled={loading || !timeContext}>
+          <button type="button" onClick={run} disabled={visibleLoading || !timeContext}>
             {t("observability.runQuery")}
           </button>
         </div>
@@ -161,23 +192,23 @@ export function LogsPanel({
             {t(alertQuery.errorKey)}
           </p>
         )}
-        {loading && <p role="status">{t("integrations.loading")}</p>}
-        {!loading && error && (
+        {visibleLoading && <p role="status">{t("integrations.loading")}</p>}
+        {!visibleLoading && visibleError && (
           <p role="status" className="error">
-            {error}
+            {visibleError}
           </p>
         )}
-        {!loading && !error && result && result.unparsed_count > 0 && (
+        {!visibleLoading && !visibleError && visibleResult && visibleResult.unparsed_count > 0 && (
           <p role="status" className="logs-panel__unparsed">
-            {t("observability.unparsedWarning", { count: result.unparsed_count })}
+            {t("observability.unparsedWarning", { count: visibleResult.unparsed_count })}
           </p>
         )}
-        {!loading && !error && result && !hasEntries && (
+        {!visibleLoading && !visibleError && visibleResult && !hasEntries && (
           <p role="status">{t("observability.noData")}</p>
         )}
-        {!loading && !error && result && hasEntries && (
+        {!visibleLoading && !visibleError && visibleResult && hasEntries && (
           <div className="logs-panel__results">
-            {result.streams.map((stream, streamIndex) => (
+            {visibleResult.streams.map((stream, streamIndex) => (
               <section className="logs-panel__stream" key={`${connector.id}-${streamIndex}`}>
                 <p className="logs-panel__labels">
                   <strong>{t("observability.streamLabels")}:</strong>{" "}
@@ -202,7 +233,7 @@ export function LogsPanel({
                       <button
                         type="button"
                         className="logs-panel__trace-control"
-                        onClick={() => onTraceSelect?.(entry.trace_id as string)}
+                        onClick={() => onTraceSelect?.(resetKey, entry.trace_id as string)}
                         aria-label={t("observability.openTrace", { traceId: entry.trace_id })}
                       >
                         {t("observability.openTraceShort")}

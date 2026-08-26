@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConnectorSummary, Invoke, NormalizedAlert } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
 import { EmptyState } from "./design-system/components";
@@ -34,11 +34,35 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   }>();
   const [logTraceIds, setLogTraceIds] = useState<string[] | null>(null);
   const [selectedTraceId, setSelectedTraceId] = useState<string>();
+  const [investigationRevision, setInvestigationRevision] = useState(0);
+  const investigationRevisionRef = useRef(0);
 
   const [error, setError] = useState("");
-  const handleLogTraceIds = useCallback((traceIds: string[] | null) => {
+  const invalidateInvestigation = useCallback(() => {
+    investigationRevisionRef.current += 1;
+    setInvestigationRevision(investigationRevisionRef.current);
+    setMetricContext(undefined);
+    setLogTraceIds(null);
+    setSelectedTraceId(undefined);
+  }, []);
+
+  const handleMetricContext = useCallback(
+    (revision: number, metricContext: { query: string; type: string; start?: string; end?: string }) => {
+      if (revision !== investigationRevisionRef.current) return;
+      setMetricContext(metricContext);
+    },
+    []
+  );
+
+  const handleLogTraceIds = useCallback((revision: number, traceIds: string[] | null) => {
+    if (revision !== investigationRevisionRef.current) return;
     setLogTraceIds(traceIds);
     setSelectedTraceId(undefined);
+  }, []);
+
+  const handleTraceSelect = useCallback((revision: number, traceId: string) => {
+    if (revision !== investigationRevisionRef.current) return;
+    setSelectedTraceId(traceId);
   }, []);
 
   useEffect(() => {
@@ -87,15 +111,19 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   const selectAlert = (alert: NormalizedAlert) => {
     setSelectedAlert(alert);
     setTimeContext(timeContextFromAlert(alert, new Date()));
-    setLogTraceIds(null);
-    setSelectedTraceId(undefined);
+    invalidateInvestigation();
+  };
+
+  const handleTimeContextChange = (nextTimeContext: TimeContext) => {
+    setTimeContext(nextTimeContext);
+    invalidateInvestigation();
   };
 
   return (
     <div className="observability-workspace">
       {timeContext && (
         <div>
-          <TimeRangeControl timeContext={timeContext} onChange={setTimeContext} />
+          <TimeRangeControl timeContext={timeContext} onChange={handleTimeContextChange} />
           {timeContext.source === "manual" && (
             <p role="status">{t("observability.manualTimeContext")}</p>
           )}
@@ -121,9 +149,10 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             key={c.id}
             connector={c}
             invoke={invoke}
-            onMetricContext={setMetricContext}
+            onMetricContext={handleMetricContext}
             selectedAlert={selectedAlert}
             timeContext={timeContext}
+            resetKey={investigationRevision}
           />
         ))}
       </section>
@@ -137,6 +166,7 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             metricContext={metricContext}
             selectedAlert={selectedAlert}
             timeContext={timeContext}
+            resetKey={investigationRevision}
           />
         ))}
       </section>
@@ -150,7 +180,8 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             selectedAlert={selectedAlert}
             timeContext={timeContext}
             onTraceIdsChange={handleLogTraceIds}
-            onTraceSelect={setSelectedTraceId}
+            onTraceSelect={handleTraceSelect}
+            resetKey={investigationRevision}
           />
         ))}
       </section>
@@ -164,6 +195,7 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             timeContext={timeContext}
             traceId={selectedTraceId}
             traceIds={logTraceIds}
+            resetKey={investigationRevision}
           />
         ))}
       </section>

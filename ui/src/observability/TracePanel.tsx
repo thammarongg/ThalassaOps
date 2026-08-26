@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ConnectorSummary,
   Invoke,
@@ -81,30 +81,47 @@ export function TracePanel({
   invoke,
   timeContext,
   traceId,
-  traceIds
+  traceIds,
+  resetKey
 }: {
   connector: ConnectorSummary;
   invoke: Invoke;
   timeContext?: TimeContext;
   traceId?: string;
   traceIds?: string[] | null;
+  resetKey: number;
 }) {
   const { t } = useTranslation();
   const [result, setResult] = useState<TraceResult>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const resetKeyRef = useRef(resetKey);
+  resetKeyRef.current = resetKey;
+  const traceIdRef = useRef(traceId);
+  traceIdRef.current = traceId;
+  const [resultKey, setResultKey] = useState<number>();
+  const [errorKey, setErrorKey] = useState<number>();
+  const [loadingKey, setLoadingKey] = useState<number>();
 
   useEffect(() => {
     if (!traceId) {
       setResult(undefined);
+      setResultKey(undefined);
       setError("");
+      setErrorKey(undefined);
       setLoading(false);
+      setLoadingKey(undefined);
       return;
     }
 
     setResult(undefined);
+    setResultKey(undefined);
     setError("");
+    setErrorKey(undefined);
     setLoading(true);
+    setLoadingKey(resetKey);
+    const requestKey = resetKey;
+    const requestTraceId = traceId;
     const payload: TempoTraceRequest = { connector_id: connector.id, trace_id: traceId };
     invoke<TempoTraceRequest, TraceResult>("tempo_trace", {
       envelope: {
@@ -116,14 +133,31 @@ export function TracePanel({
       }
     })
       .then((response) => {
-        if (response.ok) setResult(response.value);
-        else setError(mapIpcError(response.error, t));
+        if (requestKey !== resetKeyRef.current || requestTraceId !== traceIdRef.current) return;
+        if (response.ok) {
+          setResult(response.value);
+          setResultKey(requestKey);
+        } else {
+          setError(mapIpcError(response.error, t));
+          setErrorKey(requestKey);
+        }
       })
-      .catch((err: unknown) => setError(mapIpcError(err, t)))
-      .finally(() => setLoading(false));
-  }, [connector.id, invoke, t, traceId]);
+      .catch((err: unknown) => {
+        if (requestKey !== resetKeyRef.current || requestTraceId !== traceIdRef.current) return;
+        setError(mapIpcError(err, t));
+        setErrorKey(requestKey);
+      })
+      .finally(() => {
+        if (requestKey === resetKeyRef.current && requestTraceId === traceIdRef.current) {
+          setLoading(false);
+        }
+      });
+  }, [connector.id, invoke, resetKey, t, traceId]);
 
-  const orderedSpans = result ? orderSpans(result.spans) : [];
+  const visibleResult = resultKey === resetKey ? result : undefined;
+  const visibleError = errorKey === resetKey ? error : "";
+  const visibleLoading = loadingKey === resetKey && loading;
+  const orderedSpans = visibleResult ? orderSpans(visibleResult.spans) : [];
   const hasQueriedLogs = traceIds !== null && traceIds !== undefined;
   const hasTraceId = (traceIds?.length ?? 0) > 0;
 
@@ -150,16 +184,16 @@ export function TracePanel({
         {hasQueriedLogs && hasTraceId && !traceId && (
           <p>{t("observability.selectTrace")}</p>
         )}
-        {loading && <p role="status">{t("integrations.loading")}</p>}
-        {!loading && error && (
+        {visibleLoading && <p role="status">{t("integrations.loading")}</p>}
+        {!visibleLoading && visibleError && (
           <p role="status" className="error">
-            {error}
+            {visibleError}
           </p>
         )}
-        {!loading && !error && result && result.spans.length === 0 && (
+        {!visibleLoading && !visibleError && visibleResult && visibleResult.spans.length === 0 && (
           <p role="status">{t("observability.noData")}</p>
         )}
-        {!loading && !error && result && result.spans.length > 0 && (
+        {!visibleLoading && !visibleError && visibleResult && visibleResult.spans.length > 0 && (
           <Table
             captionKey="observability.traceSpans"
             columns={[

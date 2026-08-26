@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ConnectorSummary,
   Invoke,
@@ -27,13 +27,18 @@ export function MetricsPanel({
   invoke,
   onMetricContext,
   selectedAlert,
-  timeContext
+  timeContext,
+  resetKey
 }: {
   connector: ConnectorSummary;
   invoke: Invoke;
-  onMetricContext: (ctx: { query: string; type: string; start?: string; end?: string }) => void;
+  onMetricContext: (
+    resetKey: number,
+    ctx: { query: string; type: string; start?: string; end?: string }
+  ) => void;
   selectedAlert?: NormalizedAlert;
   timeContext?: TimeContext;
+  resetKey: number;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -41,6 +46,20 @@ export function MetricsPanel({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [type, setType] = useState("instant");
+  const resetKeyRef = useRef(resetKey);
+  resetKeyRef.current = resetKey;
+  const [resultKey, setResultKey] = useState<number>();
+  const [errorKey, setErrorKey] = useState<number>();
+  const [loadingKey, setLoadingKey] = useState<number>();
+
+  useEffect(() => {
+    setResult(undefined);
+    setResultKey(undefined);
+    setError("");
+    setErrorKey(undefined);
+    setLoading(false);
+    setLoadingKey(undefined);
+  }, [resetKey]);
 
   useEffect(() => {
     if (selectedAlert) {
@@ -55,8 +74,11 @@ export function MetricsPanel({
   }, [selectedAlert]);
 
   const run = async () => {
+    const requestKey = resetKey;
     setError("");
+    setErrorKey(undefined);
     setLoading(true);
+    setLoadingKey(requestKey);
     try {
       if (type === "instant") {
         const payload: PrometheusQueryRequest = { connector_id: connector.id, query };
@@ -73,14 +95,19 @@ export function MetricsPanel({
           }
         );
         if (res.ok) {
+          if (requestKey !== resetKeyRef.current) return;
           setResult(res.value);
-          onMetricContext({ query, type: "instant" });
+          setResultKey(requestKey);
+          onMetricContext(requestKey, { query, type: "instant" });
         } else {
+          if (requestKey !== resetKeyRef.current) return;
           setError(mapIpcError(res.error, t));
+          setErrorKey(requestKey);
         }
       } else {
         if (!timeContext) {
           setError(t("observability.selectAlertFirst"));
+          setErrorKey(requestKey);
           setLoading(false);
           return;
         }
@@ -105,23 +132,35 @@ export function MetricsPanel({
           }
         );
         if (res.ok) {
+          if (requestKey !== resetKeyRef.current) return;
           setResult(res.value);
-          onMetricContext({
+          setResultKey(requestKey);
+          onMetricContext(requestKey, {
             query,
             type: "range",
             start: rangeContext.start,
             end: rangeContext.end
           });
         } else {
+          if (requestKey !== resetKeyRef.current) return;
           setError(mapIpcError(res.error, t));
+          setErrorKey(requestKey);
         }
       }
     } catch (err: unknown) {
+      if (requestKey !== resetKeyRef.current) return;
       setError(mapIpcError(err, t));
+      setErrorKey(requestKey);
     } finally {
-      setLoading(false);
+      if (requestKey === resetKeyRef.current) {
+        setLoading(false);
+      }
     }
   };
+
+  const visibleResult = resultKey === resetKey ? result : undefined;
+  const visibleError = errorKey === resetKey ? error : "";
+  const visibleLoading = loadingKey === resetKey && loading;
 
   const renderResource = (ref: ResourceReference) => {
     if ("resolved" in ref) {
@@ -158,23 +197,23 @@ export function MetricsPanel({
           {t("observability.promqlQuery")}:
           <input value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
-        <button type="button" onClick={run} disabled={loading}>
+        <button type="button" onClick={run} disabled={visibleLoading}>
           {t("observability.runQuery")}
         </button>
       </div>
-      {loading && <p role="status">{t("integrations.loading")}</p>}
-      {!loading && error && (
+      {visibleLoading && <p role="status">{t("integrations.loading")}</p>}
+      {!visibleLoading && visibleError && (
         <p role="status" className="error">
-          {error}
+          {visibleError}
         </p>
       )}
-      {!loading && !error && result && result.series.length === 0 && (
+      {!visibleLoading && !visibleError && visibleResult && visibleResult.series.length === 0 && (
         <p role="status">{t("observability.noData")}</p>
       )}
-      {!loading && !error && result && result.series.length > 0 && (
+      {!visibleLoading && !visibleError && visibleResult && visibleResult.series.length > 0 && (
         <div>
-          <p>{result.source.endpoint}</p>
-          {result.series.map((s, i) => (
+          <p>{visibleResult.source.endpoint}</p>
+          {visibleResult.series.map((s, i) => (
             <div key={i}>
               <h4>
                 {Object.entries(s.labels)

@@ -367,6 +367,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn query_range_recursively_masks_nested_objects_and_arrays_before_serialization() {
+        let server = MockServer::start();
+        let nested_line = json!({
+            "message": "request failed",
+            "context": {
+                "client_secret": "nested-secret",
+                "safe": "keep"
+            },
+            "items": [
+                {"password": "array-secret"},
+                {"nested": {"access_token": "deep-token", "value": "keep"}}
+            ]
+        })
+        .to_string();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/loki/api/v1/query_range");
+            then.status(200).body(
+                json!({
+                    "status": "success",
+                    "data": {
+                        "resultType": "streams",
+                        "result": [{
+                            "stream": {
+                                "namespace": "prod",
+                                "api_key": "label-secret"
+                            },
+                            "values": [["1", nested_line]]
+                        }]
+                    }
+                })
+                .to_string(),
+            );
+        });
+        let client = ObservabilityClient::new(
+            &test_connector(&server.url("")),
+            &InMemoryCredentialStore::default(),
+        )
+        .unwrap();
+
+        let result = query_range(
+            &client,
+            request(
+                Utc.timestamp_opt(1735689600, 0).single().unwrap(),
+                Utc.timestamp_opt(1735689660, 0).single().unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        mock.assert();
+        let entry = &result.streams[0].entries[0];
+        assert!(entry.parsed);
+        assert!(entry.masked);
+        assert_eq!(result.streams[0].labels["api_key"], REDACTED);
+
+        let parsed_line: Value = serde_json::from_str(&entry.line).unwrap();
+        assert_eq!(parsed_line["context"]["client_secret"], json!(REDACTED));
+        assert_eq!(parsed_line["items"][0]["password"], json!(REDACTED));
+        assert_eq!(
+            parsed_line["items"][1]["nested"]["access_token"],
+            json!(REDACTED)
+        );
+        assert_eq!(parsed_line["context"]["safe"], json!("keep"));
+        assert_eq!(parsed_line["items"][1]["nested"]["value"], json!("keep"));
+
+        let serialized = serde_json::to_string(&result).unwrap();
+        for leaked in [
+            "nested-secret",
+            "array-secret",
+            "deep-token",
+            "label-secret",
+        ] {
+            assert!(
+                !serialized.contains(leaked),
+                "sensitive value leaked: {leaked}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn unparsed_lines_do_not_extract_traceparent_shaped_substrings() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {

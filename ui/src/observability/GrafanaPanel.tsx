@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ConnectorSummary,
   GrafanaHealth,
@@ -28,25 +28,41 @@ export function GrafanaPanel({
   invoke,
   metricContext,
   selectedAlert,
-  timeContext
+  timeContext,
+  resetKey
 }: {
   connector: ConnectorSummary;
   invoke: Invoke;
   metricContext?: { query: string; type: string; start?: string; end?: string };
   selectedAlert?: NormalizedAlert;
   timeContext?: TimeContext;
+  resetKey: number;
 }) {
   const { t } = useTranslation();
   const [health, setHealth] = useState<GrafanaHealth>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const resetKeyRef = useRef(resetKey);
+  resetKeyRef.current = resetKey;
+  const [errorKey, setErrorKey] = useState<number>();
+  const [loadingKey, setLoadingKey] = useState<number>(resetKey);
 
   const config = connector.config_metadata as Record<string, unknown>;
   const hasDashboard = !!config.default_dashboard_uid;
   const hasExplore = !!config.datasource_uid;
 
   useEffect(() => {
+    setHealth(undefined);
+    setError("");
+    setErrorKey(undefined);
+    setLoading(false);
+    setLoadingKey(undefined);
+  }, [resetKey]);
+
+  useEffect(() => {
+    const requestKey = resetKey;
     setLoading(true);
+    setLoadingKey(requestKey);
     invoke<GrafanaHealthRequest, GrafanaHealth>("grafana_health", {
       envelope: {
         request_id: crypto.randomUUID(),
@@ -57,17 +73,31 @@ export function GrafanaPanel({
       }
     })
       .then((res) => {
+        if (requestKey !== resetKeyRef.current) return;
         if (res.ok) setHealth(res.value);
-        else setError(mapIpcError(res.error, t));
+        else {
+          setError(mapIpcError(res.error, t));
+          setErrorKey(requestKey);
+        }
       })
-      .catch((err) => setError(mapIpcError(err, t)))
-      .finally(() => setLoading(false));
-  }, [connector, invoke, t]);
+      .catch((err) => {
+        if (requestKey !== resetKeyRef.current) return;
+        setError(mapIpcError(err, t));
+        setErrorKey(requestKey);
+      })
+      .finally(() => {
+        if (requestKey === resetKeyRef.current) {
+          setLoading(false);
+        }
+      });
+  }, [connector, invoke, resetKey, t]);
 
   const openLink = async (target: string) => {
+    const requestKey = resetKey;
     try {
       if (!timeContext) {
         setError(t("observability.selectAlertFirst"));
+        setErrorKey(requestKey);
         return;
       }
       if (!metricContext && !selectedAlert) return;
@@ -98,26 +128,34 @@ export function GrafanaPanel({
         }
       });
       if (res.ok) {
+        if (requestKey !== resetKeyRef.current) return;
         const url = res.value.url;
         await open(url);
       } else {
+        if (requestKey !== resetKeyRef.current) return;
         setError(mapIpcError(res.error, t));
+        setErrorKey(requestKey);
       }
     } catch (err: unknown) {
+      if (requestKey !== resetKeyRef.current) return;
       setError(mapIpcError(err, t));
+      setErrorKey(requestKey);
     }
   };
+
+  const visibleError = errorKey === resetKey ? error : "";
+  const visibleLoading = loadingKey === resetKey && loading;
 
   return (
     <Card titleKey="observability.grafana">
       <h3>{connector.display_name}</h3>
-      {loading && <p role="status">{t("integrations.loading")}</p>}
-      {!loading && error && (
+      {visibleLoading && <p role="status">{t("integrations.loading")}</p>}
+      {!visibleLoading && visibleError && (
         <p role="status" className="error">
-          {error}
+          {visibleError}
         </p>
       )}
-      {!loading && health && (
+      {!visibleLoading && health && (
         <p>
           {t("observability.grafanaVersion", {
             version: health.version,
