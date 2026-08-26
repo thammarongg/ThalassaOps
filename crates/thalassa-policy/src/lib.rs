@@ -95,9 +95,30 @@ pub struct PolicyDocument {
     pub version: u64,
     pub hosted_ai_data_classes: Vec<DataClass>,
     pub local_model_data_classes: Vec<DataClass>,
+    #[serde(default = "default_external_integration_data_classes")]
+    pub external_integration_data_classes: Vec<DataClass>,
+    #[serde(default = "default_audit_log_data_classes")]
+    pub audit_log_data_classes: Vec<DataClass>,
     pub policy_auto_enabled: bool,
     pub policy_auto_scope: Option<ResourceScope>,
 }
+
+fn default_external_integration_data_classes() -> Vec<DataClass> {
+    vec![
+        DataClass::Public,
+        DataClass::Internal,
+        DataClass::Confidential,
+    ]
+}
+
+fn default_audit_log_data_classes() -> Vec<DataClass> {
+    vec![
+        DataClass::Public,
+        DataClass::Internal,
+        DataClass::Confidential,
+    ]
+}
+
 impl PolicyDocument {
     pub fn baseline(version: u64) -> Self {
         Self {
@@ -109,12 +130,22 @@ impl PolicyDocument {
                 DataClass::Internal,
                 DataClass::Confidential,
             ],
+            external_integration_data_classes: default_external_integration_data_classes(),
+            audit_log_data_classes: default_audit_log_data_classes(),
             policy_auto_enabled: false,
             policy_auto_scope: None,
         }
     }
     pub fn with_hosted_ai_data_classes(mut self, classes: Vec<DataClass>) -> Self {
         self.hosted_ai_data_classes = classes;
+        self
+    }
+    pub fn with_external_integration_data_classes(mut self, classes: Vec<DataClass>) -> Self {
+        self.external_integration_data_classes = classes;
+        self
+    }
+    pub fn with_audit_log_data_classes(mut self, classes: Vec<DataClass>) -> Self {
+        self.audit_log_data_classes = classes;
         self
     }
     pub fn enable_policy_auto(mut self, scope: ResourceScope) -> Self {
@@ -202,9 +233,14 @@ impl PolicyRuntime {
                 .local_model_data_classes
                 .contains(&request.data_class),
             EgressDestination::LocalStorage | EgressDestination::Ui => true,
-            EgressDestination::ExternalIntegration | EgressDestination::AuditLog => {
-                request.data_class != DataClass::Restricted
-            }
+            EgressDestination::ExternalIntegration => self
+                .document
+                .external_integration_data_classes
+                .contains(&request.data_class),
+            EgressDestination::AuditLog => self
+                .document
+                .audit_log_data_classes
+                .contains(&request.data_class),
         };
         if permitted {
             PolicyDecision::Allowed {

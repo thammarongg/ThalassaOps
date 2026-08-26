@@ -1,0 +1,263 @@
+use crate::observability::client::{ObservabilityClient, ObservabilityClientError};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Deserialize)]
+pub struct AlertmanagerAlert {
+    pub fingerprint: String,
+    pub status: AlertmanagerStatus,
+    #[serde(rename = "startsAt")]
+    pub starts_at: DateTime<Utc>,
+    #[serde(rename = "endsAt")]
+    pub ends_at: DateTime<Utc>,
+    pub labels: BTreeMap<String, String>,
+    pub annotations: BTreeMap<String, String>,
+    #[serde(rename = "generatorURL")]
+    pub generator_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AlertmanagerStatus {
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ResourceReference {
+    #[serde(rename = "resolved")]
+    Resolved {
+        namespace: String,
+        kind: String,
+        name: String,
+    },
+    #[serde(rename = "unresolved")]
+    Unresolved { reason: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AlertSourceReference {
+    pub connector_id: String,
+    pub endpoint: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NormalizedAlert {
+    pub fingerprint: String,
+    pub state: String,
+    pub starts_at: String,
+    pub ends_at: String,
+    pub labels: BTreeMap<String, String>,
+    pub annotations: BTreeMap<String, String>,
+    pub generator_url: Option<String>,
+    pub source: AlertSourceReference,
+    pub resource_reference: ResourceReference,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AlertmanagerAlertsRequest {
+    pub connector_id: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AlertmanagerError {
+    #[error("client error: {0}")]
+    Client(#[from] ObservabilityClientError),
+}
+
+pub fn resolve_resource_reference(labels: &BTreeMap<String, String>) -> ResourceReference {
+    let namespace = labels.get("namespace");
+    if namespace.is_none() {
+        return ResourceReference::Unresolved {
+            reason: "missing namespace label".into(),
+        };
+    }
+    let namespace = namespace.unwrap().clone();
+
+    let mut targets = Vec::new();
+    if let Some(pod) = labels.get("pod") {
+        targets.push(("Pod".to_string(), pod.clone()));
+    }
+    if let Some(service) = labels.get("service") {
+        targets.push(("Service".to_string(), service.clone()));
+    }
+    if let Some(deployment) = labels.get("deployment") {
+        targets.push(("Deployment".to_string(), deployment.clone()));
+    }
+
+    if targets.is_empty() {
+        return ResourceReference::Unresolved {
+            reason: "missing target label (pod, service, or deployment)".into(),
+        };
+    }
+    if targets.len() > 1 {
+        return ResourceReference::Unresolved {
+            reason: "ambiguous resource reference (multiple target labels found)".into(),
+        };
+    }
+
+    let (kind, name) = targets.into_iter().next().unwrap();
+    ResourceReference::Resolved {
+        namespace,
+        kind,
+        name,
+    }
+}
+
+pub async fn alerts(
+    client: &ObservabilityClient,
+    request: AlertmanagerAlertsRequest,
+) -> Result<Vec<NormalizedAlert>, AlertmanagerError> {
+    let url = client
+        .build_url("/api/v2/alerts")
+        .map_err(AlertmanagerError::Client)?;
+    let req = client.prepare_get(url).map_err(AlertmanagerError::Client)?;
+
+    let response: Vec<AlertmanagerAlert> = client.execute_json(req).await?;
+
+    let normalized = response
+        .into_iter()
+        .map(|alert| {
+            let resource_reference = resolve_resource_reference(&alert.labels);
+            NormalizedAlert {
+                fingerprint: alert.fingerprint,
+                state: alert.status.state,
+                starts_at: alert.starts_at.to_rfc3339(),
+                ends_at: alert.ends_at.to_rfc3339(),
+                labels: alert.labels,
+                annotations: alert.annotations,
+                generator_url: alert.generator_url,
+                source: AlertSourceReference {
+                    connector_id: request.connector_id.clone(),
+                    endpoint: "/api/v2/alerts".into(),
+                },
+                resource_reference,
+            }
+        })
+        .collect();
+
+    Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
+    use httpmock::MockServer;
+    use serde_json::json;
+
+    #[test]
+    fn test_resource_reference_serialization() {
+        let resolved = ResourceReference::Resolved {
+            namespace: "prod".into(),
+            kind: "Pod".into(),
+            name: "api-server".into(),
+        };
+        let unresolved = ResourceReference::Unresolved {
+            reason: "missing labels".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&resolved).unwrap(),
+            r#"{"resolved":{"namespace":"prod","kind":"Pod","name":"api-server"}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&unresolved).unwrap(),
+            r#"{"unresolved":{"reason":"missing labels"}}"#
+        );
+    }
+
+    fn test_connector(base_url: &str) -> ConnectorSummary {
+        ConnectorSummary {
+            id: "test-am".into(),
+            kind: "alertmanager".into(),
+            display_name: "Alertmanager".into(),
+            enabled: true,
+            config_metadata: json!({
+                "base_url": base_url,
+                "auth_mode": "none"
+            }),
+            credential_configured: false,
+            health_state: "healthy".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_alerts_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/api/v2/alerts");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(
+                    json!([
+                        {
+                            "fingerprint": "123",
+                            "status": { "state": "active" },
+                            "startsAt": "2024-01-01T00:00:00Z",
+                            "endsAt": "2024-01-01T01:00:00Z",
+                            "labels": { "alertname": "TestAlert", "severity": "critical" },
+                            "annotations": { "summary": "Test" },
+                            "generatorURL": "http://localhost/graph"
+                        }
+                    ])
+                    .to_string(),
+                );
+        });
+
+        let connector = test_connector(&server.url(""));
+        let store = InMemoryCredentialStore::default();
+        let client = ObservabilityClient::new(&connector, &store).unwrap();
+
+        let res = alerts(
+            &client,
+            AlertmanagerAlertsRequest {
+                connector_id: "test-am".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        mock.assert();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].fingerprint, "123");
+        assert_eq!(res[0].labels.get("alertname").unwrap(), "TestAlert");
+    }
+
+    #[test]
+    fn test_resolve_resource_reference() {
+        let mut labels = BTreeMap::new();
+        labels.insert("namespace".into(), "default".into());
+        labels.insert("pod".into(), "my-pod".into());
+
+        match resolve_resource_reference(&labels) {
+            ResourceReference::Resolved {
+                namespace,
+                kind,
+                name,
+            } => {
+                assert_eq!(namespace, "default");
+                assert_eq!(kind, "Pod");
+                assert_eq!(name, "my-pod");
+            }
+            _ => panic!("Expected resolved"),
+        }
+
+        labels.insert("service".into(), "my-service".into());
+        match resolve_resource_reference(&labels) {
+            ResourceReference::Unresolved { reason } => {
+                assert!(reason.contains("ambiguous"));
+            }
+            _ => panic!("Expected unresolved due to ambiguous labels"),
+        }
+
+        let mut no_ns = BTreeMap::new();
+        no_ns.insert("pod".into(), "my-pod".into());
+        match resolve_resource_reference(&no_ns) {
+            ResourceReference::Unresolved { reason } => {
+                assert!(reason.contains("missing namespace"));
+            }
+            _ => panic!("Expected unresolved due to missing namespace"),
+        }
+    }
+}

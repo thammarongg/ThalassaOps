@@ -26,6 +26,7 @@ k8s-openapi = { version = "0.23", features = ["v1_30"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 serde_yaml = "0.9"
 tauri-plugin-shell = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3"

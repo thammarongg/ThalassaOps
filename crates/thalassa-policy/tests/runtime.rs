@@ -48,6 +48,56 @@ fn baseline_allows_public_hosted_ai_only_when_classification_and_redaction_are_v
 }
 
 #[test]
+fn external_integration_egress_obeys_configured_data_classes() {
+    let document =
+        PolicyDocument::baseline(2).with_external_integration_data_classes(vec![DataClass::Public]);
+    let runtime = PolicyRuntime::load(document).unwrap();
+
+    assert_eq!(
+        runtime.evaluate_egress(EgressRequest::verified(
+            DataClass::Internal,
+            EgressDestination::ExternalIntegration,
+        )),
+        PolicyDecision::Denied {
+            reason: PolicyDenyReason::DataClassNotPermitted,
+            policy_version: 2,
+        }
+    );
+}
+
+#[test]
+fn external_integration_restrictions_do_not_restrict_audit_log_egress() {
+    let document =
+        PolicyDocument::baseline(2).with_external_integration_data_classes(vec![DataClass::Public]);
+    let runtime = PolicyRuntime::load(document).unwrap();
+
+    assert_eq!(
+        runtime.evaluate_egress(EgressRequest::verified(
+            DataClass::Internal,
+            EgressDestination::AuditLog,
+        )),
+        PolicyDecision::Allowed { policy_version: 2 }
+    );
+}
+
+#[test]
+fn audit_log_data_classes_gate_audit_log_egress() {
+    let document = PolicyDocument::baseline(2).with_audit_log_data_classes(vec![DataClass::Public]);
+    let runtime = PolicyRuntime::load(document).unwrap();
+
+    assert_eq!(
+        runtime.evaluate_egress(EgressRequest::verified(
+            DataClass::Internal,
+            EgressDestination::AuditLog,
+        )),
+        PolicyDecision::Denied {
+            reason: PolicyDenyReason::DataClassNotPermitted,
+            policy_version: 2,
+        }
+    );
+}
+
+#[test]
 fn immutable_secret_protection_cannot_be_overridden_by_document_policy() {
     let document =
         PolicyDocument::baseline(2).with_hosted_ai_data_classes(vec![DataClass::Restricted]);

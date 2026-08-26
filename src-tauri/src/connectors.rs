@@ -40,6 +40,7 @@ pub enum ConnectorError {
 
 pub trait CredentialStore: Send + Sync {
     fn set(&self, reference: &str, secret: &str) -> Result<(), ConnectorError>;
+    fn get(&self, reference: &str) -> Result<Option<String>, ConnectorError>;
     fn has(&self, reference: &str) -> Result<bool, ConnectorError>;
     fn delete(&self, reference: &str) -> Result<(), ConnectorError>;
 }
@@ -52,6 +53,16 @@ impl CredentialStore for OsKeychainCredentialStore {
             .map_err(|error| ConnectorError::Credential(error.to_string()))?
             .set_password(secret)
             .map_err(|error| ConnectorError::Credential(error.to_string()))
+    }
+    fn get(&self, reference: &str) -> Result<Option<String>, ConnectorError> {
+        match Entry::new(KEYRING_SERVICE, reference)
+            .map_err(|error| ConnectorError::Credential(error.to_string()))?
+            .get_password()
+        {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(ConnectorError::Credential(error.to_string())),
+        }
     }
     fn has(&self, reference: &str) -> Result<bool, ConnectorError> {
         match Entry::new(KEYRING_SERVICE, reference)
@@ -83,6 +94,14 @@ impl CredentialStore for InMemoryCredentialStore {
             .expect("credential test store lock")
             .insert(reference.into(), secret.into());
         Ok(())
+    }
+    fn get(&self, reference: &str) -> Result<Option<String>, ConnectorError> {
+        Ok(self
+            .0
+            .lock()
+            .expect("credential test store lock")
+            .get(reference)
+            .cloned())
     }
     fn has(&self, reference: &str) -> Result<bool, ConnectorError> {
         Ok(self
@@ -182,12 +201,37 @@ pub fn kubernetes_manifest() -> ConnectorManifest {
         ))
 }
 
+pub fn prometheus_manifest() -> ConnectorManifest {
+    use crate::observability::PROMETHEUS_CONNECTOR_KIND;
+    ConnectorManifest::new(PROMETHEUS_CONNECTOR_KIND, "Prometheus", "0.1.0")
+        .with_capability(ConnectorCapability::read("prometheus.query", ["query"]))
+        .with_capability(ConnectorCapability::read(
+            "prometheus.query_range",
+            ["query_range"],
+        ))
+}
+
+pub fn alertmanager_manifest() -> ConnectorManifest {
+    use crate::observability::ALERTMANAGER_CONNECTOR_KIND;
+    ConnectorManifest::new(ALERTMANAGER_CONNECTOR_KIND, "Alertmanager", "0.1.0")
+        .with_capability(ConnectorCapability::read("alertmanager.alerts", ["alerts"]))
+}
+
+pub fn grafana_manifest() -> ConnectorManifest {
+    use crate::observability::GRAFANA_CONNECTOR_KIND;
+    ConnectorManifest::new(GRAFANA_CONNECTOR_KIND, "Grafana", "0.1.0")
+        .with_capability(ConnectorCapability::read("grafana.health", ["health"]))
+        .with_capability(ConnectorCapability::read("grafana.link", ["link"]))
+}
+
 pub fn add(
     connection: &Connection,
     store: &dyn CredentialStore,
-    request: AddConnectorRequest,
+    mut request: AddConnectorRequest,
 ) -> Result<ConnectorSummary, ConnectorError> {
-    validate_add_request(&request)?;
+    if let Some(canonical) = validate_add_request(&request)? {
+        request.config_metadata = canonical;
+    }
     let id = Uuid::new_v4().to_string();
     let credential_reference = request
         .credential_value
@@ -209,9 +253,13 @@ pub fn add(
     get(connection, store, &id)?.ok_or(ConnectorError::NotFound)
 }
 
-fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorError> {
+fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, ConnectorError> {
+    use crate::observability::{
+        ObservabilityConnectorConfig, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
+        PROMETHEUS_CONNECTOR_KIND,
+    };
     match request.kind.as_str() {
-        FIXTURE_CONNECTOR_KIND => Ok(()),
+        FIXTURE_CONNECTOR_KIND => Ok(None),
         KUBERNETES_CONNECTOR_KIND => {
             let config: KubernetesConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
@@ -221,7 +269,18 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<(), ConnectorEr
                     "kubeconfig_path and context_name are required".into(),
                 ));
             }
-            Ok(())
+            Ok(Some(serde_json::to_value(&config).unwrap()))
+        }
+        PROMETHEUS_CONNECTOR_KIND | ALERTMANAGER_CONNECTOR_KIND | GRAFANA_CONNECTOR_KIND => {
+            let config: ObservabilityConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+
+            config
+                .validate(request.credential_value.as_deref())
+                .map_err(ConnectorError::InvalidConfiguration)?;
+
+            Ok(Some(serde_json::to_value(&config).unwrap()))
         }
         _ => Err(ConnectorError::InvalidConfiguration(format!(
             "unsupported connector kind: {}",
@@ -320,7 +379,7 @@ pub async fn test_connection(
     if !connector.enabled {
         return Err(ConnectorError::Disabled);
     }
-    let result = run_connection_test(&connector).await;
+    let result = run_connection_test(&connector, store).await;
     let log_message = format!("{} Attempts: {}.", result.message, result.attempts);
     let checked_at = Utc::now().to_rfc3339();
     connection.execute("UPDATE connector_instances SET health_state = ?2, last_checked_at = ?3, last_successful_sync_at = CASE WHEN ?2 = 'healthy' THEN ?3 ELSE last_successful_sync_at END WHERE id = ?1", params![id, result.outcome, checked_at])?;
@@ -364,9 +423,55 @@ fn fixture_duration(connector: &ConnectorSummary, key: &str, default_ms: u64) ->
     Duration::from_millis(configured_ms.clamp(1, default_ms))
 }
 
-async fn run_connection_test(connector: &ConnectorSummary) -> ConnectionTestResult {
+async fn run_connection_test(
+    connector: &ConnectorSummary,
+    store: &dyn CredentialStore,
+) -> ConnectionTestResult {
+    use crate::observability::{
+        client::ObservabilityClient, ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND,
+        PROMETHEUS_CONNECTOR_KIND,
+    };
     if connector.kind == KUBERNETES_CONNECTOR_KIND {
         return kubernetes_connection_test(connector).await;
+    }
+    if connector.kind == PROMETHEUS_CONNECTOR_KIND
+        || connector.kind == ALERTMANAGER_CONNECTOR_KIND
+        || connector.kind == GRAFANA_CONNECTOR_KIND
+    {
+        let health_path = if connector.kind == GRAFANA_CONNECTOR_KIND {
+            "/api/health"
+        } else {
+            "/-/ready"
+        };
+        return match ObservabilityClient::new(connector, store) {
+            Ok(client) => match client
+                .build_url(health_path)
+                .and_then(|u| client.prepare_get(u))
+            {
+                Ok(req) => match client.execute_empty(req).await {
+                    Ok(_) => ConnectionTestResult {
+                        outcome: "healthy",
+                        message: "Observability endpoint is healthy.".into(),
+                        attempts: 1,
+                    },
+                    Err(_) => ConnectionTestResult {
+                        outcome: "unavailable",
+                        message: "Observability endpoint check failed.".into(),
+                        attempts: 1,
+                    },
+                },
+                Err(_) => ConnectionTestResult {
+                    outcome: "unavailable",
+                    message: "Failed to prepare request.".into(),
+                    attempts: 1,
+                },
+            },
+            Err(_) => ConnectionTestResult {
+                outcome: "unavailable",
+                message: "Failed to configure observability client.".into(),
+                attempts: 1,
+            },
+        };
     }
     let policy = ConnectionTestPolicy::for_connector(connector);
     let mut last_failure = String::new();
@@ -476,10 +581,19 @@ async fn fixture_test(
 }
 
 fn manifest_for(kind: &str) -> ConnectorManifest {
+    use crate::observability::{
+        ALERTMANAGER_CONNECTOR_KIND, GRAFANA_CONNECTOR_KIND, PROMETHEUS_CONNECTOR_KIND,
+    };
     if kind == FIXTURE_CONNECTOR_KIND {
         fixture_manifest()
     } else if kind == KUBERNETES_CONNECTOR_KIND {
         kubernetes_manifest()
+    } else if kind == PROMETHEUS_CONNECTOR_KIND {
+        prometheus_manifest()
+    } else if kind == ALERTMANAGER_CONNECTOR_KIND {
+        alertmanager_manifest()
+    } else if kind == GRAFANA_CONNECTOR_KIND {
+        grafana_manifest()
     } else {
         ConnectorManifest::new(kind, kind, "unavailable")
     }
@@ -541,11 +655,15 @@ mod tests {
 
     #[tokio::test]
     async fn fixture_connection_retries_until_a_transient_failure_recovers() {
+        let store = InMemoryCredentialStore::default();
         let started = Instant::now();
-        let result = run_connection_test(&fixture(json!({
-            "fails_then_recovers": 2,
-            "fixture_retry_backoff_ms": 5,
-        })))
+        let result = run_connection_test(
+            &fixture(json!({
+                "fails_then_recovers": 2,
+                "fixture_retry_backoff_ms": 5,
+            })),
+            &store,
+        )
         .await;
 
         assert_eq!(result.outcome, "healthy");
@@ -554,13 +672,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_observability_credential_not_leaked() {
+        let store = InMemoryCredentialStore::default();
+        let connection = Connection::open_in_memory().unwrap();
+        crate::app::apply_migrations(&connection).unwrap();
+
+        // 1. None auth with whitespace credential must be rejected
+        let req_err = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "PromErr".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9090",
+                "auth_mode": "none"
+            }),
+            credential_value: Some("   ".into()), // malicious whitespace
+        };
+        assert!(add(&connection, &store, req_err).is_err());
+
+        // 1.5 Add connector with None auth (no credential sent)
+        let req1 = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "Prom1".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9090",
+                "auth_mode": "none"
+            }),
+            credential_value: None,
+        };
+        let summary1 = add(&connection, &store, req1).unwrap();
+        assert!(!summary1.credential_configured);
+
+        // 2. Add connector with Basic auth
+        let req2 = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "Prom2".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9091",
+                "auth_mode": "basic",
+                "username": "admin"
+            }),
+            credential_value: Some("super_secret_password".into()),
+        };
+        let summary2 = add(&connection, &store, req2).unwrap();
+        assert!(summary2.credential_configured);
+
+        // 3. Ensure sqlite doesn't contain the secret
+        let mut stmt = connection.prepare("SELECT config_metadata_json, credential_reference FROM connector_instances WHERE id = ?1").unwrap();
+        let (config_json, cred_ref): (String, Option<String>) = stmt
+            .query_row([&summary2.id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        assert!(!config_json.contains("super_secret_password"));
+        assert!(cred_ref.is_some());
+        assert!(!cred_ref.unwrap().contains("super_secret_password"));
+
+        // 4. Test diagnostics
+        // Ensure run_connection_test returns a sanitized generic error, not provider details.
+        let result = run_connection_test(&summary2, &store).await;
+        assert_eq!(result.outcome, "unavailable");
+        assert!(
+            result.message == "Observability endpoint check failed."
+                || result.message == "Failed to prepare request."
+                || result.message == "Failed to configure observability client."
+        );
+    }
+
+    #[tokio::test]
     async fn fixture_connection_stops_after_the_configured_attempt_limit() {
+        let store = InMemoryCredentialStore::default();
         let started = Instant::now();
-        let result = run_connection_test(&fixture(json!({
-            "fixture_health": "timeout",
-            "fixture_timeout_ms": 1,
-            "fixture_retry_backoff_ms": 1,
-        })))
+        let result = run_connection_test(
+            &fixture(json!({
+                "fixture_health": "timeout",
+                "fixture_timeout_ms": 1,
+                "fixture_retry_backoff_ms": 1,
+            })),
+            &store,
+        )
         .await;
 
         assert_eq!(result.outcome, "unavailable");

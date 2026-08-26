@@ -128,6 +128,8 @@ pub enum IpcErrorCode {
     PolicyDenied,
     #[serde(rename = "CONNECTOR_UNAVAILABLE")]
     ConnectorUnavailable,
+    #[serde(rename = "MALFORMED_RESPONSE")]
+    MalformedResponse,
     #[serde(rename = "INTERNAL_ERROR")]
     InternalError,
 }

@@ -48,6 +48,7 @@ export type IpcErrorCode =
   | "PERMISSION_DENIED"
   | "POLICY_DENIED"
   | "CONNECTOR_UNAVAILABLE"
+  | "MALFORMED_RESPONSE"
   | "INTERNAL_ERROR";
 
 export type IpcError = {
@@ -81,6 +82,37 @@ export type KubernetesResource = { resource: { name: string; kind: string; label
 export type KubernetesEvent = { type_?: string; reason?: string; message?: string; involved_kind?: string; involved_name?: string };
 export type KubernetesInventory = { resources: KubernetesResource[]; availability: { resource_kind: string; available: boolean; reason?: string }[]; topology: { from_kind: string; from_name: string; to_kind: string; to_name: string; relationship: string }[] };
 export type KubernetesManifest = { yaml: string; masked: boolean; risk_class: string };
+export type MetricSample = { timestamp: number; value: string };
+export type MetricSeries = { labels: Record<string, string>; samples: MetricSample[] };
+export type MetricSourceReference = { connector_id: string; query: string; endpoint: string };
+export type PrometheusQueryResult = { series: MetricSeries[]; source: MetricSourceReference };
+
+export type ResourceReference =
+  | { resolved: { namespace: string; kind: string; name: string } }
+  | { unresolved: { reason: string } };
+export type AlertSourceReference = { connector_id: string; endpoint: string };
+export type NormalizedAlert = {
+  fingerprint: string;
+  state: string;
+  starts_at: string;
+  ends_at: string;
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
+  generator_url: string | null;
+  source: AlertSourceReference;
+  resource_reference: ResourceReference;
+};
+
+export type GrafanaHealth = { database: string; version: string };
+export type GrafanaLinkResult = { url: string };
+
+export type GrafanaLinkRequest = { connector_id: string; target: string; query: string; start: string; end: string };
+export type AlertmanagerAlertsRequest = { connector_id: string };
+export type PrometheusQueryRequest = { connector_id: string; query: string };
+export type PrometheusQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; step_seconds: number };
+export type GrafanaHealthRequest = { id: string };
+
+export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;
 
 /**
  * Tauri command names use lowercase resource.verb components. Commands must
