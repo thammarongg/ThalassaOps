@@ -126,18 +126,23 @@ to one file behind a stable interface rather than a redesign.
 
 ## Credentials
 
-ThalassaOps stores no cloud credential. Connector configuration holds only
-non-secret selectors:
+ThalassaOps stores no cloud credential. One connector is one environment — one
+AWS profile, one Azure subscription, or one GCP project — and its configuration
+holds only non-secret selectors. These are three separate per-kind shapes, not
+one combined object:
 
 ```json
-{
-  "aws":   { "profile": "prod", "region": "ap-southeast-1" },
-  "azure": { "subscription_id": "...", "tenant_id": "..." },
-  "gcp":   { "project_id": "my-project" }
-}
+// kind: "aws"
+{ "profile": "prod", "region": "ap-southeast-1" }
+
+// kind: "azure"
+{ "subscription_id": "...", "tenant_id": "..." }
+
+// kind: "gcp"
+{ "project_id": "my-project" }
 ```
 
-All three values are stored in SQLite with the rest of the configuration.
+Each shape is stored in SQLite with the rest of the configuration.
 `credential_configured` is always `false` for these connector kinds, and no
 keychain entry is created.
 
@@ -153,18 +158,75 @@ The cost of this choice is that an unauthenticated or expired session is a
 normal, expected state rather than an error case. The preflight below exists to
 make that state actionable.
 
+## Connector registry integration and command surface
+
+The three kinds join the existing registry exactly the way the Sprint 8 and 9
+kinds did. A worker must not improvise these seams.
+
+**Manifests.** `aws_manifest()`, `azure_manifest()` and `gcp_manifest()` follow
+the established shape and are added to `manifest_for`:
+
+```rust
+pub fn aws_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(AWS_CONNECTOR_KIND, "AWS", "0.1.0")
+        .with_capability(ConnectorCapability::read("aws.inventory", ["inventory"]))
+        .with_capability(ConnectorCapability::read("aws.access_check", ["access_check"]))
+}
+```
+
+Azure and GCP are identical with their own kind constants and capability
+prefixes.
+
+**Commands.** Two commands serve all three providers, because the connector
+kind already identifies the provider and React must stay provider-agnostic:
+
+| Command | Descriptor | Capability | Returns |
+| --- | --- | --- | --- |
+| `cloud_access_check` | `("cloud", "access_check", …, Permission::Read)` | `EnvironmentRead` | `CloudEnvironment` |
+| `cloud_inventory` | `("cloud", "inventory", …, Permission::Read)` | `EnvironmentRead` | `Vec<CloudResource>` |
+
+`EnvironmentRead` matches `kubernetes_inventory`, which is the closest existing
+analogue; the observability commands' capability is not the right precedent
+here. Both commands take a connector id, resolve the kind, and dispatch to the
+matching mapper. A `cloud_command` helper mirrors the existing
+`kubernetes_command` helper so the descriptor, capability, scope, membership and
+policy checks stay in one place rather than being repeated per provider.
+
+**`validate_add_request`.** Three new match arms, one per kind, each
+deserializing its own config struct and rejecting a blank required selector —
+the same shape as the `KUBERNETES_CONNECTOR_KIND` arm, not the shared
+observability arm, because the three cloud shapes differ from each other.
+`credential_value` must be absent; a cloud connector that carries one is a
+configuration error.
+
+**`run_connection_test`.** The three cloud kinds route to the preflight below,
+so "test connection" and "check read access" are the same operation and cannot
+report different answers. It maps to the existing `ConnectionTestResult`
+outcomes: access confirmed is `healthy`, every classified failure is
+`unavailable` with the remedy as its message.
+
 ## Read-access preflight
 
 Each environment is checked before its resources are listed. The check is the
 real list call with the smallest page the provider allows, and the result is
 classified:
 
-| Outcome | Reported as |
-| --- | --- |
-| Success | Access confirmed; resource lists render. |
-| Unauthenticated or expired session | The provider's re-login command, verbatim and copyable, for example `aws sso login --profile prod`. |
-| Authorization denied | The specific permission the call required, for example `eks:ListClusters`. |
-| Anything else | Sanitized service or status message, no response body. |
+| Outcome | Classified from | Reported as |
+| --- | --- | --- |
+| Success | HTTP 200 | Access confirmed; resource lists render. |
+| No credential resolvable | `CloudAuthError` — before any request is built | The provider's login command, verbatim and copyable, for example `aws sso login --profile prod`. |
+| Session expired or rejected | HTTP 401 | The same copyable login command. |
+| Authorization denied | HTTP 403 | The specific permission the call required, for example `eks:ListClusters`. |
+| Anything else | Any other status or transport failure | Sanitized service or status message, no response body. |
+
+The second row is the one that matters most and is easy to miss. With ambient
+credentials, the commonest failure is that there is no session at all — no SSO
+cache, no `az login`, no application default credentials — and that failure
+happens inside the auth crate before a request object exists. It never reaches
+an HTTP status, so a classifier written only over HTTP outcomes would mishandle
+precisely the state this preflight exists to explain. `CloudAuthError` must
+carry enough structure to distinguish "no credential available" from "credential
+available but the provider rejected it".
 
 The preflight deliberately does not call the providers' policy-simulation APIs
 (`iam:SimulatePrincipalPolicy` and its equivalents). Those calls require IAM
@@ -202,6 +264,9 @@ pub struct CloudEnvironment {
     pub location: String,
     pub access: CloudAccessState,
 }
+
+// One variant per preflight outcome row, in the same order:
+//   Confirmed | NoCredential | SessionExpired | PermissionDenied | Unavailable
 
 pub struct CloudResource {
     pub provider: CloudProvider,
@@ -262,6 +327,11 @@ Task 1 of the implementation plan verifies, before any mapper is written:
    usable versions, are maintained, and can produce a credential for the flows
    above.
 3. Whether pagination is cursor, token or page based per call.
+4. Which call per provider actually carries resource health or status. A plain
+   list call may not: an Azure virtual machine's power state is not part of the
+   default list representation and needs an instance-view or status-only
+   request. If a second call is required, that is a mapper detail, but it must
+   be known before `CloudResource.health` is promised.
 
 If `DescribeInstances` does return XML, the options are a scoped XML dependency
 for that one mapper, `aws-sdk-ec2` for that one call, or a JSON-returning
@@ -311,7 +381,8 @@ and a GCP session expiring is not a reason to hide healthy AWS resources.
 
 ## Safety and error handling
 
-- Every command added this sprint requires `ResourceRead`; connector
+- Every command added this sprint requires `EnvironmentRead`, matching
+  `kubernetes_inventory` rather than the observability commands; connector
   configuration continues to require `ConnectorAct`.
 - Every request is a fixed, internally selected GET. Redirects stay disabled and
   the timeout stays bounded.
@@ -326,7 +397,12 @@ and a GCP session expiring is not a reason to hide healthy AWS resources.
 ## Verification and acceptance
 
 - All provider interactions are tested against local `httpmock` endpoints. No
-  test requires a live cloud account or a configured CLI.
+  test requires a live cloud account or a configured CLI. That claim depends on
+  `CloudCredentialProvider` being a trait: tests inject a fake implementation
+  that returns a canned authorization, or returns `CloudAuthError`, so both the
+  authorized path and the no-credential preflight arm are reachable without any
+  provider login on the machine running the suite. The trait is a testability
+  seam as much as a containment one.
 - Response fixtures are copied from the real shapes captured in Task 1.
 - The `app.rs` split is proved by the existing suite passing unchanged. A test
   that needs editing means the split altered behaviour.

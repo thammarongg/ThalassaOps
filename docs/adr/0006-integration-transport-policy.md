@@ -15,9 +15,12 @@ Signature construction, SSO session handling and token refresh are the part of
 any integration where a hand-rolled implementation is both dangerous to get
 subtly wrong and permanently in maintenance as providers evolve their
 authentication. Everything after the credential is owned by ThalassaOps: URL
-construction, the request, pagination and error handling run through a shared
+construction, the request, pagination and error handling run through an owned
 adapter that guarantees GET-only reads, disabled redirects, a bounded timeout,
-and failures sanitized to a status code carrying no response body. Those
+and failures sanitized to a status code carrying no response body. "Owned"
+constrains those guarantees, not the file count: the observability adapter and
+the cloud adapter are separate because their authentication models share
+nothing, and this decision is not a mandate to merge them. Those
 guarantees are the product's auditability claim, and a provider SDK's own HTTP
 stack, retry policy and error types would dilute them one connector at a time.
 
