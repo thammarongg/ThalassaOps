@@ -140,7 +140,11 @@ const th = {
     queryType: "ประเภทคำสั่ง",
     promqlQuery: "คำสั่ง PromQL",
     selectAlert: "เลือกการแจ้งเตือน {{fingerprint}}",
-    noData: "ไม่มีข้อมูล"
+    noData: "ไม่มีข้อมูล",
+    timeRange: "ช่วงเวลา",
+    startTime: "เริ่มต้น",
+    endTime: "สิ้นสุด",
+    manualTimeContext: "ช่วงเวลานี้จะไม่ติดตามการแจ้งเตือนที่เลือกอีกต่อไป"
   },
   kubernetes: {
     title: "ตรวจสอบ Kubernetes",

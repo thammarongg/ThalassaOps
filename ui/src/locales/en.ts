@@ -140,7 +140,11 @@ const en = {
     queryType: "Query type",
     promqlQuery: "PromQL query",
     selectAlert: "Select alert {{fingerprint}}",
-    noData: "No data available."
+    noData: "No data available.",
+    timeRange: "Time range",
+    startTime: "Start",
+    endTime: "End",
+    manualTimeContext: "This time window no longer follows the selected alert."
   },
   kubernetes: {
     title: "Kubernetes inspection",
