@@ -26,7 +26,8 @@ log line without reconstructing the time window by hand.
   telemetry; it reads from configured backends only.
 - Jaeger, or any trace backend other than Tempo.
 - Loki label discovery, Tempo trace search, saved queries and log alerting.
-- Span attribute exposure, flame graphs and log line virtualization.
+- Span attributes beyond the explicit allow list below, flame graphs and log
+  line virtualization.
 - Value-pattern redaction (regex over unstructured text) and policy-driven
   redaction rules, which belong to Policy Center in Sprint 20.
 - New Grafana link targets, including a logs datasource UID.
@@ -124,16 +125,34 @@ timing or proximity.
 ### Tempo
 
 `tempo.trace` is a `ResourceRead` command reading `GET /api/traces/{traceID}`.
-The trace ID must be 16 or 32 hexadecimal characters, case-insensitive, and is
-validated before it is placed in the URL path; a rejected ID never reaches the
-provider. `tempo.health` probes Tempo's fixed readiness endpoint.
+The trace ID must be exactly 32 characters matching `[0-9a-f]`, the W3C Trace
+Context format, and is validated before it is placed in the URL path. Uppercase
+hexadecimal, shortened IDs and any other input are rejected, and a rejected ID
+never reaches the provider. `tempo.health` probes Tempo's fixed readiness endpoint.
 
 A trace is normalized into span summaries carrying `trace_id`, `span_id`,
 `parent_span_id`, `name`, `service_name`, `start_time_unix_nano`,
-`duration_nano` and `status`. Span attributes are not returned. Attributes can
-carry secrets exactly as log fields can, and exposing them safely requires a
-masking surface of its own; the span structure is enough to answer which service
-was slow or failing, which is what the sprint's exit criterion needs.
+`duration_nano` and `status`.
+
+Span attributes are returned through an explicit allow list, never a deny list.
+Sensitive content in attributes usually hides in the value under an innocuous
+key — a token in an `http.url` query string, literals in a `db.statement`, a
+bearer header under `http.request.header.authorization` — so a name-based deny
+list would pass all of them through while labelling the result masked. The
+allow list inverts that default: an unrecognized key is dropped.
+
+Sprint 9 allows exactly these OpenTelemetry semantic-convention keys, whose
+meaning and value shape are defined by the specification rather than by the
+instrumented application:
+
+```text
+http.status_code   http.method   http.route
+rpc.service        rpc.method    db.system
+exception.type     otel.status_description
+```
+
+`db.system` names the database engine and is not `db.statement`. Adding a key to
+this list is a deliberate change with its own test, not a configuration option.
 
 ### IPC contract rule
 
@@ -197,7 +216,9 @@ Rust tests use local mock HTTP servers to verify:
 - `trace_id` extraction from explicit fields only, including negative cases for
   identifier-shaped text in unparsed lines;
 - trace ID validation rejecting non-hexadecimal and wrong-length input;
-- span summary mapping and the absence of span attributes;
+- span summary mapping, and that an attribute outside the allow list — including
+  `http.url`, `db.statement` and a custom application key — never appears in a
+  serialized span;
 - the full authorization and policy table from Sprint 8 applied to all three new
   commands, plus a success case proving no credential or credential reference
   appears in a serialized result.
