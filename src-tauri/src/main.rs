@@ -117,6 +117,15 @@ async fn prometheus_query_range(
 }
 
 #[tauri::command]
+async fn loki_query_range(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::observability::loki::LokiQueryResult>, String>
+{
+    Ok(state.inner().clone().loki_query_range(envelope).await)
+}
+
+#[tauri::command]
 async fn alertmanager_alerts(
     envelope: CommandEnvelope<serde_json::Value>,
     state: tauri::State<'_, thalassaops::app::AppState>,
@@ -169,6 +178,7 @@ fn main() {
             connector_diagnose,
             prometheus_query,
             prometheus_query_range,
+            loki_query_range,
             alertmanager_alerts,
             grafana_health,
             grafana_link,

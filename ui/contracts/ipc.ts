@@ -87,6 +87,18 @@ export type MetricSeries = { labels: Record<string, string>; samples: MetricSamp
 export type MetricSourceReference = { connector_id: string; query: string; endpoint: string };
 export type PrometheusQueryResult = { series: MetricSeries[]; source: MetricSourceReference };
 
+export type LogEntry = {
+  timestamp_ns: string;
+  line: string;
+  parsed: boolean;
+  masked: boolean;
+  fields: Record<string, string> | null;
+  trace_id: string | null;
+};
+export type LogStream = { labels: Record<string, string>; entries: LogEntry[] };
+export type LogSourceReference = { connector_id: string; query: string; endpoint: string };
+export type LokiQueryResult = { streams: LogStream[]; source: LogSourceReference; unparsed_count: number };
+
 export type ResourceReference =
   | { resolved: { namespace: string; kind: string; name: string } }
   | { unresolved: { reason: string } };
@@ -110,6 +122,7 @@ export type GrafanaLinkRequest = { connector_id: string; target: string; query: 
 export type AlertmanagerAlertsRequest = { connector_id: string };
 export type PrometheusQueryRequest = { connector_id: string; query: string };
 export type PrometheusQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; step_seconds: number };
+export type LokiQueryRangeRequest = { connector_id: string; query: string; start: string; end: string; limit: number };
 export type GrafanaHealthRequest = { id: string };
 
 export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;

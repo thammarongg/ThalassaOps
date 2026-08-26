@@ -507,6 +507,101 @@ impl AppState {
         }
     }
 
+    pub async fn loki_query_range(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<crate::observability::loki::LokiQueryResult> {
+        use crate::observability::{
+            client::ObservabilityClient,
+            loki::{self, LokiQueryRangeRequest},
+            LOKI_CONNECTOR_KIND,
+        };
+
+        let descriptor = CommandDescriptor::new(
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::Read,
+        );
+        if let Err(error) = self.authorize_observability(&envelope, &descriptor) {
+            return IpcResult::Err { ok: false, error };
+        }
+
+        let req = match serde_json::from_value::<LokiQueryRangeRequest>(envelope.payload.clone()) {
+            Ok(request) => request,
+            Err(error) => {
+                return IpcResult::Err {
+                    ok: false,
+                    error: ipc_error_for(AppStateError::Serialization(error)),
+                }
+            }
+        };
+
+        let result = match Connection::open(&self.database_path) {
+            Ok(connection) => {
+                match connectors::get(
+                    &connection,
+                    self.credential_store.as_ref(),
+                    &req.connector_id,
+                ) {
+                    Ok(Some(connector)) if connector.kind == LOKI_CONNECTOR_KIND => {
+                        if !connector.enabled {
+                            Err(AppStateError::Connector(ConnectorError::Disabled))
+                        } else if !self
+                            .policy
+                            .evaluate_egress(EgressRequest::verified(
+                                DataClass::Internal,
+                                EgressDestination::ExternalIntegration,
+                            ))
+                            .is_allowed()
+                        {
+                            Err(AppStateError::PolicyDenied)
+                        } else {
+                            match ObservabilityClient::new(
+                                &connector,
+                                self.credential_store.as_ref(),
+                            ) {
+                                Ok(client) => loki::query_range(&client, req)
+                                    .await
+                                    .map_err(AppStateError::from),
+                                Err(error) => Err(AppStateError::ObservabilityClient(error)),
+                            }
+                        }
+                    }
+                    Ok(_) => Err(AppStateError::Connector(ConnectorError::NotFound)),
+                    Err(error) => Err(AppStateError::Connector(error)),
+                }
+            }
+            Err(error) => Err(AppStateError::Database(error)),
+        };
+
+        if !self
+            .policy
+            .evaluate_egress(EgressRequest::verified(
+                DataClass::Internal,
+                EgressDestination::Ui,
+            ))
+            .is_allowed()
+        {
+            return IpcResult::Err {
+                ok: false,
+                error: IpcError::new(
+                    IpcErrorCode::PolicyDenied,
+                    "policy denied Loki response",
+                    json!({}),
+                ),
+            };
+        }
+
+        match result {
+            Ok(value) => IpcResult::Ok { ok: true, value },
+            Err(error) => IpcResult::Err {
+                ok: false,
+                error: ipc_error_for(error),
+            },
+        }
+    }
+
     pub async fn alertmanager_alerts(
         &self,
         envelope: CommandEnvelope<Value>,
@@ -1222,6 +1317,8 @@ pub enum AppStateError {
     Alertmanager(#[from] crate::observability::alertmanager::AlertmanagerError),
     #[error("grafana error: {0}")]
     Grafana(#[from] crate::observability::grafana::GrafanaError),
+    #[error("loki error: {0}")]
+    Loki(#[from] crate::observability::loki::LokiError),
     #[error("policy denied")]
     PolicyDenied,
     #[error("kubernetes error: {0}")]
@@ -1260,6 +1357,7 @@ fn ipc_error_for(error: AppStateError) -> IpcError {
             crate::observability::alertmanager::AlertmanagerError::Client(err),
         )
         | AppStateError::Grafana(crate::observability::grafana::GrafanaError::Client(err))
+        | AppStateError::Loki(crate::observability::loki::LokiError::Client(err))
         | AppStateError::ObservabilityClient(err) => match err {
             crate::observability::client::ObservabilityClientError::MalformedResponse => {
                 IpcError::new(
@@ -1285,9 +1383,15 @@ fn ipc_error_for(error: AppStateError) -> IpcError {
         AppStateError::Prometheus(
             crate::observability::prometheus::PrometheusError::Validation(_),
         )
-        | AppStateError::Grafana(crate::observability::grafana::GrafanaError::Validation(_)) => {
+        | AppStateError::Grafana(crate::observability::grafana::GrafanaError::Validation(_))
+        | AppStateError::Loki(crate::observability::loki::LokiError::Validation(_)) => {
             IpcError::new(IpcErrorCode::InvalidRequest, "invalid request", json!({}))
         }
+        AppStateError::Loki(crate::observability::loki::LokiError::Provider(_)) => IpcError::new(
+            IpcErrorCode::MalformedResponse,
+            "malformed response from provider",
+            json!({}),
+        ),
         _ => IpcError::new(
             IpcErrorCode::InternalError,
             "connector operation failed",
@@ -2366,5 +2470,183 @@ mod tests {
         range_mock.assert();
         alert_mock.assert();
         health_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn loki_query_range_enforces_authorization_and_returns_masked_data() {
+        let (_directory, mut state) = test_state();
+        let server = MockServer::start();
+        let loki = add_observability_connector(&state, "loki", &server.url(""), "none", None);
+        let prometheus =
+            add_observability_connector(&state, "prometheus", &server.url(""), "none", None);
+        let secret = "loki-secret";
+        let secure_loki =
+            add_observability_connector(&state, "loki", &server.url(""), "bearer", Some(secret));
+        let query = |connector_id: &str| {
+            json!({
+                "connector_id": connector_id,
+                "query": "{namespace=\"prod\"}",
+                "start": "2024-01-01T00:00:00Z",
+                "end": "2024-01-01T01:00:00Z",
+                "limit": 20,
+            })
+        };
+
+        let response = json!({
+            "status": "success",
+            "data": {
+                "resultType": "streams",
+                "result": [{
+                    "stream": {"namespace": "prod"},
+                    "values": [["1735689600000000001", "{\"api_key\":\"sk-live-1\"}"]]
+                }]
+            }
+        });
+        let query_mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/loki/api/v1/query_range")
+                .query_param("query", "{namespace=\"prod\"}")
+                .query_param("limit", "20")
+                .query_param("direction", "backward")
+                .query_param_exists("start")
+                .query_param_exists("end")
+                .header("Authorization", "Bearer loki-secret");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(response.to_string());
+        });
+
+        let wrong_command = observability_envelope(
+            &state,
+            "loki",
+            "health",
+            Capability::ResourceRead,
+            query(&secure_loki.id),
+        );
+        assert_error_code(
+            state.loki_query_range(wrong_command).await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        let mut wrong_capability = observability_envelope(
+            &state,
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            query(&secure_loki.id),
+        );
+        wrong_capability.capability = Capability::WorkspaceRead;
+        assert_error_code(
+            state.loki_query_range(wrong_capability).await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        let bounded_scope = ResourceScope::workspace(
+            state.bootstrap.workspace.id,
+            state.bootstrap.team.id,
+            state.bootstrap.organization.id,
+        );
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope_with_scope(
+                    bounded_scope,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&secure_loki.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+
+        state.bootstrap.membership.status = MembershipStatus::Suspended;
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope(
+                    &state,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&secure_loki.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+        state.bootstrap.membership.status = MembershipStatus::Active;
+
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope(
+                    &state,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&prometheus.id),
+                ))
+                .await,
+            IpcErrorCode::NotFound,
+        );
+
+        state.policy = PolicyRuntime::load(
+            PolicyDocument::baseline(2).with_external_integration_data_classes(vec![]),
+        )
+        .unwrap();
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope(
+                    &state,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&secure_loki.id),
+                ))
+                .await,
+            IpcErrorCode::PolicyDenied,
+        );
+        state.policy = PolicyRuntime::baseline();
+
+        assert!(matches!(
+            state.connector_disable(connector_envelope(
+                &state,
+                "disable",
+                Capability::ConnectorAct,
+                json!({ "id": loki.id }),
+            )),
+            IpcResult::Ok { .. }
+        ));
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope(
+                    &state,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&loki.id),
+                ))
+                .await,
+            IpcErrorCode::ConnectorUnavailable,
+        );
+
+        let result = state
+            .loki_query_range(observability_envelope(
+                &state,
+                "loki",
+                "query_range",
+                Capability::ResourceRead,
+                query(&secure_loki.id),
+            ))
+            .await;
+        assert_result_has_no_secret_or_credential_reference(&result, secret);
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains("sk-live-"));
+        let IpcResult::Ok { value, .. } = result else {
+            panic!("Loki query should succeed")
+        };
+        assert_eq!(
+            value.streams[0].entries[0].fields.as_ref().unwrap()["api_key"],
+            "<REDACTED>"
+        );
+        assert_eq!(value.unparsed_count, 0);
+        query_mock.assert();
     }
 }

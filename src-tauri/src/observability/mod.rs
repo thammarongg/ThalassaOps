@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod alertmanager;
 pub mod client;
 pub mod grafana;
+pub mod loki;
 pub mod masking;
 pub mod prometheus;
 
