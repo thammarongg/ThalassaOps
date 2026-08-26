@@ -13,23 +13,38 @@ Date: 2026-08-26
 - Removed independent metric/Grafana time fallbacks and verified the shared workspace window in the metric-to-log acceptance fixture.
 - Added Tempo tenant-header present/absent coverage and removed credential-shaped literals from UI-only fixtures while retaining parsed/unparsed masking assertions.
 
-## Verification
+## Remediation round 2: frontend gates
 
-All commands ran from the repository root; no npm dependencies were installed.
+- Updated the two acceptance journeys to use `/Query type/`, preserving the pre-existing `Query type:` UI markup without changing production text.
+- Widened `GrafanaPanel`'s `loadingKey` state to `number | undefined`, preserving the reset effect and ensuring `undefined` does not equal a numeric `resetKey`.
+- Changed `npm run typecheck` to `tsc -b --force`, so CI typechecks the referenced app project instead of an empty root project.
+- Ran the repository formatter over the seven files reported by `format:check`.
+
+### Required F4-before-F2 proof
+
+Applied F4 alone, before changing `GrafanaPanel.tsx`, then ran `npm run typecheck`:
+
+```text
+ui/src/observability/GrafanaPanel.tsx(59,19): error TS2345: Argument of type 'undefined' is not assignable to parameter of type 'SetStateAction<number>'.
+```
+
+After applying F2, `npm run typecheck` passed with the fixed `tsc -b --force` script.
+
+### Verification
+
+All commands ran from the repository root after `npm ci` installed the locked dependencies. The table records the actual command output summaries from this remediation round.
 
 | Command | Result |
 | --- | --- |
-| `cargo fmt --all -- --check` | PASS |
-| `cargo test -p thalassaops observability::loki::` | PASS — 4 tests |
-| `cargo test -p thalassaops observability_authorization_` | PASS — 2 tests |
-| `cargo test -p thalassaops observability::client::` | PASS — 8 tests |
-| `cargo test --workspace` | PASS — 57 package tests; all doctests pass |
-| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
-| `git diff --check` | PASS |
-| `npm test -- shell.test.tsx` | BLOCKED — exit 127, `vitest: command not found` |
-| `npm run typecheck` | BLOCKED — exit 127, `tsc: command not found` |
-| `npm run lint` | BLOCKED — exit 127, `eslint: command not found` |
-| `npm run build` | BLOCKED — exit 127, `tsc: command not found` |
-| `npm run format:check` | BLOCKED — exit 127, `prettier: command not found` |
+| `npm ci` | PASS — added 298 packages and audited 299; npm reported 5 vulnerabilities (3 moderate, 1 high, 1 critical) plus deprecation/install-script warnings |
+| `npm run format:check` | PASS — `All matched files use Prettier code style!` |
+| `npm run lint` | PASS — ESLint exited 0 with no diagnostics |
+| `npm run typecheck` | PASS — `tsc -b --force` exited 0 |
+| `npm test` | PASS — 4 test files, 19 tests passed, 0 failed, 0 skipped |
+| `npm run build` | PASS — TypeScript and Vite build completed; 76 modules transformed |
+| `cargo fmt --all -- --check` | PASS — exited 0 with no output |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — finished dev profile with no warnings |
+| `cargo test --workspace` | PASS — 79 package tests passed, 0 failed; all doctests passed |
+| `git diff --check` | PASS — exited 0 with no output |
 
-The frontend gates remain blocked because the repository has no installed npm binaries; they were not installed per task constraints. This worker did not self-approve; independent review is still required.
+This round's frontend gates are executable and green; independent review is still required.
