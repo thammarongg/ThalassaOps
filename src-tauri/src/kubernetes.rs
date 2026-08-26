@@ -1,4 +1,5 @@
 //! Read-only Kubernetes discovery and investigation adapter.
+use crate::observability::masking::{sensitive_key, REDACTED};
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
     core::v1::{Namespace, Node, Pod, Service},
@@ -227,13 +228,6 @@ pub fn kubectl_command(kind: &str, namespace: Option<&str>, name: &str, context:
     } else {
         format!("kubectl --context {context}{scope} get {kind_lower} {name} -o yaml")
     }
-}
-const REDACTED: &str = "<REDACTED>";
-fn sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    ["password", "secret", "token", "key", "credential"]
-        .iter()
-        .any(|needle| key.contains(needle))
 }
 fn mask_containers(value: &mut serde_json::Value, pointer: &str) -> bool {
     let mut masked = false;

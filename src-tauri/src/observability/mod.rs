@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod alertmanager;
 pub mod client;
 pub mod grafana;
+pub mod masking;
 pub mod prometheus;
 
 pub const PROMETHEUS_CONNECTOR_KIND: &str = "prometheus";
