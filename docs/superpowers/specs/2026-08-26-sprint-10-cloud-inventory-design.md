@@ -263,6 +263,10 @@ pub struct CloudEnvironment {
                                  // AWS profile, Azure subscription, GCP project
     pub location: String,
     pub access: CloudAccessState,
+    /// Empty when access is Confirmed. Otherwise the operator's remedy from
+    /// the preflight table: a copyable login command, or the name of the
+    /// missing permission.
+    pub remedy: String,
 }
 
 // One variant per preflight outcome row, in the same order:
