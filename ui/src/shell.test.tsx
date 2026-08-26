@@ -521,14 +521,11 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
 
   const logQuery = await screen.findByRole("textbox", { name: "LogQL query" });
   expect(logQuery).toHaveValue('{namespace="prod", pod="api-0"}');
-  expect(screen.getByText(/Investigation window:/)).toHaveAttribute(
-    "data-start",
-    alert.starts_at
-  );
+  expect(screen.getByText(/Investigation window:/)).toHaveAttribute("data-start", alert.starts_at);
   const investigationWindow = screen.getByText(/Investigation window:/);
   const timeEnd = investigationWindow.getAttribute("data-end");
 
-  await user.selectOptions(screen.getByLabelText("Query type"), "range");
+  await user.selectOptions(screen.getByLabelText(/Query type/), "range");
   await user.click(screen.getAllByRole("button", { name: "Run Query" })[0]);
   const metricCall = await waitFor(() => {
     const call = invoke.mock.calls.find(([name]) => name === "prometheus_query_range");
@@ -660,7 +657,7 @@ it("clears prior observability evidence and Grafana context when switching alert
     ],
     source: {
       connector_id: connectorId,
-      query: "{namespace=\"prod\", pod=\"fixture\"}",
+      query: '{namespace="prod", pod="fixture"}',
       endpoint: "/loki/api/v1/query_range"
     },
     unparsed_count: 0
@@ -682,53 +679,56 @@ it("clears prior observability evidence and Grafana context when switching alert
     ],
     source: { connector_id: tempo.id, trace_id: traceId, endpoint: `/api/traces/${traceId}` }
   });
-  const invoke = vi.fn().mockImplementation((name: string, args?: { envelope?: { payload?: Record<string, unknown> } }) => {
-    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
-    if (name === "connector_list")
-      return Promise.resolve({ ok: true, value: [alertmanager, prometheus, grafana, loki, tempo] });
-    if (name === "alertmanager_alerts")
-      return Promise.resolve({ ok: true, value: [alertA, alertB] });
-    if (name === "grafana_health")
-      return Promise.resolve({ ok: true, value: { version: "10.0", database: "sqlite" } });
-    if (name === "prometheus_query_range") {
-      const query = String(args?.envelope?.payload?.query ?? "");
-      const alert = query.includes("api-a") ? alertA : alertB;
-      return Promise.resolve({
-        ok: true,
-        value: {
-          source: { connector_id: prometheus.id, query, endpoint: "/api/v1/query_range" },
-          series: [
-            {
-              labels: { instance: alert.labels.pod },
-              samples: [{ timestamp: 1700000000, value: `metric-${alert.labels.pod}` }]
+  const invoke = vi
+    .fn()
+    .mockImplementation(
+      (name: string, args?: { envelope?: { payload?: Record<string, unknown> } }) => {
+        if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+        if (name === "connector_list")
+          return Promise.resolve({
+            ok: true,
+            value: [alertmanager, prometheus, grafana, loki, tempo]
+          });
+        if (name === "alertmanager_alerts")
+          return Promise.resolve({ ok: true, value: [alertA, alertB] });
+        if (name === "grafana_health")
+          return Promise.resolve({ ok: true, value: { version: "10.0", database: "sqlite" } });
+        if (name === "prometheus_query_range") {
+          const query = String(args?.envelope?.payload?.query ?? "");
+          const alert = query.includes("api-a") ? alertA : alertB;
+          return Promise.resolve({
+            ok: true,
+            value: {
+              source: { connector_id: prometheus.id, query, endpoint: "/api/v1/query_range" },
+              series: [
+                {
+                  labels: { instance: alert.labels.pod },
+                  samples: [{ timestamp: 1700000000, value: `metric-${alert.labels.pod}` }]
+                }
+              ]
             }
-          ]
+          });
         }
-      });
-    }
-    if (name === "loki_query_range") {
-      const query = String(args?.envelope?.payload?.query ?? "");
-      const alert = query.includes("api-a") ? alertA : alertB;
-      return Promise.resolve({
-        ok: true,
-        value: logResult(
-          alert === alertA ? traceA : traceB,
-          `log-${alert.labels.pod}`,
-          loki.id
-        )
-      });
-    }
-    if (name === "tempo_trace") {
-      const traceId = String(args?.envelope?.payload?.trace_id ?? "");
-      return Promise.resolve({
-        ok: true,
-        value: traceResult(traceId, traceId === traceA ? "service-a" : "service-b")
-      });
-    }
-    if (name === "grafana_link")
-      return Promise.resolve({ ok: true, value: { url: "http://localhost/d/dash-stale" } });
-    return Promise.resolve({ ok: true, value: {} });
-  });
+        if (name === "loki_query_range") {
+          const query = String(args?.envelope?.payload?.query ?? "");
+          const alert = query.includes("api-a") ? alertA : alertB;
+          return Promise.resolve({
+            ok: true,
+            value: logResult(alert === alertA ? traceA : traceB, `log-${alert.labels.pod}`, loki.id)
+          });
+        }
+        if (name === "tempo_trace") {
+          const traceId = String(args?.envelope?.payload?.trace_id ?? "");
+          return Promise.resolve({
+            ok: true,
+            value: traceResult(traceId, traceId === traceA ? "service-a" : "service-b")
+          });
+        }
+        if (name === "grafana_link")
+          return Promise.resolve({ ok: true, value: { url: "http://localhost/d/dash-stale" } });
+        return Promise.resolve({ ok: true, value: {} });
+      }
+    );
 
   render(
     <I18nProvider>
@@ -739,7 +739,7 @@ it("clears prior observability evidence and Grafana context when switching alert
   await user.click(screen.getByRole("button", { name: "Observability" }));
   await screen.findByRole("heading", { name: "AM stale" });
   await user.click(screen.getByRole("radio", { name: "Select alert stale-a" }));
-  await user.selectOptions(screen.getByLabelText("Query type"), "range");
+  await user.selectOptions(screen.getByLabelText(/Query type/), "range");
   await user.click(screen.getAllByRole("button", { name: "Run Query" })[0]);
   expect(await screen.findByText("metric-api-a")).toBeInTheDocument();
   await user.click(screen.getAllByRole("button", { name: "Run Query" })[1]);
@@ -926,7 +926,8 @@ it("shows localized LogQL states for missing and ambiguous alert labels", async 
   ];
   const invoke = vi.fn().mockImplementation((name: string) => {
     if (name === "system_context") return Promise.resolve({ ok: true, value: context });
-    if (name === "connector_list") return Promise.resolve({ ok: true, value: [alertmanager, loki] });
+    if (name === "connector_list")
+      return Promise.resolve({ ok: true, value: [alertmanager, loki] });
     if (name === "alertmanager_alerts") return Promise.resolve({ ok: true, value: alerts });
     return Promise.resolve({ ok: true, value: {} });
   });
