@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use thalassa_domain::{Membership, Organization, Principal, ResourceScope, Team, Workspace};
+use thalassa_domain::{
+    Membership, MembershipRole, Organization, Permission, Principal, ResourceScope, Team, Workspace,
+};
 use thalassa_ipc::{Capability, CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode};
 use thalassa_policy::{DataClass, EgressDestination, EgressRequest, PolicyDocument, PolicyRuntime};
 
@@ -1069,11 +1071,24 @@ impl AppState {
         envelope: &CommandEnvelope<Value>,
         descriptor: &CommandDescriptor,
     ) -> Result<(), IpcError> {
+        // Observability envelopes intentionally carry an unbounded scope; resolve that
+        // request against the current workspace before checking the membership grant.
+        let current_workspace_scope = ResourceScope::workspace(
+            self.bootstrap.workspace.id,
+            self.bootstrap.team.id,
+            self.bootstrap.organization.id,
+        );
         if envelope.command != descriptor.name
             || envelope.capability != descriptor.required_capability
             || envelope.scope.is_bounded()
             || !descriptor.scope.contains(&envelope.scope)
             || self.bootstrap.membership.status != thalassa_domain::MembershipStatus::Active
+            || self.bootstrap.membership.principal_id != self.bootstrap.principal.id
+            || !self.bootstrap.membership.grants(&current_workspace_scope)
+            || !membership_role_grants_permission(
+                &self.bootstrap.membership.role,
+                &descriptor.required_permission,
+            )
         {
             Err(IpcError::permission_denied(
                 descriptor.name.to_string(),
@@ -1345,6 +1360,21 @@ impl AppState {
     }
 }
 
+fn membership_role_grants_permission(role: &MembershipRole, permission: &Permission) -> bool {
+    match role {
+        MembershipRole::Owner | MembershipRole::Administrator => true,
+        MembershipRole::Operator => matches!(
+            permission,
+            Permission::Read
+                | Permission::Investigate
+                | Permission::RecommendAction
+                | Permission::ExecuteAction
+        ),
+        MembershipRole::Viewer => matches!(permission, Permission::Read | Permission::Investigate),
+        MembershipRole::Auditor => matches!(permission, Permission::Read | Permission::AuditRead),
+    }
+}
+
 pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateError> {
     connection.execute_batch(INITIAL_MIGRATION)?;
     let exists: Option<i64> = connection
@@ -1602,7 +1632,7 @@ mod tests {
     use httpmock::MockServer;
     use std::sync::Arc;
     use tempfile::tempdir;
-    use thalassa_domain::MembershipStatus;
+    use thalassa_domain::{MembershipRole, MembershipStatus};
     use uuid::Uuid;
 
     fn health_envelope(state: &AppState) -> CommandEnvelope<Value> {
@@ -2692,7 +2722,7 @@ mod tests {
             "data": {
                 "resultType": "streams",
                 "result": [{
-                    "stream": {"namespace": "prod"},
+                    "stream": {"namespace": "prod", "api_token": "stream-secret"},
                     "values": [["1735689600000000001", "{\"api_key\":\"sk-live-1\"}"]]
                 }]
             }
@@ -2753,6 +2783,26 @@ mod tests {
                 .await,
             IpcErrorCode::PermissionDenied,
         );
+
+        let original_membership_scope = state.bootstrap.membership.scope.clone();
+        state.bootstrap.membership.scope = ResourceScope::workspace(
+            Uuid::new_v4(),
+            state.bootstrap.team.id,
+            state.bootstrap.organization.id,
+        );
+        assert_error_code(
+            state
+                .loki_query_range(observability_envelope(
+                    &state,
+                    "loki",
+                    "query_range",
+                    Capability::ResourceRead,
+                    query(&secure_loki.id),
+                ))
+                .await,
+            IpcErrorCode::PermissionDenied,
+        );
+        state.bootstrap.membership.scope = original_membership_scope;
 
         state.bootstrap.membership.status = MembershipStatus::Suspended;
         assert_error_code(
@@ -2834,6 +2884,7 @@ mod tests {
         assert_result_has_no_secret_or_credential_reference(&result, secret);
         let serialized = serde_json::to_string(&result).unwrap();
         assert!(!serialized.contains("sk-live-"));
+        assert!(!serialized.contains("stream-secret"));
         let IpcResult::Ok { value, .. } = result else {
             panic!("Loki query should succeed")
         };
@@ -2843,6 +2894,52 @@ mod tests {
         );
         assert_eq!(value.unparsed_count, 0);
         query_mock.assert();
+    }
+
+    #[test]
+    fn observability_authorization_enforces_descriptor_permission() {
+        let (_directory, mut state) = test_state();
+        state.bootstrap.membership.role = MembershipRole::Viewer;
+        let descriptor = CommandDescriptor::new(
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            thalassa_domain::Permission::ManagePolicy,
+        );
+        let envelope = observability_envelope(
+            &state,
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            json!({}),
+        );
+
+        assert!(state
+            .authorize_observability(&envelope, &descriptor)
+            .is_err());
+    }
+
+    #[test]
+    fn observability_authorization_rejects_membership_for_another_principal() {
+        let (_directory, mut state) = test_state();
+        state.bootstrap.membership.principal_id = Uuid::new_v4();
+        let descriptor = CommandDescriptor::new(
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            Permission::Read,
+        );
+        let envelope = observability_envelope(
+            &state,
+            "loki",
+            "query_range",
+            Capability::ResourceRead,
+            json!({}),
+        );
+
+        assert!(state
+            .authorize_observability(&envelope, &descriptor)
+            .is_err());
     }
 
     #[tokio::test]

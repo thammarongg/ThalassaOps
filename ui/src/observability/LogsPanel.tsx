@@ -26,13 +26,32 @@ const mapIpcError = (err: unknown, t: (key: string) => string) => {
 const escapeLogLabelValue = (value: string) =>
   value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 
-const logQueryFromAlert = (alert?: NormalizedAlert) => {
-  if (!alert) return "";
-  const namespace = alert.labels.namespace;
-  if (!namespace) return "";
-  const workloadKey = workloadLabelKeys.find((key) => alert.labels[key]);
-  if (!workloadKey) return "";
-  return `{namespace="${escapeLogLabelValue(namespace)}", ${workloadKey}="${escapeLogLabelValue(alert.labels[workloadKey])}"}`;
+type LogQueryState = {
+  query: string;
+  errorKey?:
+    | "observability.logQueryMissingNamespace"
+    | "observability.logQueryMissingWorkload"
+    | "observability.logQueryAmbiguousWorkload";
+};
+
+const logQueryFromAlert = (alert?: NormalizedAlert): LogQueryState => {
+  if (!alert) return { query: "" };
+  const namespace = alert.labels.namespace?.trim();
+  if (!namespace) {
+    return { query: "", errorKey: "observability.logQueryMissingNamespace" };
+  }
+  const workloadKeys = workloadLabelKeys.filter((key) => alert.labels[key]?.trim());
+  if (workloadKeys.length === 0) {
+    return { query: "", errorKey: "observability.logQueryMissingWorkload" };
+  }
+  if (workloadKeys.length > 1) {
+    return { query: "", errorKey: "observability.logQueryAmbiguousWorkload" };
+  }
+  const workloadKey = workloadKeys[0];
+  const workload = alert.labels[workloadKey].trim();
+  return {
+    query: `{namespace="${escapeLogLabelValue(namespace)}", ${workloadKey}="${escapeLogLabelValue(workload)}"}`
+  };
 };
 
 const uniqueTraceIds = (result: LokiQueryResult) =>
@@ -60,13 +79,14 @@ export function LogsPanel({
   onTraceSelect?: (traceId: string) => void;
 }) {
   const { t } = useTranslation();
-  const [query, setQuery] = useState(() => logQueryFromAlert(selectedAlert));
+  const alertQuery = logQueryFromAlert(selectedAlert);
+  const [query, setQuery] = useState(() => alertQuery.query);
   const [result, setResult] = useState<LokiQueryResult>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setQuery(logQueryFromAlert(selectedAlert));
+    setQuery(logQueryFromAlert(selectedAlert).query);
     setResult(undefined);
     setError("");
     onTraceIdsChange?.(null);
@@ -136,6 +156,11 @@ export function LogsPanel({
             {t("observability.runQuery")}
           </button>
         </div>
+        {alertQuery.errorKey && (
+          <p role="status" className="logs-panel__query-warning">
+            {t(alertQuery.errorKey)}
+          </p>
+        )}
         {loading && <p role="status">{t("integrations.loading")}</p>}
         {!loading && error && (
           <p role="status" className="error">

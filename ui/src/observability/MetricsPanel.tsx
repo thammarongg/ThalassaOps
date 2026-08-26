@@ -27,15 +27,13 @@ export function MetricsPanel({
   invoke,
   onMetricContext,
   selectedAlert,
-  timeContext,
-  onTimeContext
+  timeContext
 }: {
   connector: ConnectorSummary;
   invoke: Invoke;
   onMetricContext: (ctx: { query: string; type: string; start?: string; end?: string }) => void;
   selectedAlert?: NormalizedAlert;
   timeContext?: TimeContext;
-  onTimeContext: (context: TimeContext) => void;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -81,14 +79,12 @@ export function MetricsPanel({
           setError(mapIpcError(res.error, t));
         }
       } else {
-        const end = new Date();
-        const start = new Date(end.getTime() - 3600000);
-        const rangeContext: TimeContext =
-          timeContext ?? {
-            start: start.toISOString(),
-            end: end.toISOString(),
-            source: "manual"
-          };
+        if (!timeContext) {
+          setError(t("observability.selectAlertFirst"));
+          setLoading(false);
+          return;
+        }
+        const rangeContext = timeContext;
         const payload: PrometheusQueryRangeRequest = {
           connector_id: connector.id,
           query,
@@ -116,7 +112,6 @@ export function MetricsPanel({
             start: rangeContext.start,
             end: rangeContext.end
           });
-          if (!timeContext) onTimeContext(rangeContext);
         } else {
           setError(mapIpcError(res.error, t));
         }

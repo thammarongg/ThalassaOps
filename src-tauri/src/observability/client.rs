@@ -333,4 +333,45 @@ mod tests {
         client.execute_empty(request).await.unwrap();
         mock.assert();
     }
+
+    #[tokio::test]
+    async fn sends_scope_org_id_for_tempo_when_tenant_is_configured() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/ready")
+                .header("X-Scope-OrgID", "team-a");
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "tempo", Some("team-a"));
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn omits_scope_org_id_for_tempo_when_tenant_is_absent() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/ready").matches(|req| {
+                !req.headers
+                    .iter()
+                    .flatten()
+                    .any(|(name, _)| name.eq_ignore_ascii_case("x-scope-orgid"))
+            });
+            then.status(200).body("ready");
+        });
+        let connector = tenant_connector(&server.url(""), "tempo", None);
+        let client =
+            ObservabilityClient::new(&connector, &InMemoryCredentialStore::default()).unwrap();
+        let request = client
+            .prepare_get(client.build_url("/ready").unwrap())
+            .unwrap();
+        client.execute_empty(request).await.unwrap();
+        mock.assert();
+    }
 }

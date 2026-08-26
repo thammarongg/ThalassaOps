@@ -107,6 +107,7 @@ const en = {
     authBasic: "Basic Auth",
     username: "Username",
     credential: "Credential",
+    tenantId: "Tenant ID",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
     httpsGuidance: "Use HTTPS for production configurations.",
@@ -142,6 +143,11 @@ const en = {
     queryType: "Query type",
     promqlQuery: "PromQL query",
     logqlQuery: "LogQL query",
+    logQueryMissingNamespace: "Alert must include a namespace label before logs can be queried.",
+    logQueryMissingWorkload:
+      "Alert must include exactly one pod, service or deployment label before logs can be queried.",
+    logQueryAmbiguousWorkload:
+      "Alert includes multiple workload labels (pod, service or deployment); choose one before querying logs.",
     selectAlert: "Select alert {{fingerprint}}",
     noData: "No data available.",
     noLabels: "No labels",

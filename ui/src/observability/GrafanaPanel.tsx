@@ -66,6 +66,10 @@ export function GrafanaPanel({
 
   const openLink = async (target: string) => {
     try {
+      if (!timeContext) {
+        setError(t("observability.selectAlertFirst"));
+        return;
+      }
       if (!metricContext && !selectedAlert) return;
       let query = "";
       if (metricContext?.query) query = metricContext.query;
@@ -77,27 +81,12 @@ export function GrafanaPanel({
           )
           .join(",")}}`;
 
-      let start = new Date(Date.now() - 3600000);
-      let end = new Date();
-      if (timeContext) {
-        start = new Date(timeContext.start);
-        end = new Date(timeContext.end);
-      } else if (metricContext?.start && metricContext?.end) {
-        start = new Date(metricContext.start);
-        end = new Date(metricContext.end);
-      } else if (selectedAlert) {
-        start = new Date(selectedAlert.starts_at);
-        if (selectedAlert.state === "resolved" && selectedAlert.ends_at) {
-          end = new Date(selectedAlert.ends_at);
-        }
-      }
-
       const payload: GrafanaLinkRequest = {
         connector_id: connector.id,
         target,
         query,
-        start: start.toISOString(),
-        end: end.toISOString()
+        start: timeContext.start,
+        end: timeContext.end
       };
       const res = await invoke<GrafanaLinkRequest, GrafanaLinkResult>("grafana_link", {
         envelope: {
@@ -140,7 +129,7 @@ export function GrafanaPanel({
         <button
           type="button"
           onClick={() => openLink("dashboard")}
-          disabled={!metricContext && !selectedAlert}
+          disabled={!timeContext || (!metricContext && !selectedAlert)}
         >
           {t("observability.openDashboard")}
         </button>
@@ -149,7 +138,7 @@ export function GrafanaPanel({
         <button
           type="button"
           onClick={() => openLink("explore")}
-          disabled={!metricContext && !selectedAlert}
+          disabled={!timeContext || (!metricContext && !selectedAlert)}
         >
           {t("observability.openExplore")}
         </button>

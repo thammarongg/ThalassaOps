@@ -124,7 +124,6 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
             onMetricContext={setMetricContext}
             selectedAlert={selectedAlert}
             timeContext={timeContext}
-            onTimeContext={setTimeContext}
           />
         ))}
       </section>

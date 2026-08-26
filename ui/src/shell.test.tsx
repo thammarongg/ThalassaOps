@@ -408,6 +408,15 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
     credential_configured: false,
     health_state: "healthy"
   };
+  const prometheus = {
+    id: "prom-logs-1",
+    kind: "prometheus",
+    display_name: "Prometheus fixture",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
   const tempo = {
     id: "tempo-1",
     kind: "tempo",
@@ -443,7 +452,7 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
           },
           {
             timestamp_ns: "1735689600000000002",
-            line: "plain text line with api_key=sk-live-2",
+            line: "plain text line with api_key=<unparsed-fixture-value>",
             parsed: false,
             masked: false,
             fields: null,
@@ -479,8 +488,22 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
   const invoke = vi.fn().mockImplementation((name: string) => {
     if (name === "system_context") return Promise.resolve({ ok: true, value: context });
     if (name === "connector_list")
-      return Promise.resolve({ ok: true, value: [alertmanager, loki, tempo] });
+      return Promise.resolve({ ok: true, value: [alertmanager, prometheus, loki, tempo] });
     if (name === "alertmanager_alerts") return Promise.resolve({ ok: true, value: [alert] });
+    if (name === "prometheus_query_range")
+      return Promise.resolve({
+        ok: true,
+        value: {
+          source: {
+            connector_id: "prom-logs-1",
+            query: '{alertname="ApiError",namespace="prod",pod="api-0"}',
+            endpoint: "/api/v1/query_range"
+          },
+          series: [
+            { labels: { instance: "api-0" }, samples: [{ timestamp: 1735689600, value: "1" }] }
+          ]
+        }
+      });
     if (name === "loki_query_range") return Promise.resolve({ ok: true, value: logResult });
     if (name === "tempo_trace") return Promise.resolve({ ok: true, value: traceResult });
     return Promise.resolve({ ok: true, value: {} });
@@ -502,7 +525,21 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
     "data-start",
     alert.starts_at
   );
-  await user.click(screen.getByRole("button", { name: "Run Query" }));
+  const investigationWindow = screen.getByText(/Investigation window:/);
+  const timeEnd = investigationWindow.getAttribute("data-end");
+
+  await user.selectOptions(screen.getByLabelText("Query type"), "range");
+  await user.click(screen.getAllByRole("button", { name: "Run Query" })[0]);
+  const metricCall = await waitFor(() => {
+    const call = invoke.mock.calls.find(([name]) => name === "prometheus_query_range");
+    if (!call) throw new Error("prometheus_query_range was not invoked");
+    return call;
+  });
+  expect(metricCall[1].envelope.payload).toEqual(
+    expect.objectContaining({ start: alert.starts_at, end: timeEnd })
+  );
+
+  await user.click(screen.getAllByRole("button", { name: "Run Query" })[1]);
 
   expect(await screen.findByText(/<REDACTED>/)).toBeInTheDocument();
   expect(screen.getByText(/could not be parsed.*not masked/i)).toHaveTextContent("1");
@@ -515,7 +552,8 @@ it("follows an alert through masked Loki logs into an explicit Tempo trace", asy
     expect.objectContaining({
       connector_id: "loki-1",
       query: '{namespace="prod", pod="api-0"}',
-      start: "2026-08-26T00:00:00Z"
+      start: "2026-08-26T00:00:00Z",
+      end: timeEnd
     })
   );
 
@@ -628,6 +666,80 @@ it("states explicitly when the current Loki window has no trace ID", async () =>
   expect(invoke).not.toHaveBeenCalledWith("tempo_trace", expect.anything());
 });
 
+it("shows localized LogQL states for missing and ambiguous alert labels", async () => {
+  const user = userEvent.setup();
+  const alertmanager = {
+    id: "am-logql-state",
+    kind: "alertmanager",
+    display_name: "AM LogQL states",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const loki = {
+    id: "loki-logql-state",
+    kind: "loki",
+    display_name: "Loki LogQL states",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const alerts = [
+    {
+      fingerprint: "missing-namespace",
+      state: "firing",
+      starts_at: "2026-08-26T00:00:00Z",
+      ends_at: "",
+      labels: { alertname: "MissingNamespace", pod: "api-0" },
+      annotations: {},
+      generator_url: null,
+      source: { connector_id: alertmanager.id, endpoint: "/api/v2/alerts" },
+      resource_reference: { unresolved: { reason: "missing namespace label" } }
+    },
+    {
+      fingerprint: "ambiguous-workload",
+      state: "firing",
+      starts_at: "2026-08-26T00:00:00Z",
+      ends_at: "",
+      labels: { alertname: "AmbiguousWorkload", namespace: "prod", pod: "api-0", service: "api" },
+      annotations: {},
+      generator_url: null,
+      source: { connector_id: alertmanager.id, endpoint: "/api/v2/alerts" },
+      resource_reference: { unresolved: { reason: "ambiguous resource reference" } }
+    }
+  ];
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list") return Promise.resolve({ ok: true, value: [alertmanager, loki] });
+    if (name === "alertmanager_alerts") return Promise.resolve({ ok: true, value: alerts });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Observability" }));
+  await screen.findByRole("heading", { name: "AM LogQL states" });
+  await user.click(screen.getByRole("radio", { name: "Select alert missing-namespace" }));
+  expect(
+    await screen.findByText("Alert must include a namespace label before logs can be queried.")
+  ).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "LogQL query" })).toHaveValue("");
+
+  await user.click(screen.getByRole("radio", { name: "Select alert ambiguous-workload" }));
+  expect(
+    await screen.findByText(
+      "Alert includes multiple workload labels (pod, service or deployment); choose one before querying logs."
+    )
+  ).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "LogQL query" })).toHaveValue("");
+});
+
 it("renders loading state in Thai", async () => {
   const invoke = vi.fn().mockImplementation((name: string) => {
     if (name === "system_context") {
@@ -738,10 +850,10 @@ it("handles connector form submission securely", async () => {
   await user.type(screen.getByLabelText("Base URL"), "http://localhost:9090");
   await user.selectOptions(screen.getByLabelText("Auth mode"), "basic");
   await user.type(screen.getByLabelText("Username"), "admin");
-  await user.type(screen.getByLabelText("Credential"), "secret456");
+  await user.type(screen.getByLabelText("Credential"), "input-value-123");
   await user.click(screen.getByRole("button", { name: "Save configuration" }));
 
-  expect(connectorAddPayload().credential_value).toBe("secret456");
+  expect(connectorAddPayload().credential_value).toBe("input-value-123");
   // Check password DOM field clears - credInput is still in DOM since form re-opened?
   // Actually we need to check credInput value after submit, but form closes on success.
   // We can test the error case for password clearing.
@@ -751,10 +863,55 @@ it("handles connector form submission securely", async () => {
   await user.selectOptions(screen.getByLabelText("Kind"), "prometheus");
   await user.type(screen.getByLabelText("Base URL"), "http://localhost:9090");
   await user.selectOptions(screen.getByLabelText("Auth mode"), "bearer");
-  await user.type(screen.getByLabelText("Credential"), "failsecret");
+  await user.type(screen.getByLabelText("Credential"), "input-value-456");
   await user.click(screen.getByRole("button", { name: "Save configuration" }));
 
   expect(await screen.findByText("Invalid request data provided.")).toBeInTheDocument();
   // Password should clear
   expect(screen.getByLabelText("Credential")).toHaveValue("");
+});
+
+it("configures Loki and Tempo tenant metadata separately from credentials", async () => {
+  const user = userEvent.setup();
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "connector_list") return Promise.resolve({ ok: true, value: [] });
+    if (name === "connector_add") return Promise.resolve({ ok: true, value: {} });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Integrations" }));
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+  await user.type(screen.getByLabelText("Connector"), "Loki tenant");
+  await user.selectOptions(screen.getByLabelText("Kind"), "loki");
+  await user.type(screen.getByLabelText("Base URL"), "https://loki.example.test");
+  await user.type(screen.getByLabelText("Tenant ID"), "team-a");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+
+  const addPayload = () => {
+    const call = invoke.mock.calls.filter((call) => call[0] === "connector_add").at(-1);
+    if (!call) throw new Error("connector_add was not invoked");
+    return (call[1] as { envelope: { payload: Record<string, unknown> } }).envelope.payload;
+  };
+  expect(addPayload().config_metadata).toEqual(
+    expect.objectContaining({ base_url: "https://loki.example.test", tenant_id: "team-a" })
+  );
+  expect(addPayload().credential_value).toBeUndefined();
+
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+  await user.type(screen.getByLabelText("Connector"), "Tempo tenant");
+  await user.selectOptions(screen.getByLabelText("Kind"), "tempo");
+  await user.type(screen.getByLabelText("Base URL"), "https://tempo.example.test");
+  await user.type(screen.getByLabelText("Tenant ID"), "team-b");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  expect(addPayload().config_metadata).toEqual(
+    expect.objectContaining({ base_url: "https://tempo.example.test", tenant_id: "team-b" })
+  );
+  expect(addPayload().credential_value).toBeUndefined();
 });

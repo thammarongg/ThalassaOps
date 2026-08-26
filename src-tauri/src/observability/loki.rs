@@ -136,7 +136,7 @@ pub async fn query_range(
             entries.push(entry);
         }
         streams.push(LogStream {
-            labels: stream.stream,
+            labels: mask_stream_labels(stream.stream),
             entries,
         });
     }
@@ -172,9 +172,7 @@ fn map_entry(
         }
     };
 
-    let trace_id = ["trace_id", "traceID", "traceparent"]
-        .into_iter()
-        .find_map(|key| object.get(key).and_then(Value::as_str).map(str::to_owned));
+    let trace_id = trace_id_from_object(&object);
     let masked = mask_json_object(&mut object);
     let fields = object
         .iter()
@@ -198,6 +196,68 @@ fn field_value(value: &Value) -> String {
         Value::String(value) => value.clone(),
         _ => value.to_string(),
     }
+}
+
+fn mask_stream_labels(labels: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut object = labels
+        .into_iter()
+        .map(|(key, value)| (key, Value::String(value)))
+        .collect();
+    mask_json_object(&mut object);
+    object
+        .into_iter()
+        .map(|(key, value)| (key, field_value(&value)))
+        .collect()
+}
+
+fn trace_id_from_object(object: &Map<String, Value>) -> Option<String> {
+    for key in ["trace_id", "traceID", "traceparent"] {
+        let Some(value) = object.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        let trace_id = if key == "traceparent" {
+            parse_traceparent(value)
+        } else if is_lower_hex(value, 32) {
+            Some(value.to_owned())
+        } else {
+            None
+        };
+        if trace_id.is_some() {
+            return trace_id;
+        }
+    }
+    None
+}
+
+fn parse_traceparent(value: &str) -> Option<String> {
+    let mut parts = value.split('-');
+    let version = parts.next()?;
+    let trace_id = parts.next()?;
+    let parent_id = parts.next()?;
+    let flags = parts.next()?;
+    if parts.next().is_some()
+        || version == "ff"
+        || !is_lower_hex(version, 2)
+        || !is_lower_hex(trace_id, 32)
+        || is_all_zero(trace_id)
+        || !is_lower_hex(parent_id, 16)
+        || is_all_zero(parent_id)
+        || !is_lower_hex(flags, 2)
+    {
+        return None;
+    }
+    Some(trace_id.to_owned())
+}
+
+fn is_lower_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn is_all_zero(value: &str) -> bool {
+    value.bytes().all(|byte| byte == b'0')
 }
 
 #[cfg(test)]
@@ -264,7 +324,7 @@ mod tests {
                         "data": {
                             "resultType": "streams",
                             "result": [{
-                                "stream": {"namespace": "prod", "pod": "api-0"},
+                                "stream": {"namespace": "prod", "pod": "api-0", "api_token": "stream-secret"},
                                 "values": [
                                     ["1735689600000000001", format!("{{\"msg\":\"boom\",\"api_key\":\"sk-live-1\",\"trace_id\":\"{TRACE_ID}\"}}")],
                                     ["1735689600000000002", "plain text line with api_key=sk-live-2"]
@@ -286,6 +346,9 @@ mod tests {
         mock.assert();
         assert_eq!(result.streams.len(), 1);
         assert_eq!(result.streams[0].labels["namespace"], "prod");
+        assert_eq!(result.streams[0].labels["api_token"], REDACTED);
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains("stream-secret"));
         assert_eq!(result.streams[0].entries.len(), 2);
         let parsed = &result.streams[0].entries[0];
         assert!(parsed.parsed);
@@ -340,6 +403,54 @@ mod tests {
 
         mock.assert();
         assert_eq!(result.streams[0].entries[0].trace_id, None);
+    }
+
+    #[tokio::test]
+    async fn structured_traceparent_extracts_only_its_valid_trace_id() {
+        let server = MockServer::start();
+        let valid_traceparent = format!("00-{TRACE_ID}-00f067aa0ba902b7-01");
+        let malformed_traceparent = format!("00-{TRACE_ID}-not-a-span-01");
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/loki/api/v1/query_range");
+            then.status(200).body(
+                json!({
+                    "status": "success",
+                    "data": {
+                        "resultType": "streams",
+                        "result": [{
+                            "stream": {},
+                            "values": [
+                                ["1", json!({"traceparent": valid_traceparent}).to_string()],
+                                ["2", json!({"traceparent": malformed_traceparent}).to_string()]
+                            ]
+                        }]
+                    }
+                })
+                .to_string(),
+            );
+        });
+        let client = ObservabilityClient::new(
+            &test_connector(&server.url("")),
+            &InMemoryCredentialStore::default(),
+        )
+        .unwrap();
+
+        let result = query_range(
+            &client,
+            request(
+                Utc.timestamp_opt(1735689600, 0).single().unwrap(),
+                Utc.timestamp_opt(1735689660, 0).single().unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        mock.assert();
+        assert_eq!(
+            result.streams[0].entries[0].trace_id.as_deref(),
+            Some(TRACE_ID)
+        );
+        assert_eq!(result.streams[0].entries[1].trace_id, None);
     }
 
     #[tokio::test]

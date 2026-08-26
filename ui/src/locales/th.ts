@@ -107,6 +107,7 @@ const th = {
     authBasic: "Basic Auth",
     username: "ชื่อผู้ใช้",
     credential: "รหัสผ่าน / โทเคน",
+    tenantId: "Tenant ID",
     datasourceUid: "Datasource UID",
     defaultDashboardUid: "Default Dashboard UID",
     httpsGuidance: "แนะนำให้ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง",
@@ -142,6 +143,11 @@ const th = {
     queryType: "ประเภทคำสั่ง",
     promqlQuery: "คำสั่ง PromQL",
     logqlQuery: "คำสั่ง LogQL",
+    logQueryMissingNamespace: "การแจ้งเตือนต้องมีป้ายกำกับ namespace ก่อนจึงจะค้นหาบันทึกได้",
+    logQueryMissingWorkload:
+      "การแจ้งเตือนต้องมีป้ายกำกับ pod, service หรือ deployment เพียงรายการเดียวก่อนจึงจะค้นหาบันทึกได้",
+    logQueryAmbiguousWorkload:
+      "การแจ้งเตือนมีป้ายกำกับเวิร์กโหลดหลายรายการ (pod, service หรือ deployment) โปรดเลือกหนึ่งรายการก่อนค้นหาบันทึก",
     selectAlert: "เลือกการแจ้งเตือน {{fingerprint}}",
     noData: "ไม่มีข้อมูล",
     noLabels: "ไม่มีป้ายกำกับ",
