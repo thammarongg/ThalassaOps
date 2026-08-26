@@ -9,6 +9,8 @@ pub mod prometheus;
 pub const PROMETHEUS_CONNECTOR_KIND: &str = "prometheus";
 pub const ALERTMANAGER_CONNECTOR_KIND: &str = "alertmanager";
 pub const GRAFANA_CONNECTOR_KIND: &str = "grafana";
+pub const LOKI_CONNECTOR_KIND: &str = "loki";
+pub const TEMPO_CONNECTOR_KIND: &str = "tempo";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +29,8 @@ pub struct ObservabilityConnectorConfig {
     // Grafana specific fields
     pub datasource_uid: Option<String>,
     pub default_dashboard_uid: Option<String>,
+    #[serde(default)]
+    pub tenant_id: Option<String>,
 }
 
 impl ObservabilityConnectorConfig {
@@ -52,6 +56,13 @@ impl ObservabilityConnectorConfig {
         }
         if url.host_str().is_none() || url.host_str().unwrap().is_empty() {
             return Err("base_url must have a host".into());
+        }
+        if self
+            .tenant_id
+            .as_deref()
+            .is_some_and(|tenant_id| tenant_id.trim().is_empty())
+        {
+            return Err("tenant_id cannot be blank".into());
         }
 
         match self.auth_mode {
@@ -103,6 +114,7 @@ mod tests {
             username: None,
             datasource_uid: None,
             default_dashboard_uid: None,
+            tenant_id: None,
         };
 
         // None mode
@@ -139,6 +151,7 @@ mod tests {
                 username: None,
                 datasource_uid: None,
                 default_dashboard_uid: None,
+                tenant_id: None,
             };
 
             assert!(config.validate(None).is_ok(), "{base_url}");
@@ -159,9 +172,26 @@ mod tests {
                 username: None,
                 datasource_uid: None,
                 default_dashboard_uid: None,
+                tenant_id: None,
             };
 
             assert!(config.validate(None).is_err(), "{base_url}");
         }
+    }
+
+    #[test]
+    fn tenant_id_is_optional_but_blank_values_are_rejected() {
+        let mut config = ObservabilityConnectorConfig {
+            base_url: "https://example.com".into(),
+            auth_mode: ObservabilityAuthMode::None,
+            username: None,
+            datasource_uid: None,
+            default_dashboard_uid: None,
+            tenant_id: Some("  ".into()),
+        };
+        assert!(config.validate(None).is_err());
+
+        config.tenant_id = None;
+        assert!(config.validate(None).is_ok());
     }
 }
