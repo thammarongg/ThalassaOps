@@ -34,9 +34,7 @@ export function TimeRangeControl({
   return (
     <fieldset className="time-range-control">
       <legend>{t("observability.timeRange")}</legend>
-      <label htmlFor="observability-time-range-start">
-        {t("observability.startTime")}
-      </label>
+      <label htmlFor="observability-time-range-start">{t("observability.startTime")}</label>
       <input
         id="observability-time-range-start"
         type="datetime-local"

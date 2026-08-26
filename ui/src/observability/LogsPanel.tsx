@@ -134,18 +134,15 @@ export function LogsPanel({
         end: timeContext.end,
         limit: LOG_LIMIT
       };
-      const response = await invoke<LokiQueryRangeRequest, LokiQueryResult>(
-        "loki_query_range",
-        {
-          envelope: {
-            request_id: crypto.randomUUID(),
-            command: command("loki", "query_range"),
-            capability: "ResourceRead",
-            scope: { resource_ids: [] },
-            payload
-          }
+      const response = await invoke<LokiQueryRangeRequest, LokiQueryResult>("loki_query_range", {
+        envelope: {
+          request_id: crypto.randomUUID(),
+          command: command("loki", "query_range"),
+          capability: "ResourceRead",
+          scope: { resource_ids: [] },
+          payload
         }
-      );
+      });
       if (response.ok) {
         if (requestKey !== resetKeyRef.current) return;
         setResult(response.value);

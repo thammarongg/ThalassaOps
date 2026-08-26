@@ -47,7 +47,10 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
   }, []);
 
   const handleMetricContext = useCallback(
-    (revision: number, metricContext: { query: string; type: string; start?: string; end?: string }) => {
+    (
+      revision: number,
+      metricContext: { query: string; type: string; start?: string; end?: string }
+    ) => {
       if (revision !== investigationRevisionRef.current) return;
       setMetricContext(metricContext);
     },

@@ -181,9 +181,7 @@ export function TracePanel({
         {hasQueriedLogs && !hasTraceId && !traceId && (
           <p role="status">{t("observability.noTraceId")}</p>
         )}
-        {hasQueriedLogs && hasTraceId && !traceId && (
-          <p>{t("observability.selectTrace")}</p>
-        )}
+        {hasQueriedLogs && hasTraceId && !traceId && <p>{t("observability.selectTrace")}</p>}
         {visibleLoading && <p role="status">{t("integrations.loading")}</p>}
         {!visibleLoading && visibleError && (
           <p role="status" className="error">
@@ -218,8 +216,7 @@ export function TracePanel({
               service: span.service_name,
               duration: (
                 <>
-                  <code>{span.duration_nano}</code>{" "}
-                  <small>{t("observability.durationUnit")}</small>
+                  <code>{span.duration_nano}</code> <small>{t("observability.durationUnit")}</small>
                 </>
               ),
               status: span.status,

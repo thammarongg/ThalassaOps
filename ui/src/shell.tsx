@@ -388,7 +388,7 @@ function AddConnectorForm({
           </label>
           {(kind === "loki" || kind === "tempo") && (
             <label>
-              {t("integrations.tenantId")} {" "}
+              {t("integrations.tenantId")}{" "}
               <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
             </label>
           )}

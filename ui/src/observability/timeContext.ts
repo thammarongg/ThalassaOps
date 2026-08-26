@@ -10,10 +10,7 @@ type AlertTimeFields = {
   ends_at?: string | null;
 };
 
-export function timeContextFromAlert(
-  alert: AlertTimeFields,
-  now: string | Date
-): TimeContext {
+export function timeContextFromAlert(alert: AlertTimeFields, now: string | Date): TimeContext {
   const nowValue = typeof now === "string" ? now : now.toISOString();
   return {
     start: alert.starts_at,
