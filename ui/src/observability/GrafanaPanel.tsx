@@ -45,7 +45,7 @@ export function GrafanaPanel({
   const resetKeyRef = useRef(resetKey);
   resetKeyRef.current = resetKey;
   const [errorKey, setErrorKey] = useState<number>();
-  const [loadingKey, setLoadingKey] = useState<number>(resetKey);
+  const [loadingKey, setLoadingKey] = useState<number | undefined>(resetKey);
 
   const config = connector.config_metadata as Record<string, unknown>;
   const hasDashboard = !!config.default_dashboard_uid;
