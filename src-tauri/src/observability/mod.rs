@@ -29,7 +29,7 @@ pub struct ObservabilityConnectorConfig {
 }
 
 impl ObservabilityConnectorConfig {
-    pub fn validate(&self, has_credential: bool) -> Result<(), String> {
+    pub fn validate(&self, credential_value: Option<&str>) -> Result<(), String> {
         if self.base_url.trim().is_empty() {
             return Err("base_url is required".into());
         }
@@ -39,7 +39,11 @@ impl ObservabilityConnectorConfig {
 
         if url.scheme() == "http" {
             let host = url.host_str().unwrap_or_default();
-            if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+            let normalized_host = host.trim_start_matches('[').trim_end_matches(']');
+            if normalized_host != "localhost"
+                && normalized_host != "127.0.0.1"
+                && normalized_host != "::1"
+            {
                 return Err("base_url must use https scheme (http is only permitted for localhost/loopback for dev)".into());
             }
         } else if url.scheme() != "https" {
@@ -60,7 +64,7 @@ impl ObservabilityConnectorConfig {
 
         match self.auth_mode {
             ObservabilityAuthMode::None => {
-                if has_credential {
+                if credential_value.is_some() {
                     return Err("credentials cannot be provided for 'none' auth mode".into());
                 }
                 if self.username.is_some() {
@@ -68,7 +72,7 @@ impl ObservabilityConnectorConfig {
                 }
             }
             ObservabilityAuthMode::Bearer => {
-                if !has_credential {
+                if credential_value.unwrap_or_default().trim().is_empty() {
                     return Err("credential_value is required for 'bearer' auth mode".into());
                 }
                 if self.username.is_some() {
@@ -76,7 +80,7 @@ impl ObservabilityConnectorConfig {
                 }
             }
             ObservabilityAuthMode::Basic => {
-                if !has_credential {
+                if credential_value.unwrap_or_default().trim().is_empty() {
                     return Err("credential_value is required for 'basic' auth mode".into());
                 }
                 if self
@@ -92,5 +96,53 @@ impl ObservabilityConnectorConfig {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_auth_validation() {
+        let mut config = ObservabilityConnectorConfig {
+            base_url: "https://example.com".into(),
+            auth_mode: ObservabilityAuthMode::None,
+            username: None,
+            datasource_uid: None,
+            default_dashboard_uid: None,
+        };
+
+        // None mode
+        assert!(config.validate(None).is_ok());
+        assert!(config.validate(Some("")).is_err());
+        assert!(config.validate(Some("secret")).is_err());
+
+        // Bearer mode
+        config.auth_mode = ObservabilityAuthMode::Bearer;
+        assert!(config.validate(None).is_err());
+        assert!(config.validate(Some("   ")).is_err()); // blank is rejected
+        assert!(config.validate(Some("secret")).is_ok());
+
+        // Basic mode
+        config.auth_mode = ObservabilityAuthMode::Basic;
+        assert!(config.validate(Some("secret")).is_err()); // missing username
+        config.username = Some("  ".into()); // blank username
+        assert!(config.validate(Some("secret")).is_err());
+        config.username = Some("admin".into());
+        assert!(config.validate(Some("secret")).is_ok());
+    }
+
+    #[test]
+    fn allows_http_ipv6_loopback() {
+        let config = ObservabilityConnectorConfig {
+            base_url: "http://[::1]:9090".into(),
+            auth_mode: ObservabilityAuthMode::None,
+            username: None,
+            datasource_uid: None,
+            default_dashboard_uid: None,
+        };
+
+        assert!(config.validate(None).is_ok());
     }
 }

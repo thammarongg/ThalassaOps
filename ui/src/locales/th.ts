@@ -88,6 +88,7 @@ const th = {
     actions: "การดำเนินการ",
     test: "ทดสอบการเชื่อมต่อ",
     diagnose: "วินิจฉัย",
+    invalidRequest: "ข้อมูลคำขอไม่ถูกต้อง",
     disable: "ปิดใช้งาน",
     enable: "เปิดใช้งาน",
     remove: "ลบ",
@@ -132,7 +133,14 @@ const th = {
     unresolved: "ไม่พบ ({{reason}})",
     value: "ค่า",
     unavailable: "การเชื่อมต่อไม่พร้อมใช้งานหรือถูกปิดใช้งาน",
-    malformed: "ได้รับข้อมูลที่ไม่ถูกต้องจากผู้ให้บริการ"
+    malformed: "ได้รับข้อมูลที่ไม่ถูกต้องจากผู้ให้บริการ",
+    denied: "นโยบายปฏิเสธการเข้าถึงการเชื่อมต่อนี้",
+    context: "บริบท",
+    unknownError: "เกิดข้อผิดพลาดที่ไม่คาดคิด",
+    queryType: "ประเภทคำสั่ง",
+    promqlQuery: "คำสั่ง PromQL",
+    selectAlert: "เลือกการแจ้งเตือน {{fingerprint}}",
+    noData: "ไม่มีข้อมูล"
   },
   kubernetes: {
     title: "ตรวจสอบ Kubernetes",

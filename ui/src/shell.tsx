@@ -3,7 +3,6 @@ import type {
   CommandEnvelope,
   ConnectorDiagnostics,
   ConnectorSummary,
-  IpcResult,
   KubernetesEvent,
   KubernetesInventory,
   KubernetesManifest,
@@ -317,18 +316,23 @@ function AddConnectorForm({
       }
     }
 
-    const credential_value = credentialRef.current?.value || undefined;
+    const payload: Record<string, unknown> = {
+      kind,
+      display_name: displayName,
+      config_metadata
+    };
+
+    const cred_val = credentialRef.current?.value;
+    if (kind !== "fixture" && authMode !== "none" && cred_val) {
+      payload.credential_value = cred_val;
+    }
+
     if (credentialRef.current) {
       credentialRef.current.value = ""; // clear password
     }
 
     try {
-      await onAdd({
-        kind,
-        display_name: displayName,
-        config_metadata,
-        credential_value: authMode === "none" || kind === "fixture" ? undefined : credential_value
-      });
+      await onAdd(payload);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -452,7 +456,12 @@ function Integrations({ invoke }: { invoke: Invoke }) {
       setShowAddForm(false);
       load();
     } else {
-      throw new Error(result.error.message);
+      const e = result.error as Record<string, unknown>;
+      const code = e?.code;
+      if (code === "INVALID_REQUEST") throw new Error(t("integrations.invalidRequest"));
+      if (code === "MALFORMED_RESPONSE") throw new Error(t("observability.malformed"));
+      if (code === "POLICY_DENIED") throw new Error(t("observability.denied"));
+      throw new Error(t("observability.unknownError"));
     }
   };
 

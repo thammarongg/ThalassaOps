@@ -80,8 +80,7 @@ pub fn link(
             .map_err(|e| GrafanaError::Validation(e.to_string()))?;
         u.query_pairs_mut()
             .append_pair("from", &request.start.timestamp_millis().to_string())
-            .append_pair("to", &request.end.timestamp_millis().to_string())
-            .append_pair("var-query", &request.query); // Adjust variable name if needed
+            .append_pair("to", &request.end.timestamp_millis().to_string());
         u
     } else {
         // Explore
@@ -188,9 +187,12 @@ mod tests {
 
         let res = link(req.clone(), &client, Some("ds1"), Some("dash1")).unwrap();
         assert!(res.url.starts_with("http://localhost/subpath/d/dash1"));
-        assert!(res.url.contains("from=1704067200000"));
-        assert!(res.url.contains("to=1704070800000"));
-        assert!(res.url.contains("var-query=up"));
+        let parsed = reqwest::Url::parse(&res.url).unwrap();
+        let query: std::collections::BTreeMap<_, _> = parsed.query_pairs().into_owned().collect();
+        assert_eq!(query.get("from"), Some(&"1704067200000".to_string()));
+        assert_eq!(query.get("to"), Some(&"1704070800000".to_string()));
+        assert_eq!(query.len(), 2);
+        assert!(!res.url.contains("var-query"));
 
         let mut req_explore = req.clone();
         req_explore.target = "explore".into();

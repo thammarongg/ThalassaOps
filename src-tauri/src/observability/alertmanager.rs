@@ -22,16 +22,16 @@ pub struct AlertmanagerStatus {
     pub state: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ResourceReference {
+    #[serde(rename = "resolved")]
     Resolved {
         namespace: String,
         kind: String,
         name: String,
     },
-    Unresolved {
-        reason: String,
-    },
+    #[serde(rename = "unresolved")]
+    Unresolved { reason: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -144,6 +144,26 @@ mod tests {
     use crate::connectors::{ConnectorSummary, InMemoryCredentialStore};
     use httpmock::MockServer;
     use serde_json::json;
+
+    #[test]
+    fn test_resource_reference_serialization() {
+        let resolved = ResourceReference::Resolved {
+            namespace: "prod".into(),
+            kind: "Pod".into(),
+            name: "api-server".into(),
+        };
+        let unresolved = ResourceReference::Unresolved {
+            reason: "missing labels".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&resolved).unwrap(),
+            r#"{"resolved":{"namespace":"prod","kind":"Pod","name":"api-server"}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&unresolved).unwrap(),
+            r#"{"unresolved":{"reason":"missing labels"}}"#
+        );
+    }
 
     fn test_connector(base_url: &str) -> ConnectorSummary {
         ConnectorSummary {

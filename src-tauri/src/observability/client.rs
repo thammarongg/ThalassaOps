@@ -47,7 +47,7 @@ impl ObservabilityClient {
             };
 
         config
-            .validate(credential.is_some())
+            .validate(credential.as_deref())
             .map_err(ObservabilityClientError::Configuration)?;
 
         let base_url = Url::parse(&config.base_url)

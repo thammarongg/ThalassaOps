@@ -156,7 +156,17 @@ pub async fn query_range(
             "step_seconds must be positive".into(),
         ));
     }
-
+    if request.step_seconds > 86400 {
+        return Err(PrometheusError::Validation(
+            "step_seconds must not exceed 86400 (1 day)".into(),
+        ));
+    }
+    let range_seconds = request.end.timestamp() - request.start.timestamp();
+    if range_seconds > 0 && (range_seconds as u64) / request.step_seconds > 11000 {
+        return Err(PrometheusError::Validation(
+            "resolution is too high (exceeds 11,000 points)".into(),
+        ));
+    }
     let url = client
         .build_url("/api/v1/query_range")
         .map_err(PrometheusError::Client)?;
@@ -386,5 +396,33 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err3, PrometheusError::Validation(_)));
+
+        let err4 = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+                start: Utc::now(),
+                end: Utc::now() + std::time::Duration::from_secs(60),
+                step_seconds: 90000,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err4, PrometheusError::Validation(_)));
+
+        let err5 = query_range(
+            &client,
+            PrometheusQueryRangeRequest {
+                connector_id: "test-prom".into(),
+                query: "up".into(),
+                start: Utc::now(),
+                end: Utc::now() + std::time::Duration::from_secs(20000),
+                step_seconds: 1,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err5, PrometheusError::Validation(_)));
     }
 }

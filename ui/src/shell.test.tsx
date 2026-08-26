@@ -4,6 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { I18nProvider } from "./i18n";
 import { Shell } from "./shell";
+import { open } from "@tauri-apps/plugin-shell";
+
+vi.mock("@tauri-apps/plugin-shell", () => ({
+  open: vi.fn()
+}));
+const openMock = vi.mocked(open);
 
 const context = {
   organization_name: "Local Organization",
@@ -223,7 +229,19 @@ it("renders observability workspace, lists alerts, runs metric query, and handle
             labels: { alertname: "HighCPU" },
             annotations: {},
             resource_reference: { unresolved: { reason: "test" } },
-            source: { endpoint: "am" }
+            source: { connector_id: "am-1", endpoint: "/api/v2/alerts" }
+          },
+          {
+            fingerprint: "456",
+            state: "firing",
+            starts_at: "2024-01-01T00:00:00Z",
+            ends_at: "2024-01-01T01:00:00Z",
+            labels: { alertname: "LowMemory", pod: "api-server" },
+            annotations: {},
+            resource_reference: {
+              resolved: { namespace: "prod", kind: "Pod", name: "api-server" }
+            },
+            source: { connector_id: "am-1", endpoint: "/api/v2/alerts" }
           }
         ]
       });
@@ -233,16 +251,30 @@ it("renders observability workspace, lists alerts, runs metric query, and handle
       return Promise.resolve({
         ok: true,
         value: {
-          source: { endpoint: "prom" },
+          source: { connector_id: "prom-1", query: "up", endpoint: "/api/v1/query" },
           series: [
-            { labels: { instance: "A" }, samples: [{ timestamp: 1700000000000, value: "1.5" }] }
+            { labels: { instance: "A" }, samples: [{ timestamp: 1700000000, value: "1.5" }] }
+          ]
+        }
+      });
+    if (name === "prometheus_query_range")
+      return Promise.resolve({
+        ok: true,
+        value: {
+          source: {
+            connector_id: "prom-1",
+            query: '{alertname="LowMemory",pod="api-server"}',
+            endpoint: "/api/v1/query_range"
+          },
+          series: [
+            { labels: { instance: "B" }, samples: [{ timestamp: 1700000000, value: "2.5" }] }
           ]
         }
       });
     if (name === "grafana_link")
       return Promise.resolve({
         ok: true,
-        value: { url: 'http://localhost/d/dash1?var-query={alertname="HighCPU"}' }
+        value: { url: "http://localhost/d/dash1?from=1700000000000&to=1700000060000" }
       });
     return Promise.resolve({ ok: true, value: {} });
   });
@@ -258,17 +290,47 @@ it("renders observability workspace, lists alerts, runs metric query, and handle
   // Wait for AM panel
   expect(await screen.findByRole("heading", { name: "AM" })).toBeInTheDocument();
 
-  // Select the alert using the radio button
-  const radio = screen.getByRole("radio", { name: "Select alert 123" });
-  await user.click(radio);
+  // Select the unresolved alert using the radio button
+  const radioUnresolved = screen.getByRole("radio", { name: "Select alert 123" });
+  await user.click(radioUnresolved);
 
   // Check Prometheus panel got the context (the input should have the label)
   const queryInput = screen.getByRole("textbox");
   expect(queryInput).toHaveValue('{alertname="HighCPU"}');
 
-  // Run query
+  // Select the resolved alert
+  const radioResolved = screen.getByRole("radio", { name: "Select alert 456" });
+  await user.click(radioResolved);
+
+  // Check the resolved context is rendered in Prometheus panel
+  await import("@testing-library/react").then((m) =>
+    m.waitFor(() => {
+      expect(queryInput).toHaveValue('{alertname="LowMemory",pod="api-server"}');
+    })
+  );
+  const elements = screen.getAllByText("Pod prod/api-server");
+  expect(elements.length).toBeGreaterThan(0);
+  // Run range query
+  await user.selectOptions(screen.getByRole("combobox"), "range");
   await user.click(screen.getByRole("button", { name: "Run Query" }));
-  expect(await screen.findByText("1.5")).toBeInTheDocument();
+  expect(await screen.findByText("2.5")).toBeInTheDocument();
+
+  expect(invoke).toHaveBeenCalledWith(
+    "prometheus_query_range",
+    expect.objectContaining({
+      envelope: expect.objectContaining({
+        payload: expect.objectContaining({
+          query: '{alertname="LowMemory",pod="api-server"}',
+          step_seconds: 60
+        })
+      })
+    })
+  );
+  const rangeCall = invoke.mock.calls.find((c) => c[0] === "prometheus_query_range");
+  expect(rangeCall?.[1].envelope.payload.start).toBeTruthy();
+  expect(rangeCall?.[1].envelope.payload.end).toBeTruthy();
+
+  expect(openMock).not.toHaveBeenCalled();
 
   // Grafana open dashboard with context
   await user.click(screen.getByRole("button", { name: "Open Dashboard" }));
@@ -276,8 +338,148 @@ it("renders observability workspace, lists alerts, runs metric query, and handle
     "grafana_link",
     expect.objectContaining({
       envelope: expect.objectContaining({
-        payload: expect.objectContaining({ query: '{alertname="HighCPU"}' })
+        payload: expect.objectContaining({ query: '{alertname="LowMemory",pod="api-server"}' })
       })
     })
   );
+
+  await import("@testing-library/react").then((m) =>
+    m.waitFor(() => {
+      expect(openMock).toHaveBeenCalledWith(
+        "http://localhost/d/dash1?from=1700000000000&to=1700000060000"
+      );
+      expect(openMock.mock.calls[0]?.[0]).not.toContain("var-query");
+    })
+  );
+});
+
+it("renders loading state in Thai", async () => {
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") {
+      return Promise.resolve({
+        ok: true,
+        value: {
+          admin_email: "admin@test.com",
+          workspace_id: "ws-1",
+          workspace_name: "Test Workspace"
+        }
+      });
+    }
+    // For connector_list, return an unresolved promise to keep it in loading state
+    return new Promise(() => {});
+  });
+
+  await import("./i18n").then((m) => m.i18n.changeLanguage("th"));
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "การสังเกตการณ์" }));
+
+  expect(await screen.findByText("กำลังโหลดการเชื่อมต่อ…")).toBeInTheDocument();
+  await import("./i18n").then((m) => m.i18n.changeLanguage("en"));
+});
+
+it("renders localized unavailable error for ObservabilityWorkspace", async () => {
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") {
+      return Promise.resolve({
+        ok: true,
+        value: { admin_email: "test", workspace_id: "w1", workspace_name: "test" }
+      });
+    }
+    if (name === "connector_list") {
+      return Promise.resolve({
+        ok: false,
+        error: { code: "CONNECTOR_UNAVAILABLE" }
+      });
+    }
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Observability" }));
+
+  expect(await screen.findByText("Connector is unavailable or disabled.")).toBeInTheDocument();
+});
+
+it("handles connector form submission securely", async () => {
+  type ConnectorAddCall = { envelope: { payload: Record<string, unknown> } };
+  const invoke = vi.fn().mockImplementation((name: string, args: ConnectorAddCall) => {
+    if (name === "system_context") {
+      return Promise.resolve({ ok: true, value: { admin_email: "test" } });
+    }
+    if (name === "connector_list") {
+      return Promise.resolve({ ok: true, value: [] });
+    }
+    if (name === "connector_add") {
+      if (args.envelope.payload.display_name === "Fail") {
+        return Promise.resolve({ ok: false, error: { code: "INVALID_REQUEST" } });
+      }
+      return Promise.resolve({ ok: true, value: {} });
+    }
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Integrations" }));
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+
+  // Test none omits credential_value
+  await user.type(screen.getByLabelText("Connector"), "TestNone");
+  await user.selectOptions(screen.getByLabelText("Kind"), "prometheus");
+  await user.selectOptions(screen.getByLabelText("Auth mode"), "none");
+  await user.type(screen.getByLabelText("Base URL"), "http://localhost:9090");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+
+  expect(invoke).toHaveBeenCalledWith("connector_add", expect.anything());
+  const connectorAddPayload = () => {
+    const call = invoke.mock.calls.filter((call) => call[0] === "connector_add").at(-1);
+    if (!call) throw new Error("connector_add was not invoked");
+    return (call[1] as ConnectorAddCall).envelope.payload;
+  };
+  expect(connectorAddPayload().credential_value).toBeUndefined();
+
+  // Test Basic sends exactly once and password DOM field clears
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+  await user.type(screen.getByLabelText("Connector"), "TestBasic");
+  await user.selectOptions(screen.getByLabelText("Kind"), "prometheus");
+  await user.type(screen.getByLabelText("Base URL"), "http://localhost:9090");
+  await user.selectOptions(screen.getByLabelText("Auth mode"), "basic");
+  await user.type(screen.getByLabelText("Username"), "admin");
+  await user.type(screen.getByLabelText("Credential"), "secret456");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+
+  expect(connectorAddPayload().credential_value).toBe("secret456");
+  // Check password DOM field clears - credInput is still in DOM since form re-opened?
+  // Actually we need to check credInput value after submit, but form closes on success.
+  // We can test the error case for password clearing.
+
+  await user.click(await screen.findByRole("button", { name: "Add connector" }));
+  await user.type(screen.getByLabelText("Connector"), "Fail");
+  await user.selectOptions(screen.getByLabelText("Kind"), "prometheus");
+  await user.type(screen.getByLabelText("Base URL"), "http://localhost:9090");
+  await user.selectOptions(screen.getByLabelText("Auth mode"), "bearer");
+  await user.type(screen.getByLabelText("Credential"), "failsecret");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+
+  expect(await screen.findByText("Invalid request data provided.")).toBeInTheDocument();
+  // Password should clear
+  expect(screen.getByLabelText("Credential")).toHaveValue("");
 });

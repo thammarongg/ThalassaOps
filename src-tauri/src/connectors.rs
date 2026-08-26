@@ -276,14 +276,8 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, 
                 serde_json::from_value(request.config_metadata.clone())
                     .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
 
-            let has_credential = !request
-                .credential_value
-                .as_deref()
-                .unwrap_or_default()
-                .trim()
-                .is_empty();
             config
-                .validate(has_credential)
+                .validate(request.credential_value.as_deref())
                 .map_err(ConnectorError::InvalidConfiguration)?;
 
             Ok(Some(serde_json::to_value(&config).unwrap()))
@@ -460,21 +454,21 @@ async fn run_connection_test(
                         message: "Observability endpoint is healthy.".into(),
                         attempts: 1,
                     },
-                    Err(e) => ConnectionTestResult {
+                    Err(_) => ConnectionTestResult {
                         outcome: "unavailable",
-                        message: format!("Observability endpoint check failed: {}", e),
+                        message: "Observability endpoint check failed.".into(),
                         attempts: 1,
                     },
                 },
-                Err(e) => ConnectionTestResult {
+                Err(_) => ConnectionTestResult {
                     outcome: "unavailable",
-                    message: format!("Failed to prepare request: {}", e),
+                    message: "Failed to prepare request.".into(),
                     attempts: 1,
                 },
             },
-            Err(e) => ConnectionTestResult {
+            Err(_) => ConnectionTestResult {
                 outcome: "unavailable",
-                message: format!("Failed to configure observability client: {}", e),
+                message: "Failed to configure observability client.".into(),
                 attempts: 1,
             },
         };
@@ -675,6 +669,71 @@ mod tests {
         assert_eq!(result.outcome, "healthy");
         assert_eq!(result.attempts, 3);
         assert!(started.elapsed() >= Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn test_observability_credential_not_leaked() {
+        let store = InMemoryCredentialStore::default();
+        let connection = Connection::open_in_memory().unwrap();
+        crate::app::apply_migrations(&connection).unwrap();
+
+        // 1. None auth with whitespace credential must be rejected
+        let req_err = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "PromErr".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9090",
+                "auth_mode": "none"
+            }),
+            credential_value: Some("   ".into()), // malicious whitespace
+        };
+        assert!(add(&connection, &store, req_err).is_err());
+
+        // 1.5 Add connector with None auth (no credential sent)
+        let req1 = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "Prom1".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9090",
+                "auth_mode": "none"
+            }),
+            credential_value: None,
+        };
+        let summary1 = add(&connection, &store, req1).unwrap();
+        assert!(!summary1.credential_configured);
+
+        // 2. Add connector with Basic auth
+        let req2 = AddConnectorRequest {
+            kind: "prometheus".into(),
+            display_name: "Prom2".into(),
+            config_metadata: serde_json::json!({
+                "base_url": "https://localhost:9091",
+                "auth_mode": "basic",
+                "username": "admin"
+            }),
+            credential_value: Some("super_secret_password".into()),
+        };
+        let summary2 = add(&connection, &store, req2).unwrap();
+        assert!(summary2.credential_configured);
+
+        // 3. Ensure sqlite doesn't contain the secret
+        let mut stmt = connection.prepare("SELECT config_metadata_json, credential_reference FROM connector_instances WHERE id = ?1").unwrap();
+        let (config_json, cred_ref): (String, Option<String>) = stmt
+            .query_row([&summary2.id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        assert!(!config_json.contains("super_secret_password"));
+        assert!(cred_ref.is_some());
+        assert!(!cred_ref.unwrap().contains("super_secret_password"));
+
+        // 4. Test diagnostics
+        // Ensure run_connection_test returns a sanitized generic error, not provider details.
+        let result = run_connection_test(&summary2, &store).await;
+        assert_eq!(result.outcome, "unavailable");
+        assert!(
+            result.message == "Observability endpoint check failed."
+                || result.message == "Failed to prepare request."
+                || result.message == "Failed to configure observability client."
+        );
     }
 
     #[tokio::test]

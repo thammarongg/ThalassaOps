@@ -10,7 +10,8 @@ import type {
   PrometheusQueryRequest,
   PrometheusQueryRangeRequest,
   GrafanaHealthRequest,
-  GrafanaLinkRequest
+  GrafanaLinkRequest,
+  ResourceReference
 } from "../contracts/ipc";
 import { command } from "../contracts/ipc";
 import { Card, EmptyState, Table } from "./design-system/components";
@@ -20,12 +21,10 @@ import { open } from "@tauri-apps/plugin-shell";
 const mapIpcError = (err: unknown, t: (key: string) => string) => {
   const e = err as Record<string, unknown>;
   const code = e?.code;
-  const msg = typeof e?.message === "string" ? e.message : String(err);
-  if (code === "ConnectorUnavailable" || msg.includes("ConnectorUnavailable"))
-    return t("observability.unavailable");
-  if (msg.includes("malformed") || code === "MalformedResponse")
-    return t("observability.malformed");
-  return msg;
+  if (code === "CONNECTOR_UNAVAILABLE") return t("observability.unavailable");
+  if (code === "POLICY_DENIED") return t("observability.denied");
+  if (code === "MALFORMED_RESPONSE") return t("observability.malformed");
+  return t("observability.unknownError");
 };
 
 export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
@@ -39,6 +38,8 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
     start?: string;
     end?: string;
   }>();
+
+  const [error, setError] = useState("");
 
   useEffect(() => {
     invoke<null, ConnectorSummary[]>("connector_list", {
@@ -58,12 +59,21 @@ export function ObservabilityWorkspace({ invoke }: { invoke: Invoke }) {
               (c) => ["prometheus", "alertmanager", "grafana"].includes(c.kind) && c.enabled
             )
           );
+        } else {
+          setError(mapIpcError(result.error, t));
         }
       })
+      .catch((err) => setError(mapIpcError(err, t)))
       .finally(() => setLoading(false));
-  }, [invoke]);
+  }, [invoke, t]);
 
   if (loading) return <p role="status">{t("integrations.loading")}</p>;
+  if (error)
+    return (
+      <p role="status" className="error">
+        {error}
+      </p>
+    );
   if (!connectors.length) return <EmptyState titleKey="observability.empty" />;
 
   const am = connectors.filter((c) => c.kind === "alertmanager");
@@ -126,8 +136,10 @@ function AlertmanagerPanel({
   const { t } = useTranslation();
   const [alerts, setAlerts] = useState<NormalizedAlert[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     invoke<AlertmanagerAlertsRequest, NormalizedAlert[]>("alertmanager_alerts", {
       envelope: {
         request_id: crypto.randomUUID(),
@@ -141,28 +153,29 @@ function AlertmanagerPanel({
         if (res.ok) setAlerts(res.value);
         else setError(mapIpcError(res.error, t));
       })
-      .catch((err) => setError(mapIpcError(err, t)));
+      .catch((err) => setError(mapIpcError(err, t)))
+      .finally(() => setLoading(false));
   }, [connector, invoke, t]);
 
-  const renderResource = (ref: Record<string, unknown>) => {
+  const renderResource = (ref: ResourceReference) => {
     if ("resolved" in ref) {
-      const r = ref.resolved as Record<string, unknown>;
+      const r = ref.resolved;
       return `${r.kind} ${r.namespace}/${r.name}`;
     }
-    const unresolved = ref.unresolved as Record<string, unknown> | undefined;
-    return t("observability.unresolved", { reason: unresolved?.reason || "" });
+    return t("observability.unresolved", { reason: ref.unresolved.reason });
   };
 
   return (
     <Card titleKey="observability.alertmanager">
       <h3>{connector.display_name}</h3>
-      {error && (
+      {loading && <p role="status">{t("integrations.loading")}</p>}
+      {!loading && error && (
         <p role="status" className="error">
           {error}
         </p>
       )}
-      {!error && alerts.length === 0 && <p>{t("observability.empty")}</p>}
-      {alerts.length > 0 && (
+      {!loading && !error && alerts.length === 0 && <p>{t("observability.empty")}</p>}
+      {!loading && !error && alerts.length > 0 && (
         <Table
           captionKey="observability.alerts"
           columns={[
@@ -178,7 +191,7 @@ function AlertmanagerPanel({
               <input
                 type="radio"
                 name="selectedAlert"
-                aria-label={`Select alert ${a.fingerprint}`}
+                aria-label={t("observability.selectAlert", { fingerprint: a.fingerprint })}
                 checked={selectedAlert?.fingerprint === a.fingerprint}
                 onChange={() => onSelectAlert(a)}
               />
@@ -211,12 +224,16 @@ function PrometheusPanel({
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<PrometheusQueryResult>();
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [type, setType] = useState("instant");
 
   useEffect(() => {
     if (selectedAlert) {
       const match = Object.entries(selectedAlert.labels)
-        .map(([k, v]) => `${k}="${v}"`)
+        .map(
+          ([k, v]) =>
+            `${k}="${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`
+        )
         .join(",");
       setQuery(`{${match}}`);
     }
@@ -224,6 +241,7 @@ function PrometheusPanel({
 
   const run = async () => {
     setError("");
+    setLoading(true);
     try {
       if (type === "instant") {
         const payload: PrometheusQueryRequest = { connector_id: connector.id, query };
@@ -276,28 +294,60 @@ function PrometheusPanel({
       }
     } catch (err: unknown) {
       setError(mapIpcError(err, t));
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const renderResource = (ref: ResourceReference) => {
+    if ("resolved" in ref) {
+      const r = ref.resolved;
+      return `${r.kind} ${r.namespace}/${r.name}`;
+    }
+    return t("observability.unresolved", { reason: ref.unresolved.reason });
   };
 
   return (
     <Card titleKey="observability.prometheus">
       <h3>{connector.display_name}</h3>
-      <div>
-        <select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="instant">{t("observability.instant")}</option>
-          <option value="range">{t("observability.range")}</option>
-        </select>
-        <input value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button type="button" onClick={run}>
+      {selectedAlert && (
+        <div style={{ marginBottom: "1rem", padding: "0.5rem", background: "#f5f5f5" }}>
+          <strong>{t("observability.context")}: </strong>
+          <span>{renderResource(selectedAlert.resource_reference)}</span>
+          <br />
+          <small>
+            {Object.entries(selectedAlert.labels)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(", ")}
+          </small>
+        </div>
+      )}
+      <div className="query-builder">
+        <label>
+          {t("observability.queryType")}:
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="instant">{t("observability.instant")}</option>
+            <option value="range">{t("observability.range")}</option>
+          </select>
+        </label>
+        <label>
+          {t("observability.promqlQuery")}:
+          <input value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        <button type="button" onClick={run} disabled={loading}>
           {t("observability.runQuery")}
         </button>
       </div>
-      {error && (
+      {loading && <p role="status">{t("integrations.loading")}</p>}
+      {!loading && error && (
         <p role="status" className="error">
           {error}
         </p>
       )}
-      {result && (
+      {!loading && !error && result && result.series.length === 0 && (
+        <p role="status">{t("observability.noData")}</p>
+      )}
+      {!loading && !error && result && result.series.length > 0 && (
         <div>
           <p>{result.source.endpoint}</p>
           {result.series.map((s, i) => (
@@ -315,7 +365,7 @@ function PrometheusPanel({
                 ]}
                 rows={s.samples.map((samp, j) => ({
                   id: `${i}-${j}`,
-                  timestamp: new Date(samp.timestamp).toLocaleString(),
+                  timestamp: new Date(samp.timestamp * 1000).toLocaleString(),
                   value: samp.value
                 }))}
               />
@@ -341,12 +391,14 @@ function GrafanaPanel({
   const { t } = useTranslation();
   const [health, setHealth] = useState<GrafanaHealth>();
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const config = connector.config_metadata as Record<string, unknown>;
   const hasDashboard = !!config.default_dashboard_uid;
   const hasExplore = !!config.datasource_uid;
 
   useEffect(() => {
+    setLoading(true);
     invoke<GrafanaHealthRequest, GrafanaHealth>("grafana_health", {
       envelope: {
         request_id: crypto.randomUUID(),
@@ -360,16 +412,21 @@ function GrafanaPanel({
         if (res.ok) setHealth(res.value);
         else setError(mapIpcError(res.error, t));
       })
-      .catch((err) => setError(mapIpcError(err, t)));
+      .catch((err) => setError(mapIpcError(err, t)))
+      .finally(() => setLoading(false));
   }, [connector, invoke, t]);
 
   const openLink = async (target: string) => {
     try {
-      let query = "up";
+      if (!metricContext && !selectedAlert) return;
+      let query = "";
       if (metricContext?.query) query = metricContext.query;
       else if (selectedAlert)
         query = `{${Object.entries(selectedAlert.labels)
-          .map(([k, v]) => `${k}="${v}"`)
+          .map(
+            ([k, v]) =>
+              `${k}="${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`
+          )
           .join(",")}}`;
 
       let start = new Date(Date.now() - 3600000);
@@ -414,12 +471,13 @@ function GrafanaPanel({
   return (
     <Card titleKey="observability.grafana">
       <h3>{connector.display_name}</h3>
-      {error && (
+      {loading && <p role="status">{t("integrations.loading")}</p>}
+      {!loading && error && (
         <p role="status" className="error">
           {error}
         </p>
       )}
-      {health && (
+      {!loading && health && (
         <p>
           {t("observability.grafanaVersion", {
             version: health.version,
@@ -428,12 +486,20 @@ function GrafanaPanel({
         </p>
       )}
       {hasDashboard && (
-        <button type="button" onClick={() => openLink("dashboard")}>
+        <button
+          type="button"
+          onClick={() => openLink("dashboard")}
+          disabled={!metricContext && !selectedAlert}
+        >
           {t("observability.openDashboard")}
         </button>
       )}
       {hasExplore && (
-        <button type="button" onClick={() => openLink("explore")}>
+        <button
+          type="button"
+          onClick={() => openLink("explore")}
+          disabled={!metricContext && !selectedAlert}
+        >
           {t("observability.openExplore")}
         </button>
       )}

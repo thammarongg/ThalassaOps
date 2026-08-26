@@ -48,6 +48,7 @@ export type IpcErrorCode =
   | "PERMISSION_DENIED"
   | "POLICY_DENIED"
   | "CONNECTOR_UNAVAILABLE"
+  | "MALFORMED_RESPONSE"
   | "INTERNAL_ERROR";
 
 export type IpcError = {
@@ -87,8 +88,8 @@ export type MetricSourceReference = { connector_id: string; query: string; endpo
 export type PrometheusQueryResult = { series: MetricSeries[]; source: MetricSourceReference };
 
 export type ResourceReference =
-  | { Resolved: { namespace: string; kind: string; name: string } }
-  | { Unresolved: { reason: string } };
+  | { resolved: { namespace: string; kind: string; name: string } }
+  | { unresolved: { reason: string } };
 export type AlertSourceReference = { connector_id: string; endpoint: string };
 export type NormalizedAlert = {
   fingerprint: string;

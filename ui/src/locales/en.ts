@@ -88,6 +88,7 @@ const en = {
     actions: "Actions",
     test: "Test connection",
     diagnose: "Diagnose",
+    invalidRequest: "Invalid request data provided.",
     disable: "Disable",
     enable: "Enable",
     remove: "Remove",
@@ -132,7 +133,14 @@ const en = {
     unresolved: "Unresolved ({{reason}})",
     value: "Value",
     unavailable: "Connector is unavailable or disabled.",
-    malformed: "Received a malformed response from the provider."
+    malformed: "Received a malformed response from the provider.",
+    denied: "Policy denied access to this connector.",
+    context: "Context",
+    unknownError: "An unexpected error occurred.",
+    queryType: "Query type",
+    promqlQuery: "PromQL query",
+    selectAlert: "Select alert {{fingerprint}}",
+    noData: "No data available."
   },
   kubernetes: {
     title: "Kubernetes inspection",
