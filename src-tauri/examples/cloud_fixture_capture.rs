@@ -110,7 +110,9 @@ impl Redactor {
             }
             Value::String(text) => {
                 let current = std::mem::take(text);
-                *text = if sensitive_context {
+                *text = if key.is_some_and(is_pagination_cursor_key) {
+                    self.placeholder("PAGINATION_CURSOR", &current)
+                } else if sensitive_context {
                     self.placeholder("SENSITIVE_DATA", &current)
                 } else if key.is_some_and(|field| field.eq_ignore_ascii_case("id"))
                     && current.len() >= 8
@@ -144,6 +146,7 @@ impl Redactor {
 
     fn redact_text(&mut self, body: &str) -> String {
         let mut replaced = body.to_owned();
+        replaced = self.replace_pagination_query_values(&replaced);
         replaced = self.replace_matches(
             &replaced,
             r"(?s)-----BEGIN [^-]+-----.*?-----END [^-]+-----",
@@ -204,6 +207,24 @@ impl Redactor {
             r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b",
             "DNS_NAME",
         )
+    }
+
+    fn replace_pagination_query_values(&mut self, input: &str) -> String {
+        let regex = Regex::new(r#"(?i)([?&](?:%24|\$)?skiptoken=)([^&#"'\s]*)"#)
+            .expect("capture pagination redaction regex");
+        let mut output = String::with_capacity(input.len());
+        let mut cursor = 0;
+        for captures in regex.captures_iter(input) {
+            let whole = captures.get(0).expect("whole pagination match");
+            let prefix = captures.get(1).expect("pagination prefix").as_str();
+            let value = captures.get(2).expect("pagination value").as_str();
+            output.push_str(&input[cursor..whole.start()]);
+            output.push_str(prefix);
+            output.push_str(&self.placeholder("PAGINATION_CURSOR", value));
+            cursor = whole.end();
+        }
+        output.push_str(&input[cursor..]);
+        output
     }
 
     fn replace_matches(&mut self, input: &str, expression: &str, category: &str) -> String {
@@ -302,6 +323,13 @@ fn is_sensitive_key(key: &str) -> bool {
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
+}
+
+fn is_pagination_cursor_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "nextpagetoken" | "nexttoken"
+    )
 }
 
 fn required_env(name: &str) -> Result<String, String> {
@@ -506,6 +534,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
+    use flate2::read::DeflateDecoder;
+    use flate2::write::DeflateEncoder;
+    use flate2::Compression;
+    use std::io::{Read, Write};
 
     #[test]
     fn redaction_preserves_shape_and_reuses_stable_placeholders() {
@@ -604,5 +637,87 @@ mod tests {
         );
         assert_eq!(parsed["properties"]["tail"], "retained");
         assert_eq!(parsed["keyData"], "<SSH_KEY>");
+    }
+
+    #[test]
+    fn pagination_cursor_redaction_blocks_recovery_from_compressed_identifier() {
+        let identifier = "aaee7e53-8e19-4011-9ee1-74dbc8a04fea";
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        write!(encoder, "opaque cursor subscription={identifier}").unwrap();
+        let cursor = base64::engine::general_purpose::STANDARD.encode(encoder.finish().unwrap());
+
+        let mut next_link = Url::parse("https://localhost/resources").unwrap();
+        next_link
+            .query_pairs_mut()
+            .append_pair("$skiptoken", &cursor);
+        let mut alternate_link = Url::parse("https://localhost/resources").unwrap();
+        alternate_link
+            .query_pairs_mut()
+            .append_pair("skipToken", &cursor);
+        let body = serde_json::json!({
+            "nextLink": next_link.as_str(),
+            "alternateLink": alternate_link.as_str()
+        });
+        let mut redactor = Redactor::new();
+        let result = redactor.redact(
+            &serde_json::to_string(&body).unwrap(),
+            Some("application/json"),
+        );
+
+        let parsed: Value = serde_json::from_str(&result).expect("redacted JSON remains valid");
+        let redacted_link = parsed["nextLink"].as_str().expect("nextLink remains a URL");
+        assert!(redacted_link.contains("%24skiptoken=<PAGINATION_CURSOR>"));
+        let redacted_alternate_link = parsed["alternateLink"]
+            .as_str()
+            .expect("alternateLink remains a URL");
+        assert!(redacted_alternate_link.contains("skipToken=<PAGINATION_CURSOR>"));
+
+        let redacted_cursor = Url::parse(redacted_link)
+            .unwrap()
+            .query_pairs()
+            .find(|(key, _)| key == "$skiptoken")
+            .map(|(_, value)| value.into_owned())
+            .expect("skiptoken remains in the URL");
+        assert_ne!(redacted_cursor, cursor);
+
+        let recovered = base64::engine::general_purpose::STANDARD
+            .decode(redacted_cursor)
+            .ok()
+            .and_then(|compressed| {
+                let mut decoder = DeflateDecoder::new(compressed.as_slice());
+                let mut plaintext = String::new();
+                decoder.read_to_string(&mut plaintext).ok()?;
+                Some(plaintext)
+            });
+        assert!(!recovered
+            .as_deref()
+            .is_some_and(|plaintext| plaintext.contains(identifier)));
+    }
+
+    #[test]
+    fn pagination_cursor_fields_are_redacted_with_their_names_preserved() {
+        let body = serde_json::json!({
+            "nextPageToken": "page-token",
+            "nextToken": "next-token",
+            "NextToken": "capital-token"
+        });
+        let mut redactor = Redactor::new();
+        let result = redactor.redact(
+            &serde_json::to_string(&body).unwrap(),
+            Some("application/json"),
+        );
+        let parsed: Value = serde_json::from_str(&result).expect("redacted JSON remains valid");
+
+        for field in ["nextPageToken", "nextToken", "NextToken"] {
+            assert!(
+                parsed[field]
+                    .as_str()
+                    .is_some_and(|value| value.starts_with("<PAGINATION_CURSOR")),
+                "field {field} was not redacted: {parsed}"
+            );
+        }
+        assert!(!result.contains("page-token"));
+        assert!(!result.contains("next-token"));
+        assert!(!result.contains("capital-token"));
     }
 }

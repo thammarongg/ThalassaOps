@@ -1,5 +1,5 @@
 {
-  "nextLink": "https://<DNS_NAME>/subscriptions/<AZURE_SUBSCRIPTION_ID>/providers/Microsoft.ContainerService/managedClusters?api-version=2026-05-01&%24skiptoken=3Y%2fBaoNAFEX%2f5UGzyjhqNUYhFAldFOqmZunmZXyxg3VG3oxSKv57JZRu%2bgfd3nu5h7OAoU%2f%2fqk3voFjguawvZf1SQgHv3o%2bukHJAgx0NZHyAXxNToOwg3XR1ivXotTVOIhJllD6KI0W5SMIoEjlRJLKkvaojhsmNUI5sZ90SO1lpxdbZmw%2fO1njUhrgmnrWiH1h7%2fpic36ZPD3Hiej1ebE%2fmlCZZnh%2fSHY5azFu7sU9xGB9EmIow2v0ZwroH5KHsOqYOPbX3m02tfKtgfxevkHviLVqaX%2fcGiuYf2DewwvoN",
+  "nextLink": "https://<DNS_NAME>/subscriptions/<AZURE_SUBSCRIPTION_ID>/providers/Microsoft.ContainerService/managedClusters?api-version=2026-05-01&%24skiptoken=<PAGINATION_CURSOR>",
   "value": [
     {
       "eTag": "<CLOUD_RESOURCE_ID>",
