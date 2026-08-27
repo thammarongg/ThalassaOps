@@ -1,1 +1,196 @@
-{"value":[{"id":"<AZURE_RESOURCE_ID>","location":"eastasia","name":"thalassaops-s10-fixture-aks","tags":{"purpose":"thalassaops-sprint-10-fixture-capture"},"type":"Microsoft.ContainerService/ManagedClusters","kind":"Base","properties":{"provisioningState":"Succeeded","powerState":{"code":"Running"},"kubernetesVersion":"1.35","currentKubernetesVersion":"1.35.7","dnsPrefix":"thalassaops-s10-fixture","fqdn":"<DNS_NAME>","azurePortalFQDN":"<DNS_NAME_2>","agentPoolProfiles":[{"name":"system","count":1,"vmSize":"Standard_D2als_v6","osDiskSizeGB":128,"osDiskType":"Managed","kubeletDiskType":"OS","vnetSubnetID":"<AZURE_RESOURCE_ID_2>","maxPods":30,"type":"VirtualMachineScaleSets","enableAutoScaling":false,"scaleDownMode":"Delete","provisioningState":"Succeeded","powerState":{"code":"Running"},"orchestratorVersion":"1.35","currentOrchestratorVersion":"1.35.7","enableNodePublicIP":false,"mode":"System","enableEncryptionAtHost":false,"enableUltraSSD":false,"osType":"Linux","osSKU":"Ubuntu","nodeImageVersion":"AKSUbuntu-2404gen2containerd-<ACCOUNT_OR_PROJECT_NUMBER>.14.0","upgradeSettings":{"maxSurge":"10%","maxUnavailable":"0"},"enableFIPS":false,"securityProfile":{"sshAccess":"LocalUser","enableVTPM":false,"enableSecureBoot":false},"eTag":"<CLOUD_RESOURCE_ID>"}],"linuxProfile":{"adminUsername":"fixtureadmin","ssh":{"publicKeys":[{"keyData":"<SSH_KEY>
+{
+  "nextLink": "https://<DNS_NAME>/subscriptions/<AZURE_SUBSCRIPTION_ID>/providers/Microsoft.ContainerService/managedClusters?api-version=2026-05-01&%24skiptoken=3Y%2fBaoNAFEX%2f5UGzyjhqNUYhFAldFOqmZunmZXyxg3VG3oxSKv57JZRu%2bgfd3nu5h7OAoU%2f%2fqk3voFjguawvZf1SQgHv3o%2bukHJAgx0NZHyAXxNToOwg3XR1ivXotTVOIhJllD6KI0W5SMIoEjlRJLKkvaojhsmNUI5sZ90SO1lpxdbZmw%2fO1njUhrgmnrWiH1h7%2fpic36ZPD3Hiej1ebE%2fmlCZZnh%2fSHY5azFu7sU9xGB9EmIow2v0ZwroH5KHsOqYOPbX3m02tfKtgfxevkHviLVqaX%2fcGiuYf2DewwvoN",
+  "value": [
+    {
+      "eTag": "<CLOUD_RESOURCE_ID>",
+      "id": "<AZURE_RESOURCE_ID>",
+      "identity": {
+        "principalId": "<CLOUD_RESOURCE_ID_2>",
+        "tenantId": "<AZURE_TENANT_ID>",
+        "type": "SystemAssigned"
+      },
+      "kind": "Base",
+      "location": "eastasia",
+      "name": "thalassaops-s10-fixture-aks",
+      "properties": {
+        "addonProfiles": {
+          "azurepolicy": {
+            "config": {
+              "version": "v2"
+            },
+            "enabled": false
+          }
+        },
+        "agentPoolProfiles": [
+          {
+            "count": 1,
+            "currentOrchestratorVersion": "1.35.7",
+            "eTag": "<CLOUD_RESOURCE_ID_3>",
+            "enableAutoScaling": false,
+            "enableEncryptionAtHost": false,
+            "enableFIPS": false,
+            "enableNodePublicIP": false,
+            "enableUltraSSD": false,
+            "kubeletDiskType": "OS",
+            "maxPods": 30,
+            "mode": "System",
+            "name": "system",
+            "nodeImageVersion": "AKSUbuntu-2404gen2containerd-<ACCOUNT_OR_PROJECT_NUMBER>.14.0",
+            "orchestratorVersion": "1.35",
+            "osDiskSizeGB": 128,
+            "osDiskType": "Managed",
+            "osSKU": "Ubuntu",
+            "osType": "Linux",
+            "powerState": {
+              "code": "Running"
+            },
+            "provisioningState": "Succeeded",
+            "scaleDownMode": "Delete",
+            "securityProfile": {
+              "enableSecureBoot": false,
+              "enableVTPM": false,
+              "sshAccess": "<SENSITIVE_DATA>"
+            },
+            "type": "VirtualMachineScaleSets",
+            "upgradeSettings": {
+              "maxSurge": "10%",
+              "maxUnavailable": "0"
+            },
+            "vmSize": "Standard_D2als_v6",
+            "vnetSubnetID": "<AZURE_RESOURCE_ID_2>"
+          }
+        ],
+        "apiServerAccessProfile": {
+          "enablePrivateCluster": false,
+          "enablePrivateClusterPublicFQDN": false
+        },
+        "autoUpgradeProfile": {
+          "nodeOSUpgradeChannel": "NodeImage",
+          "upgradeChannel": "none"
+        },
+        "azureMonitorProfile": {
+          "metrics": {
+            "enabled": false
+          }
+        },
+        "azurePortalFQDN": "<DNS_NAME_2>",
+        "bootstrapProfile": {
+          "artifactSource": "Direct"
+        },
+        "currentKubernetesVersion": "1.35.7",
+        "disableLocalAccounts": false,
+        "dnsPrefix": "thalassaops-s10-fixture",
+        "enableRBAC": true,
+        "fqdn": "<DNS_NAME_3>",
+        "hostedSystemProfile": {
+          "enabled": false
+        },
+        "identityProfile": {
+          "kubeletidentity": {
+            "clientId": "<CLOUD_RESOURCE_ID_4>",
+            "objectId": "<CLOUD_RESOURCE_ID_5>",
+            "resourceId": "<AZURE_RESOURCE_ID_3>"
+          }
+        },
+        "kubernetesVersion": "1.35",
+        "linuxProfile": {
+          "adminUsername": "fixtureadmin",
+          "ssh": {
+            "publicKeys": [
+              {
+                "keyData": "<SENSITIVE_DATA_2>"
+              }
+            ]
+          }
+        },
+        "maxAgentPools": 100,
+        "metricsProfile": {
+          "costAnalysis": {
+            "enabled": false
+          }
+        },
+        "networkProfile": {
+          "advancedNetworking": {
+            "enabled": false,
+            "observability": {
+              "enabled": false
+            },
+            "performance": {
+              "accelerationMode": "None"
+            },
+            "security": {
+              "advancedNetworkPolicies": "None",
+              "enabled": false
+            }
+          },
+          "dnsServiceIP": "<IP_ADDRESS>",
+          "ipFamilies": [
+            "IPv4"
+          ],
+          "loadBalancerProfile": {
+            "backendPoolType": "nodeIPConfiguration",
+            "effectiveOutboundIPs": [
+              {
+                "id": "<AZURE_RESOURCE_ID_4>"
+              }
+            ],
+            "managedOutboundIPs": {
+              "count": 1
+            }
+          },
+          "loadBalancerSku": "standard",
+          "networkDataplane": "azure",
+          "networkPlugin": "azure",
+          "networkPolicy": "none",
+          "outboundType": "loadBalancer",
+          "serviceCidr": "<IP_ADDRESS_2>/16",
+          "serviceCidrs": [
+            "<IP_ADDRESS_2>/16"
+          ]
+        },
+        "nodeProvisioningProfile": {
+          "mode": "Manual"
+        },
+        "nodeResourceGroup": "MC_thalassaops-s10-fixture-rg-retry1_thalassaops-s10-fixture-aks_eastasia",
+        "oidcIssuerProfile": {
+          "enabled": true,
+          "issuerURL": "https://<DNS_NAME_4>/<AZURE_TENANT_ID>/<CLOUD_RESOURCE_ID_6>/"
+        },
+        "powerState": {
+          "code": "Running"
+        },
+        "provisioningState": "Succeeded",
+        "resourceUID": "6a908c3e450f410001cd809d",
+        "securityProfile": {},
+        "servicePrincipalProfile": {
+          "clientId": "msi"
+        },
+        "storageProfile": {
+          "diskCSIDriver": {
+            "enabled": true
+          },
+          "fileCSIDriver": {
+            "enabled": true
+          },
+          "snapshotController": {
+            "enabled": true
+          }
+        },
+        "supportPlan": "KubernetesOfficial",
+        "windowsProfile": {
+          "adminUsername": "azureuser",
+          "enableCSIProxy": true
+        },
+        "workloadAutoScalerProfile": {}
+      },
+      "sku": {
+        "name": "Base",
+        "tier": "Free"
+      },
+      "tags": {
+        "purpose": "thalassaops-sprint-10-fixture-capture"
+      },
+      "type": "Microsoft.ContainerService/ManagedClusters"
+    }
+  ]
+}

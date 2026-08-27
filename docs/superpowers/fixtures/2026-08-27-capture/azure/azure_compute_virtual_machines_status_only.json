@@ -13,7 +13,7 @@
               "code": "ProvisioningState/succeeded",
               "displayStatus": "Provisioning succeeded",
               "level": "Info",
-              "time": "2026-08-27T17:21:37.<ACCOUNT_OR_PROJECT_NUMBER_2>+00:00"
+              "time": "2026-08-27T19:13:28.3094967+00:00"
             },
             {
               "code": "PowerState/running",

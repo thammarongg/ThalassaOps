@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use regex::Regex;
 use reqwest::Url;
 use serde_json::Value;
@@ -60,10 +61,6 @@ impl Redactor {
         for (original, placeholder) in &self.exact {
             replaced = replaced.replace(original, placeholder);
         }
-        replaced = self.redact_text(&replaced);
-        for (original, placeholder) in &self.exact {
-            replaced = replaced.replace(original, placeholder);
-        }
 
         if content_type.is_some_and(|value| value.to_ascii_lowercase().contains("json"))
             || replaced.trim_start().starts_with('{')
@@ -75,6 +72,11 @@ impl Redactor {
                     return formatted;
                 }
             }
+        }
+
+        replaced = self.redact_text(&replaced);
+        for (original, placeholder) in &self.exact {
+            replaced = replaced.replace(original, placeholder);
         }
 
         if content_type.is_some_and(|value| value.to_ascii_lowercase().contains("xml")) {
@@ -117,6 +119,8 @@ impl Redactor {
                         .all(|character| character.is_ascii_hexdigit())
                 {
                     self.placeholder("CLOUD_RESOURCE_ID", &current)
+                } else if is_rfc3339_timestamp(&current) {
+                    current
                 } else {
                     self.redact_text(&current)
                 };
@@ -275,6 +279,10 @@ impl Redactor {
             })
             .into_owned()
     }
+}
+
+fn is_rfc3339_timestamp(value: &str) -> bool {
+    DateTime::parse_from_rfc3339(value).is_ok()
 }
 
 fn is_sensitive_key(key: &str) -> bool {
@@ -575,5 +583,26 @@ mod tests {
         assert!(result.contains("<AZURE_RESOURCE_ID>"));
         assert!(!result.contains("fixture"));
         assert!(!result.contains("vm-1"));
+    }
+
+    #[test]
+    fn json_redaction_preserves_timestamps_and_document_structure() {
+        let mut redactor = Redactor::new();
+        let result = redactor.redact(
+            r#"{"properties":{"instanceView":{"statuses":[{"code":"ProvisioningState/succeeded","time":"2026-08-27T17:21:37.123456+00:00"},{"code":"PowerState/running"}]},"tail":"retained"},"keyData":"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC fixture"}"#,
+            Some("application/json; charset=utf-8"),
+        );
+
+        let parsed: Value = serde_json::from_str(&result).expect("redacted JSON remains valid");
+        assert_eq!(
+            parsed["properties"]["instanceView"]["statuses"][0]["time"],
+            "2026-08-27T17:21:37.123456+00:00"
+        );
+        assert_eq!(
+            parsed["properties"]["instanceView"]["statuses"][1]["code"],
+            "PowerState/running"
+        );
+        assert_eq!(parsed["properties"]["tail"], "retained");
+        assert_eq!(parsed["keyData"], "<SSH_KEY>");
     }
 }
