@@ -257,3 +257,7 @@ Added to src-tauri/Cargo.toml:
     gcp_auth = { version = "=0.12.7" }
 
 Command required by Task 1: cargo build --workspace from src-tauri/. Result: PASS, exit code 0, finished in 53.39s on 2026-08-27; a clean incremental rerun finished in 1.33s with exit code 0. The build compiled all four pinned crates and completed the thalassaops workspace build.
+
+## Task 2b correction: TLS provider alignment
+
+The original pinned dependency set enabled aws-lc-rs through aws-config defaults while the existing reqwest/kube path selected ring, causing rustls to panic because two crypto providers were available. The corrected entries disable default features on all four new crates, retain the AWS runtime/signing features needed for later auth work, enable Azure Tokio support, and explicitly select gcp_auth's ring feature; the single authoritative provider is therefore **ring**, matching the existing reqwest rustls-tls configuration. After this alignment, cargo build --workspace, cargo test --workspace (79 passed, 0 failed), cargo fmt --all -- --check, and cargo clippy --workspace --all-targets -- -D warnings all pass.
