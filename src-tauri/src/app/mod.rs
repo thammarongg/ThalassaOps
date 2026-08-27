@@ -1,4 +1,4 @@
-mod cloud;
+pub(crate) mod cloud;
 mod connectors;
 mod kubernetes;
 mod observability;

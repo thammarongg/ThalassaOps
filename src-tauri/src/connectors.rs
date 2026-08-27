@@ -1,5 +1,5 @@
 use crate::cloud::{
-    classify_access, AwsConnectorConfig, AzureConnectorConfig, CloudAccessState, CloudClientError,
+    classify_access, AwsConnectorConfig, AzureConnectorConfig, CloudAccessState,
     GcpConnectorConfig, AWS_CONNECTOR_KIND, AZURE_CONNECTOR_KIND, GCP_CONNECTOR_KIND,
 };
 use crate::kubernetes::{
@@ -535,11 +535,11 @@ async fn run_connection_test(
         || connector.kind == AZURE_CONNECTOR_KIND
         || connector.kind == GCP_CONNECTOR_KIND
     {
-        // Provider mappers add the real access check in the next tasks. Keep the
-        // connection-test route on the shared classifier now, so it cannot grow
-        // a second interpretation of CloudClientError later.
-        let result: Result<(), CloudClientError> = Err(CloudClientError::RequestFailed);
-        let (access, remedy) = classify_access(&result);
+        let result = crate::app::cloud::cloud_access_check_for_connector(connector).await;
+        let (access, remedy) = match result {
+            Ok(environment) => (environment.access, environment.remedy),
+            Err(error) => classify_access(&Err(error)),
+        };
         return ConnectionTestResult {
             outcome: if access == CloudAccessState::Confirmed {
                 "healthy"
@@ -768,6 +768,7 @@ pub type SharedCredentialStore = Arc<dyn CredentialStore>;
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::env;
     use std::time::{Duration, Instant};
 
     fn fixture(config_metadata: Value) -> ConnectorSummary {
@@ -846,6 +847,37 @@ mod tests {
         assert_eq!(result.outcome, "healthy");
         assert_eq!(result.attempts, 3);
         assert!(started.elapsed() >= Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn cloud_connection_test_reports_missing_credential_with_login_remedy() {
+        let previous = env::var_os("GOOGLE_APPLICATION_CREDENTIALS");
+        env::set_var(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "/definitely/missing/thalassaops-sprint-10.json",
+        );
+        let connector = ConnectorSummary {
+            id: "gcp-1".into(),
+            kind: GCP_CONNECTOR_KIND.into(),
+            display_name: "GCP Production".into(),
+            enabled: true,
+            config_metadata: json!({ "project_id": "prod-project" }),
+            credential_configured: false,
+            health_state: "unavailable".into(),
+            last_checked_at: None,
+            last_successful_sync_at: None,
+        };
+
+        let result = run_connection_test(&connector, &InMemoryCredentialStore::default()).await;
+
+        if let Some(value) = previous {
+            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", value);
+        } else {
+            env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        }
+
+        assert_eq!(result.outcome, "unavailable");
+        assert_eq!(result.message, "gcloud auth application-default login");
     }
 
     #[tokio::test]

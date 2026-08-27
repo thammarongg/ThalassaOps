@@ -211,7 +211,10 @@ impl AppState {
         let cloud_connector = match cloud_connector_for(&connector) {
             Ok(cloud_connector) => cloud_connector,
             Err(error) => {
-                return IpcResult::Err { ok: false, error };
+                return IpcResult::Err {
+                    ok: false,
+                    error: cloud_client_ipc_error(error),
+                }
             }
         };
         match operation(cloud_connector, request.connector_id).await {
@@ -224,40 +227,42 @@ impl AppState {
     }
 }
 
-fn cloud_connector_for(connector: &ConnectorSummary) -> Result<CloudConnector, IpcError> {
+pub(crate) async fn cloud_access_check_for_connector(
+    connector: &ConnectorSummary,
+) -> Result<CloudEnvironment, CloudClientError> {
+    let cloud_connector = cloud_connector_for(connector)?;
+    Ok(cloud_connector.access_check(&connector.id).await)
+}
+
+fn cloud_connector_for(connector: &ConnectorSummary) -> Result<CloudConnector, CloudClientError> {
     match connector.kind.as_str() {
         AWS_CONNECTOR_KIND => {
             let config =
                 serde_json::from_value::<AwsConnectorConfig>(connector.config_metadata.clone())
-                    .map_err(|_| invalid_cloud_configuration())?;
+                    .map_err(|error| CloudClientError::Configuration(error.to_string()))?;
             let client = CloudClient::new(Arc::new(AwsCredentialProvider::new(
                 config.profile.clone(),
                 config.region.clone(),
-            )))
-            .map_err(cloud_client_ipc_error)?;
+            )))?;
             Ok(CloudConnector::Aws { client, config })
         }
         AZURE_CONNECTOR_KIND => {
             let config =
                 serde_json::from_value::<AzureConnectorConfig>(connector.config_metadata.clone())
-                    .map_err(|_| invalid_cloud_configuration())?;
-            let provider = AzureCredentialProvider::new(config.tenant_id.clone())
-                .map_err(|error| cloud_client_ipc_error(CloudClientError::Auth(error)))?;
-            let client = CloudClient::new(Arc::new(provider)).map_err(cloud_client_ipc_error)?;
+                    .map_err(|error| CloudClientError::Configuration(error.to_string()))?;
+            let provider = AzureCredentialProvider::new(config.tenant_id.clone())?;
+            let client = CloudClient::new(Arc::new(provider))?;
             Ok(CloudConnector::Azure { client, config })
         }
         GCP_CONNECTOR_KIND => {
             let config =
                 serde_json::from_value::<GcpConnectorConfig>(connector.config_metadata.clone())
-                    .map_err(|_| invalid_cloud_configuration())?;
-            let client = CloudClient::new(Arc::new(GcpCredentialProvider::new()))
-                .map_err(cloud_client_ipc_error)?;
+                    .map_err(|error| CloudClientError::Configuration(error.to_string()))?;
+            let client = CloudClient::new(Arc::new(GcpCredentialProvider::new()))?;
             Ok(CloudConnector::Gcp { client, config })
         }
-        _ => Err(IpcError::new(
-            IpcErrorCode::NotFound,
-            "connector not found",
-            json!({}),
+        _ => Err(CloudClientError::Configuration(
+            "unsupported cloud connector kind".into(),
         )),
     }
 }
