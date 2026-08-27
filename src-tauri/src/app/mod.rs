@@ -1,3 +1,4 @@
+mod cloud;
 mod connectors;
 mod kubernetes;
 mod observability;

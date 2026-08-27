@@ -66,6 +66,36 @@ export type WorkspaceContext = {
   policy_version: number;
 };
 
+export type CloudProvider = "aws" | "azure" | "gcp";
+export type CloudResourceType = "kubernetes_cluster" | "compute_instance";
+export type CloudHealthState = "healthy" | "degraded" | "unavailable" | "unknown";
+export type CloudAccessState =
+  | "confirmed"
+  | "no_credential"
+  | "session_expired"
+  | "permission_denied"
+  | "unavailable";
+export type CloudEnvironment = {
+  connector_id: string;
+  provider: CloudProvider;
+  account_label: string;
+  location: string;
+  access: CloudAccessState;
+  remedy: string;
+};
+export type CloudResource = {
+  provider: CloudProvider;
+  environment_id: string;
+  resource_type: CloudResourceType;
+  id: string;
+  name: string;
+  location: string;
+  health: CloudHealthState;
+  status_detail: string;
+  console_url: string;
+  cli_command: string;
+};
+
 export type StatusState = "healthy" | "degraded" | "unavailable" | "warning" | "critical";
 export type ConnectorCapability = { key: string; operation: "Read" | "Act"; resource_kinds: string[] };
 export type ConnectorManifest = { id: string; display_name: string; version: string; capabilities: ConnectorCapability[] };

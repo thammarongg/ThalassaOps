@@ -42,6 +42,20 @@ async fn connector_test(
     Ok(state.inner().clone().connector_test(envelope).await)
 }
 #[tauri::command]
+async fn cloud_access_check(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<thalassaops::cloud::CloudEnvironment>, String> {
+    Ok(state.inner().clone().cloud_access_check(envelope).await)
+}
+#[tauri::command]
+async fn cloud_inventory(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> Result<thalassaops::app::IpcResult<Vec<thalassaops::cloud::CloudResource>>, String> {
+    Ok(state.inner().clone().cloud_inventory(envelope).await)
+}
+#[tauri::command]
 async fn kubernetes_inventory(
     envelope: CommandEnvelope<serde_json::Value>,
     state: tauri::State<'_, thalassaops::app::AppState>,
@@ -192,6 +206,8 @@ fn main() {
             connector_remove,
             connector_test,
             connector_diagnose,
+            cloud_access_check,
+            cloud_inventory,
             prometheus_query,
             prometheus_query_range,
             loki_query_range,
