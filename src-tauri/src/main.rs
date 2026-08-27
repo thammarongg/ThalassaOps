@@ -1,5 +1,3 @@
-pub mod cloud;
-
 use std::fs;
 use tauri::Manager;
 use thalassa_ipc::CommandEnvelope;

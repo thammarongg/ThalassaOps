@@ -4,6 +4,23 @@ pub const AWS_CONNECTOR_KIND: &str = "aws";
 pub const AZURE_CONNECTOR_KIND: &str = "azure";
 pub const GCP_CONNECTOR_KIND: &str = "gcp";
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AwsConnectorConfig {
+    pub profile: String,
+    pub region: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AzureConnectorConfig {
+    pub subscription_id: String,
+    pub tenant_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GcpConnectorConfig {
+    pub project_id: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CloudProvider {
     #[serde(rename = "aws")]

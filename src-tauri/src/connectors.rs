@@ -1,3 +1,7 @@
+use crate::cloud::{
+    classify_access, AwsConnectorConfig, AzureConnectorConfig, CloudAccessState, CloudClientError,
+    GcpConnectorConfig, AWS_CONNECTOR_KIND, AZURE_CONNECTOR_KIND, GCP_CONNECTOR_KIND,
+};
 use crate::kubernetes::{
     client_from_kubeconfig, KubernetesConnectorConfig, KUBERNETES_CONNECTOR_KIND,
 };
@@ -238,6 +242,33 @@ pub fn tempo_manifest() -> ConnectorManifest {
         .with_capability(ConnectorCapability::read("tempo.health", ["health"]))
 }
 
+pub fn aws_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(AWS_CONNECTOR_KIND, "AWS", "0.1.0")
+        .with_capability(ConnectorCapability::read("aws.inventory", ["inventory"]))
+        .with_capability(ConnectorCapability::read(
+            "aws.access_check",
+            ["access_check"],
+        ))
+}
+
+pub fn azure_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(AZURE_CONNECTOR_KIND, "Azure", "0.1.0")
+        .with_capability(ConnectorCapability::read("azure.inventory", ["inventory"]))
+        .with_capability(ConnectorCapability::read(
+            "azure.access_check",
+            ["access_check"],
+        ))
+}
+
+pub fn gcp_manifest() -> ConnectorManifest {
+    ConnectorManifest::new(GCP_CONNECTOR_KIND, "GCP", "0.1.0")
+        .with_capability(ConnectorCapability::read("gcp.inventory", ["inventory"]))
+        .with_capability(ConnectorCapability::read(
+            "gcp.access_check",
+            ["access_check"],
+        ))
+}
+
 pub fn add(
     connection: &Connection,
     store: &dyn CredentialStore,
@@ -274,6 +305,54 @@ fn validate_add_request(request: &AddConnectorRequest) -> Result<Option<Value>, 
     };
     match request.kind.as_str() {
         FIXTURE_CONNECTOR_KIND => Ok(None),
+        AWS_CONNECTOR_KIND => {
+            if request.credential_value.is_some() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "cloud connectors do not accept credentials".into(),
+                ));
+            }
+            let config: AwsConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+            if config.profile.trim().is_empty() || config.region.trim().is_empty() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "profile and region are required".into(),
+                ));
+            }
+            Ok(Some(serde_json::to_value(&config).unwrap()))
+        }
+        AZURE_CONNECTOR_KIND => {
+            if request.credential_value.is_some() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "cloud connectors do not accept credentials".into(),
+                ));
+            }
+            let config: AzureConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+            if config.subscription_id.trim().is_empty() || config.tenant_id.trim().is_empty() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "subscription_id and tenant_id are required".into(),
+                ));
+            }
+            Ok(Some(serde_json::to_value(&config).unwrap()))
+        }
+        GCP_CONNECTOR_KIND => {
+            if request.credential_value.is_some() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "cloud connectors do not accept credentials".into(),
+                ));
+            }
+            let config: GcpConnectorConfig =
+                serde_json::from_value(request.config_metadata.clone())
+                    .map_err(|error| ConnectorError::InvalidConfiguration(error.to_string()))?;
+            if config.project_id.trim().is_empty() {
+                return Err(ConnectorError::InvalidConfiguration(
+                    "project_id is required".into(),
+                ));
+            }
+            Ok(Some(serde_json::to_value(&config).unwrap()))
+        }
         KUBERNETES_CONNECTOR_KIND => {
             let config: KubernetesConnectorConfig =
                 serde_json::from_value(request.config_metadata.clone())
@@ -452,6 +531,25 @@ async fn run_connection_test(
     if connector.kind == KUBERNETES_CONNECTOR_KIND {
         return kubernetes_connection_test(connector).await;
     }
+    if connector.kind == AWS_CONNECTOR_KIND
+        || connector.kind == AZURE_CONNECTOR_KIND
+        || connector.kind == GCP_CONNECTOR_KIND
+    {
+        // Provider mappers add the real access check in the next tasks. Keep the
+        // connection-test route on the shared classifier now, so it cannot grow
+        // a second interpretation of CloudClientError later.
+        let result: Result<(), CloudClientError> = Err(CloudClientError::RequestFailed);
+        let (access, remedy) = classify_access(&result);
+        return ConnectionTestResult {
+            outcome: if access == CloudAccessState::Confirmed {
+                "healthy"
+            } else {
+                "unavailable"
+            },
+            message: remedy,
+            attempts: 1,
+        };
+    }
     if connector.kind == PROMETHEUS_CONNECTOR_KIND
         || connector.kind == ALERTMANAGER_CONNECTOR_KIND
         || connector.kind == GRAFANA_CONNECTOR_KIND
@@ -621,6 +719,12 @@ fn manifest_for(kind: &str) -> ConnectorManifest {
         loki_manifest()
     } else if kind == TEMPO_CONNECTOR_KIND {
         tempo_manifest()
+    } else if kind == AWS_CONNECTOR_KIND {
+        aws_manifest()
+    } else if kind == AZURE_CONNECTOR_KIND {
+        azure_manifest()
+    } else if kind == GCP_CONNECTOR_KIND {
+        gcp_manifest()
     } else {
         ConnectorManifest::new(kind, kind, "unavailable")
     }
@@ -677,6 +781,52 @@ mod tests {
             health_state: "unavailable".into(),
             last_checked_at: None,
             last_successful_sync_at: None,
+        }
+    }
+
+    #[test]
+    fn cloud_manifests_declare_read_only_capabilities() {
+        let aws = aws_manifest();
+        assert!(aws.can_read("aws.inventory", "inventory"));
+        assert!(aws.can_read("aws.access_check", "access_check"));
+        assert!(azure_manifest().can_read("azure.inventory", "inventory"));
+        assert!(gcp_manifest().can_read("gcp.inventory", "inventory"));
+    }
+
+    #[test]
+    fn a_cloud_connector_may_not_carry_a_credential() {
+        let request = AddConnectorRequest {
+            kind: "aws".into(),
+            display_name: "Prod".into(),
+            config_metadata: json!({ "profile": "prod", "region": "ap-southeast-1" }),
+            credential_value: Some("AKIA-should-not-be-here".into()),
+        };
+        assert!(matches!(
+            validate_add_request(&request),
+            Err(ConnectorError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn cloud_selectors_are_required() {
+        for (kind, config) in [
+            ("aws", json!({ "profile": "", "region": "ap-southeast-1" })),
+            ("azure", json!({ "subscription_id": "s", "tenant_id": "" })),
+            ("gcp", json!({ "project_id": "  " })),
+        ] {
+            let request = AddConnectorRequest {
+                kind: kind.into(),
+                display_name: "X".into(),
+                config_metadata: config,
+                credential_value: None,
+            };
+            assert!(
+                matches!(
+                    validate_add_request(&request),
+                    Err(ConnectorError::InvalidConfiguration(_))
+                ),
+                "{kind} must reject a blank selector"
+            );
         }
     }
 
