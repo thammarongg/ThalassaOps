@@ -21,6 +21,7 @@ import {
   Table
 } from "./design-system/components";
 import { useTranslation } from "./i18n";
+import { EnvironmentWorkspace } from "./EnvironmentWorkspace";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 type Area =
   | "commandCenter"
@@ -206,7 +207,9 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </aside>
       <main className="shell-main">
         <h1>{t(`shell.${active}`)}</h1>
-        {active === "integrations" ? (
+        {active === "environments" ? (
+          <EnvironmentWorkspace invoke={invoke} />
+        ) : active === "integrations" ? (
           <Integrations invoke={invoke} />
         ) : active === "observability" ? (
           <ObservabilityWorkspace invoke={invoke} />

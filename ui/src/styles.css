@@ -414,3 +414,213 @@ td {
   padding-inline-start: 1rem;
   font: 400 0.8rem/1.5 var(--font-mono);
 }
+
+.environment-workspace {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.environment-workspace__intro {
+  max-width: 48rem;
+  border-inline-start: 3px solid var(--color-reef-cyan);
+  padding-inline-start: var(--space-2);
+}
+
+.environment-workspace__intro p:last-child {
+  margin-bottom: 0;
+}
+
+.environment-panels {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.environment-panel {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 24%, transparent);
+  border-radius: 0.75rem;
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--color-deep-water) 92%, var(--color-reef-cyan)),
+    var(--color-deep-water)
+  );
+}
+
+.environment-panel__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-block-end: 1px solid color-mix(in srgb, var(--color-sea-glass) 14%, transparent);
+  padding-block-end: var(--space-2);
+}
+
+.environment-panel__header h2 {
+  margin-bottom: 0;
+}
+
+.environment-provider {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 999px;
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+  font: 700 0.78rem var(--font-mono);
+  letter-spacing: 0.03em;
+}
+
+.environment-provider--azure {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.environment-provider--gcp {
+  border-color: var(--color-kelp);
+  background: var(--color-kelp);
+}
+
+.environment-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.environment-panel__meta div {
+  min-width: 10rem;
+}
+
+.environment-panel__meta dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  font-size: 0.78rem;
+}
+
+.environment-panel__meta dd {
+  margin: 0.2rem 0 0;
+  font: 400 0.85rem var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.environment-access {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-coral);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--color-coral) 10%, var(--color-abyss));
+}
+
+.environment-access--no_credential,
+.environment-access--session_expired {
+  border-color: var(--color-amber);
+  background: color-mix(in srgb, var(--color-amber) 10%, var(--color-abyss));
+}
+
+.environment-access__copy {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.environment-access__copy h3,
+.environment-access__copy p {
+  margin: 0;
+}
+
+.environment-access__eyebrow {
+  color: var(--color-reef-cyan);
+  font: 400 0.75rem var(--font-mono);
+}
+
+.environment-access code {
+  display: block;
+  padding: 0.55rem 0.65rem;
+  overflow-wrap: anywhere;
+  color: var(--color-sea-glass);
+  background: var(--color-abyss);
+  font: 400 0.78rem/1.5 var(--font-mono);
+}
+
+.environment-access__actions,
+.environment-resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.environment-access__actions {
+  flex: none;
+  justify-content: end;
+}
+
+.environment-access button,
+.environment-resource-actions button {
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--color-sea-glass);
+  background: transparent;
+  cursor: pointer;
+}
+
+.environment-access button:hover,
+.environment-resource-actions button:hover {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+
+.environment-resource-table {
+  overflow-x: auto;
+}
+
+.environment-resource-table table {
+  min-width: 58rem;
+}
+
+.environment-resource-table td,
+.environment-resource-table th {
+  vertical-align: top;
+}
+
+.environment-resource-table td:nth-child(5) {
+  max-width: 16rem;
+  overflow-wrap: anywhere;
+  font: 400 0.78rem/1.5 var(--font-mono);
+}
+
+.environment-resource-actions {
+  min-width: 12rem;
+}
+
+.environment-resource-actions span,
+.environment-access__actions span {
+  color: var(--color-kelp);
+  font-size: 0.75rem;
+}
+
+.environment-access-loading,
+.environment-inventory-loading,
+.environment-resources-empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+}
+
+@media (max-width: 640px) {
+  .environment-panel__header,
+  .environment-access {
+    flex-direction: column;
+  }
+
+  .environment-access__actions {
+    justify-content: start;
+  }
+}
