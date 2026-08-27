@@ -125,3 +125,36 @@ not classify `skiptoken`/`nextLink` as sensitive.
 
 These findings were escalated to the coordinator during the run. No fixes were
 applied, no merge was performed, and nothing was pushed.
+
+## Defect-fix rerun
+
+The three defects above were fixed in separate commits: `72e6b60` routes cloud
+connector tests through the shared provider access checks and adds the missing
+credential regression; `5501318` adds compute instances to both healthy UI
+fixtures and asserts their rows; and `f433146` redacts pagination cursors in
+query parameters and response fields. The Azure fixture's opaque cursor was
+removed and replaced with its pagination placeholder; this removes captured
+data rather than inventing fixture content. AWS and GCP fixtures were checked:
+AWS `nextToken` remains `null`, and GCP has no cursor, so neither changed.
+
+All gates were rerun from the repository root on 2026-08-28:
+
+| Command | Actual result |
+| --- | --- |
+| `cargo build --workspace` | PASS — exit 0. |
+| `cargo test --workspace` | PASS — 119 tests passed, 0 failed. The `thalassaops` package ran 93 unit tests plus 6 fixture-capture integration tests; workspace integration targets added 2 (`thalassa-connectors`), 4 (`thalassa-domain`), 3 (`thalassa-ipc`) and 11 (`thalassa-policy`). Five doctest targets ran 0 tests with 0 failures. |
+| `cargo fmt --all -- --check` | PASS — exit 0, no output. |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — exit 0. |
+| `npm ci` | PASS — 298 packages installed and 299 audited; npm reported 5 existing vulnerabilities. |
+| `npm test` | PASS — 4 test files, 20 tests passed, 0 failed. |
+| `npm run typecheck` | PASS — exit 0. |
+| `npm run lint` | PASS — exit 0 with no diagnostics. |
+| `npm run build` | PASS — TypeScript and Vite production build completed. |
+| `npm run format:check` | PASS — all files matched Prettier style. |
+| `grep -c "name = .aws-lc-rs." Cargo.lock` | Prints `0` (exit 1, as expected for zero matches). |
+
+The targeted acceptance journey was rerun after the fixture change: 1 test
+passed and 15 were skipped; AWS and GCP each rendered both a cluster and a
+compute-instance row, while Azure retained its copyable `az login` remedy and
+did not hide the healthy panels. The new connector and capture regressions also
+passed in the workspace run.
