@@ -1200,6 +1200,19 @@ it("shows three cloud environments with provider boundaries and keeps healthy on
         status_detail: "ACTIVE",
         console_url: "https://console.aws.amazon.com/eks/home#/clusters/prod-eks",
         cli_command: "aws eks describe-cluster --name prod-eks --profile prod --region us-east-1"
+      },
+      {
+        provider: "aws",
+        environment_id: "aws-1",
+        resource_type: "compute_instance",
+        id: "i-prod-ec2",
+        name: "prod-ec2",
+        location: "us-east-1",
+        health: "healthy",
+        status_detail: "running",
+        console_url: "https://console.aws.amazon.com/ec2/home#/Instances:i-prod-ec2",
+        cli_command:
+          "aws ec2 describe-instances --instance-ids i-prod-ec2 --profile prod --region us-east-1"
       }
     ],
     "azure-1": [
@@ -1230,6 +1243,20 @@ it("shows three cloud environments with provider boundaries and keeps healthy on
           "https://console.cloud.google.com/kubernetes/clusters/details/asia-southeast1/prod-gke",
         cli_command:
           "gcloud container clusters describe prod-gke --project prod-project --region asia-southeast1"
+      },
+      {
+        provider: "gcp",
+        environment_id: "gcp-1",
+        resource_type: "compute_instance",
+        id: "projects/prod-project/zones/asia-southeast1-a/instances/prod-gce",
+        name: "prod-gce",
+        location: "asia-southeast1-a",
+        health: "healthy",
+        status_detail: "RUNNING",
+        console_url:
+          "https://console.cloud.google.com/compute/instancesDetail/zones/asia-southeast1-a/instances/prod-gce",
+        cli_command:
+          "gcloud compute instances describe prod-gce --project prod-project --zone asia-southeast1-a"
       }
     ]
   };
@@ -1265,6 +1292,8 @@ it("shows three cloud environments with provider boundaries and keeps healthy on
   expect(screen.getByText("GCP")).toBeInTheDocument();
   expect(await screen.findByText("prod-eks")).toBeInTheDocument();
   expect(await screen.findByText("prod-gke")).toBeInTheDocument();
+  expect(await screen.findByText("prod-ec2")).toBeInTheDocument();
+  expect(await screen.findByText("prod-gce")).toBeInTheDocument();
   expect(screen.getByText(/az login/)).toBeInTheDocument();
   expect(screen.queryByText("prod-aks")).not.toBeInTheDocument();
 });
