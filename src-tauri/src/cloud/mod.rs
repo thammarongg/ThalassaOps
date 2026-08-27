@@ -2,6 +2,7 @@ pub mod auth;
 pub mod aws;
 pub mod azure;
 pub mod client;
+pub mod gcp;
 pub mod model;
 pub mod preflight;
 
