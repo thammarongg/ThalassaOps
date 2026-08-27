@@ -324,10 +324,10 @@
               "interface": "SCSI",
               "kind": "compute#attachedDisk",
               "licenses": [
-                "https://<DNS_NAME_3>/compute/v1/projects/debian-cloud/global/licenses/debian-12-bookworm"
+                "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/licenses/debian-12-bookworm"
               ],
               "mode": "READ_WRITE",
-              "source": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/disks/thalassaops-s10-fixture-compute",
+              "source": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/disks/thalassaops-s10-fixture-compute",
               "type": "PERSISTENT"
             }
           ],
@@ -340,7 +340,7 @@
             "purpose": "thalassaops-sprint-10-fixture-capture"
           },
           "lastStartTimestamp": "2026-08-27T09:29:08.732-07:00",
-          "machineType": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/machineTypes/e2-micro",
+          "machineType": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/machineTypes/e2-micro",
           "metadata": {
             "fingerprint": "kue43qo_s9U=",
             "kind": "compute#metadata"
@@ -351,10 +351,10 @@
               "fingerprint": "gC3KQ9S41Lo=",
               "kind": "compute#networkInterface",
               "name": "nic0",
-              "network": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/global/networks/thalassaops-s10-fixture-network",
+              "network": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/global/networks/thalassaops-s10-fixture-network",
               "networkIP": "<IP_ADDRESS_5>",
               "stackType": "IPV4_ONLY",
-              "subnetwork": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/regions/asia-southeast1/subnetworks/thalassaops-s10-fixture-subnet"
+              "subnetwork": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/regions/asia-southeast1/subnetworks/thalassaops-s10-fixture-subnet"
             }
           ],
           "resourceStatus": {
@@ -369,7 +369,7 @@
             "preemptible": false,
             "provisioningModel": "STANDARD"
           },
-          "selfLink": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/instances/thalassaops-s10-fixture-compute",
+          "selfLink": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/instances/thalassaops-s10-fixture-compute",
           "shieldedInstanceConfig": {
             "enableIntegrityMonitoring": true,
             "enableSecureBoot": false,
@@ -383,7 +383,7 @@
           "tags": {
             "fingerprint": "42WmSpB8rSM="
           },
-          "zone": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a"
+          "zone": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a"
         }
       ]
     },
@@ -1673,5 +1673,5 @@
     }
   },
   "kind": "compute#instanceAggregatedList",
-  "selfLink": "https://<DNS_NAME_3>/compute/v1/projects/<GCP_PROJECT_ID>/aggregated/instances"
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/<GCP_PROJECT_ID>/aggregated/instances"
 }

@@ -28,12 +28,12 @@
             "autoUpgrade": true
           },
           "oauthScopes": [
-            "https://<DNS_NAME_3>/auth/devstorage.read_only",
-            "https://<DNS_NAME_3>/auth/<DNS_NAME_5>",
-            "https://<DNS_NAME_3>/auth/monitoring",
-            "https://<DNS_NAME_3>/auth/<DNS_NAME_6>",
-            "https://<DNS_NAME_3>/auth/servicecontrol",
-            "https://<DNS_NAME_3>/auth/<DNS_NAME_7>"
+            "https://www.googleapis.com/auth/devstorage.read_only",
+            "https://www.googleapis.com/auth/logging.write",
+            "https://www.googleapis.com/auth/monitoring",
+            "https://www.googleapis.com/auth/servicecontrol",
+            "https://www.googleapis.com/auth/service.management.readonly",
+            "https://www.googleapis.com/auth/trace.append"
           ],
           "serviceAccount": "default"
         },
@@ -49,7 +49,7 @@
           "allowExternalTraffic": false,
           "enableK8sCertsViaDns": false,
           "enableK8sTokensViaDns": false,
-          "endpoint": "gke-<CLOUD_RESOURCE_ID_2>-<ACCOUNT_OR_PROJECT_NUMBER_3>.<DNS_NAME_8>"
+          "endpoint": "gke-<CLOUD_RESOURCE_ID_2>-<ACCOUNT_OR_PROJECT_NUMBER_3>.gke.goog"
         },
         "ipEndpointsConfig": {
           "authorizedNetworksConfig": {
@@ -106,7 +106,7 @@
           ]
         }
       },
-      "loggingService": "<DNS_NAME>/kubernetes",
+      "loggingService": "logging.googleapis.com/kubernetes",
       "maintenancePolicy": {
         "resourceVersion": "e3b0c442"
       },
@@ -138,7 +138,7 @@
           "enabled": true
         }
       },
-      "monitoringService": "<DNS_NAME_2>/kubernetes",
+      "monitoringService": "monitoring.googleapis.com/kubernetes",
       "name": "thalassaops-s10-fixture-gke",
       "network": "thalassaops-s10-fixture-network",
       "networkConfig": {
@@ -192,7 +192,7 @@
         "mode": "BASIC",
         "vulnerabilityMode": "VULNERABILITY_MODE_UNSPECIFIED"
       },
-      "selfLink": "https://<DNS_NAME_4>/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/clusters/thalassaops-s10-fixture-gke",
+      "selfLink": "https://container.googleapis.com/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/clusters/thalassaops-s10-fixture-gke",
       "servicesIpv4Cidr": "<IP_ADDRESS_2>/20",
       "shieldedNodes": {
         "enabled": true
