@@ -11,7 +11,7 @@ provider "azurerm" {
 
 resource "azurerm_resource_group" "fixture" {
   location = var.location
-  name     = "thalassaops-s10-fixture-rg"
+  name     = "thalassaops-s10-fixture-rg${var.resource_group_suffix}"
 
   tags = {
     purpose = local.purpose

@@ -80,10 +80,15 @@ Required variables:
 - `location` — the Azure region.
 - `ssh_public_key` — a public SSH key for the Linux AKS node and VM (the
   corresponding private key stays outside this repository).
+- `resource_group_suffix` — optional text appended only to the resource-group
+  name; leave it empty for the first run and use a fresh value for a quick
+  recapture after destroy.
 
 The root creates one resource group, a VNet and subnet, one AKS cluster with a
-single smallest practical `Standard_B2s` node, and one no-public-IP
-`Standard_B1s` virtual machine.
+single `Standard_D2als_v6` node, and one no-public-IP `Standard_D2als_v6`
+virtual machine. In this subscription the DASv5 family has zero quota and the
+original B-series v1 sizes are refused, while `standardDalv6Family` has quota
+available.
 
 ```sh
 cd infra/fixture-capture/azure
@@ -102,9 +107,17 @@ terraform destroy \
   -var='ssh_public_key=REPLACE_WITH_PUBLIC_KEY'
 ```
 
+When recapturing soon after a destroy, pass a fresh suffix (for example
+`-var='resource_group_suffix=-capture-20260828-01'`) to both the apply and
+destroy commands. Azure Resource Manager can briefly retain the prior
+resource-group name while its child resources settle, which can surface a
+transient VNet 404; a fresh suffix avoids that same-name propagation race.
+The suffix changes only the resource-group name, so the VNet, subnet, AKS,
+NIC, and VM names remain stable.
+
 Approximate time is 10–20 minutes to create and 5–10 minutes to destroy.
 Approximate cost while running is US$0.08–0.20 per hour, mostly the AKS node,
-the `Standard_B1s` VM, and their disks; actual pricing depends on region,
+the `Standard_D2als_v6` VM, and their disks; actual pricing depends on region,
 subscription offer, and current provider rates.
 
 Destroy each root immediately after the six response captures are complete:

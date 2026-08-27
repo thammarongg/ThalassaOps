@@ -19,7 +19,7 @@ output "resource_group_name" {
 }
 
 output "virtual_machine_id" {
-  description = "ID of the throwaway Standard_B1s virtual machine."
+  description = "ID of the throwaway Standard_D2als_v6 virtual machine."
   value       = azurerm_linux_virtual_machine.fixture.id
 }
 

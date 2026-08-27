@@ -31,6 +31,12 @@ variable "location" {
   }
 }
 
+variable "resource_group_suffix" {
+  description = "Optional suffix appended to the fixture resource group name; use a fresh value when recapturing soon after a destroy to avoid ARM name-propagation races."
+  type        = string
+  default     = ""
+}
+
 variable "ssh_public_key" {
   description = "SSH public key used for the Linux AKS node and VM."
   type        = string
@@ -43,13 +49,13 @@ variable "ssh_public_key" {
 }
 
 variable "aks_node_size" {
-  description = "AKS system node pool VM size. Subscriptions with restricted quota may not permit B-series; check with 'az vm list-skus'."
+  description = "AKS system node pool VM size. In this subscription the DASv5 family has zero quota and the original B-series v1 sizes are refused; standardDalv6Family has quota available, so Standard_D2als_v6 is the working default."
   type        = string
-  default     = "Standard_DC2s_v3"
+  default     = "Standard_D2als_v6"
 }
 
 variable "vm_size" {
-  description = "Standalone virtual machine size. Subscriptions with restricted quota may not permit B-series; check with 'az vm list-skus'."
+  description = "Standalone virtual machine size. In this subscription the DASv5 family has zero quota and the original B-series v1 sizes are refused; standardDalv6Family has quota available, so Standard_D2als_v6 is the working default."
   type        = string
-  default     = "Standard_DC1s_v3"
+  default     = "Standard_D2als_v6"
 }
