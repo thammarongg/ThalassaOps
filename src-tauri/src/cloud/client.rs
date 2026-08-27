@@ -18,6 +18,13 @@ pub enum CloudClientError {
     MalformedResponse,
 }
 
+#[derive(Debug)]
+pub struct CloudTextResponse {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub body: String,
+}
+
 pub struct CloudClient {
     client: Client,
     provider: Arc<dyn CloudCredentialProvider>,
@@ -50,6 +57,43 @@ impl CloudClient {
             .json::<T>()
             .await
             .map_err(|_| CloudClientError::MalformedResponse)
+    }
+
+    pub async fn get_text(&self, url: Url) -> Result<(String, Option<String>), CloudClientError> {
+        let response = self.get_text_with_status(url).await?;
+        Ok((response.body, response.content_type))
+    }
+
+    pub async fn get_text_with_status(
+        &self,
+        url: Url,
+    ) -> Result<CloudTextResponse, CloudClientError> {
+        let request = self.provider.authorize(self.client.get(url)).await?;
+        let response = request
+            .send()
+            .await
+            .map_err(|_| CloudClientError::RequestFailed)?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(CloudClientError::ProviderError(status.as_u16()));
+        }
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body = response
+            .text()
+            .await
+            .map_err(|_| CloudClientError::MalformedResponse)?;
+
+        Ok(CloudTextResponse {
+            status: status.as_u16(),
+            content_type,
+            body,
+        })
     }
 
     pub async fn get_paginated<T, F>(&self, first: Url, next: F) -> Result<Vec<T>, CloudClientError>
@@ -205,5 +249,69 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(all, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn get_text_returns_the_response_body() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/response")
+                .header("authorization", "Bearer t");
+            then.status(200).body("<response>fixture</response>");
+        });
+        let client =
+            CloudClient::new(Arc::new(FakeCredentialProvider::authorized("Bearer t"))).unwrap();
+
+        let (body, _) = client
+            .get_text(Url::parse(&server.url("/response")).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(body, "<response>fixture</response>");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn get_text_surfaces_the_content_type() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method("GET").path("/response");
+            then.status(200)
+                .header("content-type", "text/xml; charset=utf-8")
+                .body("<response />");
+        });
+        let client =
+            CloudClient::new(Arc::new(FakeCredentialProvider::authorized("Bearer t"))).unwrap();
+
+        let (_, content_type) = client
+            .get_text(Url::parse(&server.url("/response")).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(content_type.as_deref(), Some("text/xml; charset=utf-8"));
+    }
+
+    #[tokio::test]
+    async fn get_text_provider_errors_remain_sanitized() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method("GET").path("/response");
+            then.status(500)
+                .body("secret account arn:aws:iam::123456789012:role/fixture");
+        });
+        let client =
+            CloudClient::new(Arc::new(FakeCredentialProvider::authorized("Bearer t"))).unwrap();
+
+        let error = client
+            .get_text(Url::parse(&server.url("/response")).unwrap())
+            .await
+            .expect_err("must fail");
+
+        assert!(matches!(error, CloudClientError::ProviderError(500)));
+        let rendered = error.to_string();
+        assert!(!rendered.contains("arn:aws:iam"));
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("Bearer t"));
     }
 }

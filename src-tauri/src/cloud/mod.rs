@@ -3,7 +3,7 @@ pub mod client;
 pub mod model;
 pub mod preflight;
 
-pub use client::{CloudClient, CloudClientError};
+pub use client::{CloudClient, CloudClientError, CloudTextResponse};
 pub use preflight::classify_access;
 
 pub use auth::{
