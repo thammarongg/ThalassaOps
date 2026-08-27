@@ -1,5 +1,8 @@
 pub mod auth;
+pub mod client;
 pub mod model;
+
+pub use client::{CloudClient, CloudClientError};
 
 pub use auth::{
     AwsCredentialProvider, AzureCredentialProvider, CloudAuthError, CloudCredentialProvider,
