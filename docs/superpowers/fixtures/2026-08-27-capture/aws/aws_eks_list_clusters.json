@@ -1,0 +1,6 @@
+{
+  "clusters": [
+    "<AWS_CLUSTER_NAME>"
+  ],
+  "nextToken": null
+}

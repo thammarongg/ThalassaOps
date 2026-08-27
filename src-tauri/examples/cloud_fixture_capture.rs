@@ -52,10 +52,15 @@ impl Redactor {
     }
 
     fn redact(&mut self, body: &str, content_type: Option<&str>) -> String {
-        // Run structural/token patterns before selector substitutions. This
-        // ensures an Azure resource ID is replaced as one value rather than
-        // leaving its resource-group suffix behind after subscription masking.
-        let mut replaced = self.redact_text(body);
+        // Substitute selectors before generic patterns so a project such as
+        // `doca-262908` cannot be split into a visible prefix and a redacted
+        // number. Azure resource IDs are then matched with the subscription
+        // placeholder as well, preserving the whole-resource redaction.
+        let mut replaced = body.to_owned();
+        for (original, placeholder) in &self.exact {
+            replaced = replaced.replace(original, placeholder);
+        }
+        replaced = self.redact_text(&replaced);
         for (original, placeholder) in &self.exact {
             replaced = replaced.replace(original, placeholder);
         }
@@ -72,37 +77,59 @@ impl Redactor {
             }
         }
 
-        replaced
+        if content_type.is_some_and(|value| value.to_ascii_lowercase().contains("xml")) {
+            self.xml_safe_placeholders(&replaced)
+        } else {
+            replaced
+        }
     }
 
     fn redact_json_value(&mut self, key: Option<&str>, value: &mut Value) {
+        self.redact_json_value_in_context(key, value, false);
+    }
+
+    fn redact_json_value_in_context(
+        &mut self,
+        key: Option<&str>,
+        value: &mut Value,
+        sensitive_context: bool,
+    ) {
+        let sensitive_context = sensitive_context || key.is_some_and(is_sensitive_key);
         match value {
             Value::Object(fields) => {
                 for (field, value) in fields {
-                    self.redact_json_value(Some(field), value);
+                    self.redact_json_value_in_context(Some(field), value, sensitive_context);
                 }
             }
             Value::Array(values) => {
                 for value in values {
-                    self.redact_json_value(key, value);
+                    self.redact_json_value_in_context(key, value, sensitive_context);
                 }
             }
             Value::String(text) => {
                 let current = std::mem::take(text);
-                *text = if key.is_some_and(is_sensitive_key) {
+                *text = if sensitive_context {
                     self.placeholder("SENSITIVE_DATA", &current)
+                } else if key.is_some_and(|field| field.eq_ignore_ascii_case("id"))
+                    && current.len() >= 8
+                    && current
+                        .chars()
+                        .all(|character| character.is_ascii_hexdigit())
+                {
+                    self.placeholder("CLOUD_RESOURCE_ID", &current)
                 } else {
                     self.redact_text(&current)
                 };
             }
             Value::Number(number)
-                if key.is_some_and(|field| {
-                    let normalized = field.to_ascii_lowercase();
-                    normalized.contains("account")
-                        || normalized.contains("project")
-                        || normalized.contains("subscription")
-                        || normalized == "number"
-                }) =>
+                if sensitive_context
+                    || key.is_some_and(|field| {
+                        let normalized = field.to_ascii_lowercase();
+                        normalized.contains("account")
+                            || normalized.contains("project")
+                            || normalized.contains("subscription")
+                            || normalized == "number"
+                    }) =>
             {
                 let original = number.to_string();
                 *value = Value::String(self.placeholder("ACCOUNT_OR_PROJECT_NUMBER", &original));
@@ -131,6 +158,11 @@ impl Redactor {
         );
         replaced = self.replace_matches(
             &replaced,
+            r#"(?i)/subscriptions/(?:[0-9a-f-]+|<AZURE_SUBSCRIPTION_ID>)/resourceGroups/[^\s\"'<>]+"#,
+            "AZURE_RESOURCE_ID",
+        );
+        replaced = self.replace_matches(
+            &replaced,
             r"\b(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(?:\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}\b",
             "IP_ADDRESS",
         );
@@ -142,7 +174,13 @@ impl Redactor {
         replaced = self.replace_matches(&replaced, r"\b\d{6,12}\b", "ACCOUNT_OR_PROJECT_NUMBER");
         replaced = self.replace_matches(
             &replaced,
-            r"\b(?:i|vpc|subnet|sg|eni|vol|igw|rtb|nat)-[0-9a-f]+\b",
+            r"\b(?:i|vpc|subnet|sg|eni|vol|igw|rtb|nat|r|ami|eipalloc|eipassoc)-[0-9a-z-]+\b",
+            "CLOUD_RESOURCE_ID",
+        );
+        replaced = self.replace_matches(&replaced, r"\b[0-9A-Fa-f]{32,}\b", "CLOUD_RESOURCE_ID");
+        replaced = self.replace_matches(
+            &replaced,
+            r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b",
             "CLOUD_RESOURCE_ID",
         );
         replaced = self.replace_matches(
@@ -152,6 +190,11 @@ impl Redactor {
         );
         replaced = self.replace_xml_sensitive_values(&replaced);
         replaced = self.replace_xml_sensitive_attributes(&replaced);
+        replaced = self.replace_matches(
+            &replaced,
+            r"(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:amazonaws\.com|googleapis\.com|googleusercontent\.com|azure\.com|windows\.net)\b",
+            "DNS_NAME",
+        );
         self.replace_matches(
             &replaced,
             r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b",
@@ -183,7 +226,7 @@ impl Redactor {
 
     fn replace_xml_sensitive_values(&mut self, input: &str) -> String {
         let regex = Regex::new(
-            r#"(?is)(<(?:authorization|access[_-]?token|bearer[_-]?token|refresh[_-]?token|token|certificate(?:Data)?|(?:access|secret|public|private)[_-]?key(?:Id|Data)?|ssh[_-]?(?:public|private)[_-]?key)[^>]*>)(.*?)(</(?:authorization|access[_-]?token|bearer[_-]?token|refresh[_-]?token|token|certificate(?:Data)?|(?:access|secret|public|private)[_-]?key(?:Id|Data)?|ssh[_-]?(?:public|private)[_-]?key)>)"#,
+            r#"(?is)(<(?:authorization|access[_-]?token|bearer[_-]?token|refresh[_-]?token|client[_-]?token|token|certificate(?:Data)?|(?:access|secret|public|private)[_-]?key(?:Id|Data)?|ssh[_-]?(?:public|private)[_-]?key)[^>]*>)(.*?)(</(?:authorization|access[_-]?token|bearer[_-]?token|refresh[_-]?token|client[_-]?token|token|certificate(?:Data)?|(?:access|secret|public|private)[_-]?key(?:Id|Data)?|ssh[_-]?(?:public|private)[_-]?key)>)"#,
         )
         .expect("capture XML redaction regex");
         let mut output = String::with_capacity(input.len());
@@ -221,6 +264,16 @@ impl Redactor {
         }
         output.push_str(&input[cursor..]);
         output
+    }
+
+    fn xml_safe_placeholders(&self, input: &str) -> String {
+        let regex = Regex::new(r"<(?:[A-Z][A-Z0-9_]*)(?:_[0-9]+)?>")
+            .expect("capture XML placeholder regex");
+        regex
+            .replace_all(input, |capture: &regex::Captures<'_>| {
+                format!("REDACTED_{}", &capture[0][1..capture[0].len() - 1])
+            })
+            .into_owned()
     }
 }
 
@@ -316,7 +369,7 @@ async fn capture_aws(root: &Path) -> Result<(), String> {
         &client,
         "aws_ec2_describe_instances",
         parse_url(format!(
-            "https://ec2.{region}.amazonaws.com/?Action=DescribeInstances&Version=2016-11-15&MaxResults=1"
+            "https://ec2.{region}.amazonaws.com/?Action=DescribeInstances&Version=2016-11-15&MaxResults=5"
         ))?,
         &output_path(root, "aws", "aws_ec2_describe_instances", "xml"),
         &mut redactor,
@@ -397,19 +450,23 @@ async fn capture_gcp(root: &Path) -> Result<(), String> {
 
 async fn run(args: &[String]) -> Result<(), String> {
     let requested = args.get(1).map(String::as_str).unwrap_or("all");
-    if !matches!(requested, "all" | "aws" | "azure" | "gcp") {
-        return Err("provider must be one of: all, aws, azure, gcp".into());
+    let providers = if requested == "all" {
+        vec!["aws", "azure", "gcp"]
+    } else {
+        requested.split(',').collect::<Vec<_>>()
+    };
+    if providers.is_empty()
+        || providers
+            .iter()
+            .any(|provider| !matches!(*provider, "aws" | "azure" | "gcp"))
+    {
+        return Err("provider must be one or more of: aws, azure, gcp (comma-separated)".into());
     }
     let output = PathBuf::from(
         env::var("THALASSAOPS_CAPTURE_OUTPUT_DIR").unwrap_or_else(|_| DEFAULT_OUTPUT_DIR.into()),
     );
     fs::create_dir_all(&output).map_err(|_| "could not create capture output directory")?;
 
-    let providers = if requested == "all" {
-        vec!["aws", "azure", "gcp"]
-    } else {
-        vec![requested]
-    };
     let mut failures = 0;
     for provider in providers {
         let result = match provider {
@@ -471,6 +528,15 @@ mod tests {
         );
         assert!(namespace.contains("Microsoft.Compute/virtualMachines"));
         assert!(namespace.contains("<DNS_NAME>"));
+
+        redactor.add_exact("doca-262908", "<GCP_PROJECT_ID>");
+        let project_with_number = redactor.redact(
+            r#"{"project":"doca-262908","certificateAuthority":{"data":"secret"}}"#,
+            Some("application/json"),
+        );
+        assert!(!project_with_number.contains("doca-262908"));
+        assert!(project_with_number.contains("<SENSITIVE_DATA"));
+        assert!(!project_with_number.contains("secret"));
     }
 
     #[test]
@@ -482,12 +548,12 @@ mod tests {
         );
 
         assert!(
-            result.contains("<Token><SENSITIVE_DATA></Token>"),
+            result.contains("<Token>REDACTED_SENSITIVE_DATA</Token>"),
             "redacted XML: {result}"
         );
-        assert!(result.contains("<AccessToken><SENSITIVE_DATA_2></AccessToken>"));
-        assert!(result.contains("<Address><IP_ADDRESS></Address>"));
-        assert!(result.contains("authorization=\"<SENSITIVE_DATA_3>\""));
+        assert!(result.contains("<AccessToken>REDACTED_SENSITIVE_DATA_2</AccessToken>"));
+        assert!(result.contains("<Address>REDACTED_IP_ADDRESS</Address>"));
+        assert!(result.contains("authorization=\"REDACTED_SENSITIVE_DATA_3\""));
         assert!(!result.contains("Bearer abc"));
         assert!(!result.contains("opaque-access-token"));
         assert!(!result.contains("opaque-token"));
