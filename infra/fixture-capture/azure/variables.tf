@@ -41,3 +41,15 @@ variable "ssh_public_key" {
     error_message = "ssh_public_key must not be blank."
   }
 }
+
+variable "aks_node_size" {
+  description = "AKS system node pool VM size. Subscriptions with restricted quota may not permit B-series; check with 'az vm list-skus'."
+  type        = string
+  default     = "Standard_DC2s_v3"
+}
+
+variable "vm_size" {
+  description = "Standalone virtual machine size. Subscriptions with restricted quota may not permit B-series; check with 'az vm list-skus'."
+  type        = string
+  default     = "Standard_DC1s_v3"
+}

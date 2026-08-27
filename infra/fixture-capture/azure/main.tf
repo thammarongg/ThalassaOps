@@ -45,7 +45,7 @@ resource "azurerm_kubernetes_cluster" "fixture" {
   default_node_pool {
     name           = "system"
     node_count     = 1
-    vm_size        = "Standard_B2s"
+    vm_size        = var.aks_node_size
     vnet_subnet_id = azurerm_subnet.fixture.id
   }
 
@@ -94,7 +94,7 @@ resource "azurerm_linux_virtual_machine" "fixture" {
   name                            = "thalassaops-s10-fixture-vm"
   network_interface_ids           = [azurerm_network_interface.fixture.id]
   resource_group_name             = azurerm_resource_group.fixture.name
-  size                            = "Standard_B1s"
+  size                            = var.vm_size
 
   admin_ssh_key {
     public_key = var.ssh_public_key
