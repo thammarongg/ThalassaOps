@@ -49,7 +49,7 @@
           "allowExternalTraffic": false,
           "enableK8sCertsViaDns": false,
           "enableK8sTokensViaDns": false,
-          "endpoint": "gke-<CLOUD_RESOURCE_ID_2>-<ACCOUNT_OR_PROJECT_NUMBER_3>.gke.goog"
+          "endpoint": "gke-<CLOUD_RESOURCE_ID_2>-<ACCOUNT_OR_PROJECT_NUMBER_3>.asia-southeast1-a.autopush.gke.goog"
         },
         "ipEndpointsConfig": {
           "authorizedNetworksConfig": {

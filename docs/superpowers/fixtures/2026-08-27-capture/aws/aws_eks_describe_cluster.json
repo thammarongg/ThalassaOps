@@ -21,12 +21,12 @@
     "createdAt": 1787847811.119,
     "deletionProtection": false,
     "encryptionConfig": null,
-    "endpoint": "https://<CLOUD_RESOURCE_ID_5>.<DNS_NAME>",
+    "endpoint": "https://<CLOUD_RESOURCE_ID_5>.gr7.ap-southeast-1.eks.amazonaws.com",
     "health": null,
     "id": null,
     "identity": {
       "oidc": {
-        "issuer": "https://<DNS_NAME_2>/id/<CLOUD_RESOURCE_ID_5>"
+        "issuer": "https://oidc.eks.ap-southeast-1.amazonaws.com/id/<CLOUD_RESOURCE_ID_5>"
       }
     },
     "kubeApiServerConfig": {
