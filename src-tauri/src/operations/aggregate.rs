@@ -497,8 +497,13 @@ fn project_alerts(
             .map(format_timestamp)
             .unwrap_or_else(|| format_timestamp(detected_at));
         projected.evidence_ids.push(evidence_id.clone());
+        let queue_item_id = if alert.fingerprint.starts_with("alert-") {
+            safe_id_component(&alert.fingerprint)
+        } else {
+            format!("alert-{}", safe_id_component(&alert.fingerprint))
+        };
         projected.items.push(IncidentQueueItem {
-            id: format!("alert-{}", safe_id_component(&alert.fingerprint)),
+            id: queue_item_id,
             title: alert_summary(alert),
             source_kind: QueueItemSourceKind::Alert,
             source_id: safe_id_component(&alert.fingerprint),
