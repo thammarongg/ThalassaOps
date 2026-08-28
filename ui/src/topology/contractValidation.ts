@@ -348,6 +348,32 @@ export const isTopologySnapshot = (value: unknown): value is TopologySnapshot =>
       ) {
         return true;
       }
+      const expectedEvidence = new Set<ConsoleEvidenceId>();
+      for (const nodeId of path.node_ids) {
+        const node = snapshot.nodes.find((candidate) => candidate.id === nodeId);
+        if (!node) return true;
+        node.evidence_ids.forEach((id) => expectedEvidence.add(id));
+      }
+      for (const edgeId of path.edge_ids) {
+        const edge = edgeById.get(edgeId);
+        if (!edge) return true;
+        edge.evidence_ids.forEach((id) => expectedEvidence.add(id));
+      }
+      if (path.cycle_edge_id !== null) {
+        const cycleEdge = edgeById.get(path.cycle_edge_id);
+        if (!cycleEdge) return true;
+        cycleEdge.evidence_ids.forEach((id) => expectedEvidence.add(id));
+      }
+      const actualEvidence = new Set(path.evidence_ids);
+      if (
+        actualEvidence.size !== path.evidence_ids.length ||
+        actualEvidence.size !== expectedEvidence.size ||
+        [...expectedEvidence].some((id) => !actualEvidence.has(id)) ||
+        [...actualEvidence].some((id) => !expectedEvidence.has(id)) ||
+        JSON.stringify([...path.evidence_ids]) !== JSON.stringify([...expectedEvidence].sort())
+      ) {
+        return true;
+      }
       for (const [index, edgeId] of path.edge_ids.entries()) {
         const edge = edgeById.get(edgeId);
         if (!edge) return true;

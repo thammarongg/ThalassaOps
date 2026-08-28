@@ -32,6 +32,14 @@ it("rejects paths whose node and edge sequences do not match", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects paths that omit evidence for a listed node or edge", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.paths[0].evidence_ids = snapshot.paths[0].evidence_ids.slice(1);
+  snapshot.paths[0].drill_down.evidence_ids = snapshot.paths[0].evidence_ids;
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("rejects rendered nodes without evidence or a paired owner", () => {
   const missingEvidence = structuredClone(topologySnapshotFixture);
   missingEvidence.nodes[0].evidence_ids = [];

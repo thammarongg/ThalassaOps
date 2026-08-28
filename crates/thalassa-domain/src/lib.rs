@@ -2275,6 +2275,7 @@ impl TopologySnapshot {
         for path in &self.paths {
             validate_evidence_ids(&path.evidence_ids, &evidence_ids)?;
             validate_evidence_ids(&path.drill_down.evidence_ids, &evidence_ids)?;
+            validate_path_evidence(path, &self.nodes, &edges)?;
         }
         for metric in [
             &self.summary.visible_nodes,
@@ -2461,6 +2462,34 @@ fn validate_evidence_ids(
 ) -> Result<(), TopologyError> {
     if ids.iter().any(|id| !known_ids.contains(id)) {
         return Err(TopologyError::EvidenceMissing);
+    }
+    Ok(())
+}
+
+fn validate_path_evidence(
+    path: &TopologyPath,
+    nodes: &[TopologyNode],
+    edges: &BTreeMap<String, TopologyEdge>,
+) -> Result<(), TopologyError> {
+    let mut expected = BTreeSet::new();
+    for node_id in &path.node_ids {
+        let node = nodes
+            .iter()
+            .find(|node| node.id == *node_id)
+            .ok_or(TopologyError::NodeNotFound)?;
+        expected.extend(node.evidence_ids.iter().cloned());
+    }
+    for edge_id in path.edge_ids.iter().chain(path.cycle_edge_id.iter()) {
+        let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+        expected.extend(edge.evidence_ids.iter().cloned());
+    }
+
+    let actual: BTreeSet<_> = path.evidence_ids.iter().cloned().collect();
+    if actual.len() != path.evidence_ids.len()
+        || actual != expected
+        || path.evidence_ids != expected.iter().cloned().collect::<Vec<_>>()
+    {
+        return Err(TopologyError::InvalidRequest);
     }
     Ok(())
 }

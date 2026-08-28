@@ -478,6 +478,45 @@ fn topology_snapshot_requires_cycle_edges_to_close_at_the_terminal_node() {
 }
 
 #[test]
+fn topology_snapshot_requires_paths_to_include_all_listed_record_evidence() {
+    let mut invalid = snapshot();
+    invalid.paths[0].evidence_ids.clear();
+    invalid.paths[0].drill_down.evidence_ids = vec!["evidence-node".into()];
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::EvidenceMissing
+    );
+
+    let mut invalid = snapshot();
+    invalid.paths[0].evidence_ids = vec!["evidence-node".into()];
+    invalid.nodes[1].evidence_ids = vec!["evidence-other".into()];
+    invalid.nodes[1].drill_down.evidence_ids = vec!["evidence-other".into()];
+    invalid.edges[0].evidence_ids = vec!["evidence-other".into()];
+    invalid.edges[0].drill_down.evidence_ids = vec!["evidence-other".into()];
+    invalid.evidence.push(EvidenceRef {
+        id: "evidence-other".into(),
+        source_kind: EvidenceSourceKind::Fixture,
+        connector_id: None,
+        scope: scope(),
+        endpoint: "fixture://topology".into(),
+        query: Some("topology:other".into()),
+        observed_at: "2026-08-28T09:00:00Z".into(),
+        excerpt: "other topology fixture".into(),
+        native_url: None,
+        redaction: EvidenceRedaction {
+            classification_verified: true,
+            redaction_verified: true,
+            masked: false,
+            unparsed: false,
+        },
+    });
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+}
+
+#[test]
 fn topology_snapshot_rejects_summary_counts_that_do_not_match_the_graph() {
     let mut invalid = snapshot();
     invalid.summary.visible_nodes.value = 3.0;
