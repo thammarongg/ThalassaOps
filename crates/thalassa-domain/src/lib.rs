@@ -1753,7 +1753,7 @@ pub enum TopologyEdgeKind {
 }
 
 /// Provider-neutral source category that produced a topology edge.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum TopologySourceKind {
     #[serde(rename = "kubernetes")]
     Kubernetes,
@@ -1815,8 +1815,12 @@ impl TopologyEdge {
         if self.provenance.is_empty() {
             return Err(TopologyError::MalformedSource);
         }
+        let mut provenance_identity = BTreeSet::new();
         for provenance in &self.provenance {
             provenance.validate()?;
+            if !provenance_identity.insert((provenance.source, provenance.source_key.clone())) {
+                return Err(TopologyError::MalformedSource);
+            }
         }
         if self.evidence_ids.is_empty()
             || self

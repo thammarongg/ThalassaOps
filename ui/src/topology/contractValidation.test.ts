@@ -99,6 +99,13 @@ it("rejects duplicate topology source status keys", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects duplicate edge provenance identities", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.edges[0].provenance.push({ ...snapshot.edges[0].provenance[0] });
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("rejects path confidence that exceeds its weakest relationship", () => {
   const snapshot = structuredClone(topologySnapshotFixture);
   snapshot.paths[0].confidence = 0.8;

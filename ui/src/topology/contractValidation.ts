@@ -198,6 +198,11 @@ const isEdge = (value: unknown): value is TopologyEdge => {
   ) {
     return false;
   }
+  const provenance = value.provenance as Array<{ source: string; source_key: string }>;
+  const provenanceIdentity = new Set(
+    provenance.map((item) => JSON.stringify([item.source, item.source_key]))
+  );
+  if (provenanceIdentity.size !== provenance.length) return false;
   return isEvidenceDrillDown(value.drill_down, value.evidence_ids);
 };
 

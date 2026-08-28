@@ -599,6 +599,18 @@ fn topology_edges_and_paths_open_their_evidence_destination() {
 }
 
 #[test]
+fn topology_edges_reject_duplicate_provenance_identity() {
+    let mut invalid = snapshot();
+    let duplicate = invalid.edges[0].provenance[0].clone();
+    invalid.edges[0].provenance.push(duplicate);
+
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::MalformedSource
+    );
+}
+
+#[test]
 fn topology_evidence_requests_reject_ids_not_emitted_by_the_snapshot() {
     let request = TopologyEvidenceRequest {
         evidence_ids: vec!["evidence-not-emitted".into()],
