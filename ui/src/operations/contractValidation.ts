@@ -91,6 +91,11 @@ const isNonEmptyString = (value: unknown): value is string =>
 const isNullableString = (value: unknown): value is string | null =>
   value === null || isString(value);
 
+const finiteDecimalPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+const isFiniteDecimal = (value: unknown): value is string =>
+  isString(value) && finiteDecimalPattern.test(value.trim()) && Number.isFinite(Number(value));
+
 export const isTrustedNativeUrl = (value: unknown): value is string => {
   if (!isNonEmptyString(value)) return false;
   try {
@@ -147,11 +152,9 @@ const isDrillDownReference = (value: unknown): value is DrillDownReference =>
 
 const isCriticalNumber = (value: unknown): value is CriticalNumber => {
   if (!isRecord(value)) return false;
-  const numberValue = isString(value.value) ? Number(value.value) : Number.NaN;
   return (
     isNonEmptyString(value.key) &&
-    isNonEmptyString(value.value) &&
-    Number.isFinite(numberValue) &&
+    isFiniteDecimal(value.value) &&
     isEnum(value.unit, numberUnits) &&
     isStringArray(value.evidence_ids) &&
     isDrillDownTarget(value.drill_down) &&
@@ -196,9 +199,11 @@ export const isEvidenceResponse = (
 ): value is EvidenceRef[] => {
   if (!Array.isArray(value) || !value.every(isEvidence)) return false;
   const returnedIds = new Set(value.map((item) => item.id));
+  const requestedIds = new Set(expectedIds);
   return (
     returnedIds.size === value.length &&
-    returnedIds.size === expectedIds.length &&
+    requestedIds.size === expectedIds.length &&
+    returnedIds.size === requestedIds.size &&
     expectedIds.every((id) => returnedIds.has(id))
   );
 };
@@ -255,7 +260,8 @@ const isChangeStatus = (value: unknown): value is ChangeStreamStatus =>
   isRecord(value) &&
   isEnum(value.state, ["available", "empty", "unavailable"]) &&
   (value.reason === null || isEnum(value.reason, statusReasons)) &&
-  isNullableString(value.detail);
+  isNullableString(value.detail) &&
+  (value.state === "available" ? value.reason === null : value.reason !== null);
 
 const isEnvironment = (value: unknown): value is EnvironmentStatus =>
   isRecord(value) &&
@@ -296,8 +302,9 @@ const isWidget = (value: unknown): value is WidgetDefinition =>
   isEnum(value.id, widgetIds) &&
   isNonEmptyString(value.title_key) &&
   typeof value.default_order === "number" &&
-  Number.isInteger(value.default_order) &&
+  Number.isSafeInteger(value.default_order) &&
   value.default_order >= 0 &&
+  value.default_order <= 65535 &&
   isEnum(value.default_size, widgetSizes) &&
   isBoolean(value.required);
 
@@ -339,6 +346,17 @@ export const isOperationsSnapshot = (value: unknown): value is OperationsSnapsho
   }
 
   const snapshot = value as OperationsSnapshot;
+  if (
+    new Set(snapshot.incident_queue.map((item) => item.id)).size !==
+      snapshot.incident_queue.length ||
+    new Set(snapshot.changes.map((change) => change.id)).size !== snapshot.changes.length ||
+    new Set(snapshot.environments.map((environment) => environment.environment_id)).size !==
+      snapshot.environments.length ||
+    new Set(snapshot.widget_registry.map((widget) => widget.id)).size !==
+      snapshot.widget_registry.length
+  ) {
+    return false;
+  }
   const evidenceIds = new Set(snapshot.evidence.map((item) => item.id));
   if (evidenceIds.size !== snapshot.evidence.length) return false;
   const references = [

@@ -371,6 +371,34 @@ it("rejects a malformed nested snapshot before any widget dereferences it", asyn
   expect(await screen.findAllByText("The console snapshot is unavailable.")).toHaveLength(6);
 });
 
+it("rejects snapshot values that violate the Rust numeric and identity contract", async () => {
+  const snapshot = healthySnapshot();
+  snapshot.health_summary.attention.value = "0x10";
+  snapshot.incident_queue = [
+    {
+      ...anomalySnapshot().incident_queue[0],
+      id: "duplicate-incident"
+    },
+    {
+      ...anomalySnapshot().incident_queue[0],
+      id: "duplicate-incident"
+    }
+  ];
+
+  renderConsole(snapshot);
+
+  expect(await screen.findAllByText("The console snapshot is unavailable.")).toHaveLength(6);
+});
+
+it("rejects an invalid change-stream status relation", async () => {
+  const snapshot = healthySnapshot();
+  snapshot.change_stream_status = { state: "available", reason: "unknown", detail: null };
+
+  renderConsole(snapshot);
+
+  expect(await screen.findAllByText("The console snapshot is unavailable.")).toHaveLength(6);
+});
+
 it("labels a stale source as degraded with its typed reason", async () => {
   const snapshot = healthySnapshot();
   snapshot.source_status = snapshot.source_status.map((status) =>
