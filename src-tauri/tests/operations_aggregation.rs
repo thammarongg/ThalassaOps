@@ -2,7 +2,7 @@
 
 use thalassa_domain::{
     ChangeStreamState, ConsoleHealthState, ConsoleSeverity, ImpactLevel, QueueItemSourceKind,
-    SourceState, StatusReason,
+    ResourceScope, SourceState, StatusReason,
 };
 use thalassaops::operations::{fixture_catalog, fixture_time, OperationsAggregator};
 
@@ -242,4 +242,32 @@ fn malformed_records_are_skipped_without_panicking_or_erasing_valid_sources() {
         status.source_key == "health_checks" && status.state == SourceState::Unverified
     }));
     assert!(snapshot.validate().is_ok());
+}
+
+#[test]
+fn out_of_scope_changes_do_not_admit_evidence_before_the_scope_filter() {
+    let mut catalog = fixture_catalog();
+    let mut foreign_change = catalog.changes[0].clone();
+    foreign_change.id = "foreign-change".into();
+    foreign_change.scope = ResourceScope::environment(
+        uuid::Uuid::from_u128(99),
+        uuid::Uuid::from_u128(98),
+        uuid::Uuid::from_u128(97),
+        uuid::Uuid::from_u128(96),
+    );
+    foreign_change.evidence_ids.clear();
+    catalog.changes.push(foreign_change);
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("foreign records should be skipped without invalidating the snapshot");
+
+    assert!(snapshot
+        .changes
+        .iter()
+        .all(|change| change.id != "foreign-change"));
+    assert!(snapshot
+        .evidence
+        .iter()
+        .all(|evidence| evidence.id != "evidence-change-foreign-change"));
 }

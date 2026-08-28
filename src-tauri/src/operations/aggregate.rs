@@ -905,6 +905,10 @@ fn project_changes(
             malformed = true;
             continue;
         }
+        if !scope.contains(&change.scope) {
+            malformed = true;
+            continue;
+        }
         let mut ids = evidence.usable_ids(&change.evidence_ids);
         if ids.is_empty() {
             let derived = format!("evidence-change-{}", safe_id_component(&change.id));
@@ -921,10 +925,6 @@ fn project_changes(
                 change.occurred_at.clone(),
                 change.summary.clone(),
             ));
-        }
-        if !scope.contains(&change.scope) {
-            malformed = true;
-            continue;
         }
         change.evidence_ids = unique_ids(ids.iter());
         change.id = safe_id_component(&change.id);
