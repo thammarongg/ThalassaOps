@@ -100,6 +100,26 @@ fn cloud_records_without_matching_evidence_are_not_admitted() {
 }
 
 #[test]
+fn cloud_resources_do_not_borrow_environment_evidence() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut unattributed: CloudResource = input.cloud_resources[0].clone();
+    unattributed.id = "unattributed-resource-by-environment".into();
+    unattributed.name = "AWS production".into();
+    input.cloud_resources.push(unattributed);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("unmatched resource evidence should degrade the source");
+
+    assert!(snapshot.nodes.iter().all(|node| {
+        node.native_id.as_deref() != Some("unattributed-resource-by-environment")
+    }));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "cloud" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn partially_missing_environment_evidence_omits_the_environment_node() {
     let mut input = topology_fixture_input(fixture_scope());
     input.environments[0]
@@ -242,6 +262,37 @@ fn evidence_matching_prefers_typed_resource_identity() {
     assert!(!workload
         .evidence_ids
         .contains(&"evidence-topology-k8s-service-checkout-api".to_string()));
+}
+
+#[test]
+fn kubernetes_resources_do_not_borrow_similar_kind_evidence() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let service = production
+        .resources
+        .iter()
+        .find(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service")
+        .clone();
+    let mut same_name_service = service;
+    same_name_service.resource.id = Uuid::from_u128(0x00000000000000000000000000000997);
+    same_name_service.resource.native_id = None;
+    same_name_service.resource.name = "prod/checkout-api".into();
+    production.resources.push(same_name_service);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("ambiguous resource evidence should degrade the source");
+
+    assert!(snapshot.nodes.iter().all(|node| {
+        !(node.kind == thalassa_domain::TopologyNodeKind::Service && node.name == "checkout-api")
+    }));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "kubernetes:env-aws-prod" && status.state == SourceState::Unverified
+    }));
 }
 
 #[test]

@@ -660,8 +660,6 @@ fn derive_kubernetes_resource(
         evidence_hints.push(native_id);
     }
     evidence_hints.push(typed_name.as_str());
-    evidence_hints.push(&item.resource.name);
-    evidence_hints.push(canonical_name);
     let mut evidence_ids =
         graph.source_evidence_ids_preferred(EvidenceSourceKind::Kubernetes, &evidence_hints);
     if evidence_ids.is_empty() {
@@ -1002,7 +1000,7 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
     };
     let mut evidence_ids = graph.source_evidence_ids_preferred(
         EvidenceSourceKind::Cloud,
-        &[&resource.id, &resource.name, &resource.environment_id],
+        &[&resource.id],
     );
     if evidence_ids.is_empty() {
         graph.mark_unverified("cloud");
