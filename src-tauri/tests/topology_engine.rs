@@ -624,6 +624,47 @@ fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
 }
 
 #[test]
+fn duplicate_kubernetes_namespaces_do_not_select_an_arbitrary_containment_parent() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let namespace = production
+        .resources
+        .iter()
+        .find(|item| item.resource.kind == "Namespace" && item.resource.name == "prod")
+        .expect("fixture should contain the production namespace")
+        .clone();
+    let mut duplicate = namespace;
+    duplicate.resource.id = Uuid::from_u128(0x00000000000000000000000000000998);
+    duplicate.resource.native_id = Some("uid-namespace-prod-duplicate".into());
+    production.resources.push(duplicate);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("ambiguous namespace identity should not prevent projection");
+    let namespace_ids: BTreeSet<_> = snapshot
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.kind == thalassa_domain::TopologyNodeKind::Namespace && node.name == "prod"
+        })
+        .map(|node| node.id.clone())
+        .collect();
+    let service_id = node_id_by_name(&snapshot, "checkout");
+    assert!(namespace_ids.len() > 1);
+    assert!(!snapshot.edges.iter().any(|edge| {
+        edge.kind == TopologyEdgeKind::Contains
+            && namespace_ids.contains(&edge.upstream_node_id)
+            && edge.downstream_node_id == service_id
+    }));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "kubernetes:env-aws-prod" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn unsafe_fixture_edge_ids_are_not_emitted() {
     let mut input = topology_fixture_input(fixture_scope());
     input.fixture_edges[0].id = "arn:aws:iam::123456789012:role/topology".into();

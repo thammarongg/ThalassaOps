@@ -768,12 +768,18 @@ fn derive_kubernetes_containment(
         let Some(namespace) = namespace else {
             continue;
         };
-        let Some(namespace_node) = namespace_nodes
+        let mut namespace_candidates = namespace_nodes
             .iter()
-            .find(|candidate| candidate.name == namespace)
-        else {
+            .filter(|candidate| candidate.name == namespace);
+        let Some(namespace_node) = namespace_candidates.next() else {
             continue;
         };
+        if namespace_candidates.next().is_some() {
+            // A namespace name is only an endpoint hint. If multiple source
+            // identities claim that name, do not choose one by map ordering.
+            graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+            continue;
+        }
         let evidence_ids = union_evidence(&namespace_node.evidence_ids, &node.evidence_ids);
         let Some(edge) = make_edge(
             &namespace_node.id,
