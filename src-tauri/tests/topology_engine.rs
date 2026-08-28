@@ -111,12 +111,14 @@ fn cloud_resources_do_not_borrow_environment_evidence() {
         .snapshot_at(&default_topology_request())
         .expect("unmatched resource evidence should degrade the source");
 
-    assert!(snapshot.nodes.iter().all(|node| {
-        node.native_id.as_deref() != Some("unattributed-resource-by-environment")
-    }));
-    assert!(snapshot.source_status.iter().any(|status| {
-        status.source_key == "cloud" && status.state == SourceState::Unverified
-    }));
+    assert!(snapshot
+        .nodes
+        .iter()
+        .all(|node| { node.native_id.as_deref() != Some("unattributed-resource-by-environment") }));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| { status.source_key == "cloud" && status.state == SourceState::Unverified }));
 }
 
 #[test]
@@ -188,9 +190,12 @@ fn negative_kubernetes_replica_counts_are_omitted() {
         .expect("the workload should remain visible");
 
     assert!(workload.metric.is_none());
+    assert_eq!(
+        workload.status,
+        thalassa_domain::ConsoleHealthState::Unknown
+    );
     assert!(snapshot.source_status.iter().any(|status| {
-        status.source_key == "kubernetes:env-aws-prod"
-            && status.state == SourceState::Unverified
+        status.source_key == "kubernetes:env-aws-prod" && status.state == SourceState::Unverified
     }));
 }
 
@@ -214,9 +219,10 @@ fn negative_environment_counts_are_omitted() {
         .expect("the environment should remain visible");
 
     assert!(environment.metric.is_none());
-    assert!(snapshot.source_status.iter().any(|status| {
-        status.source_key == "cloud" && status.state == SourceState::Unverified
-    }));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| { status.source_key == "cloud" && status.state == SourceState::Unverified }));
 }
 
 #[test]
@@ -546,11 +552,7 @@ fn focus_node_overrides_incident_root_for_traversal() {
         .snapshot_at(&default_topology_request())
         .expect("healthy fixture should build");
     let workload_id = node_id_by_name(&base, "checkout-api");
-    let mut request = request_for(
-        Some(workload_id.clone()),
-        TopologyDirection::Downstream,
-        1,
-    );
+    let mut request = request_for(Some(workload_id.clone()), TopologyDirection::Downstream, 1);
     request.filter.incident_id = Some("alert-checkout-s1".into());
 
     let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))

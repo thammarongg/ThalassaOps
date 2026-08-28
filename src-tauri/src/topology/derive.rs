@@ -677,9 +677,17 @@ fn derive_kubernetes_resource(
         return;
     }
     evidence_ids.sort();
+    let replica_counts_valid = item.replicas.as_ref().is_none_or(|replicas| {
+        replicas.desired >= 0
+            && replicas.ready >= 0
+            && replicas.available.is_none_or(|available| available >= 0)
+    });
+    if !replica_counts_valid {
+        graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+    }
     let metric = item.replicas.as_ref().and_then(|replicas| {
         let value = f64::from(replicas.ready);
-        if !value.is_finite() || value < 0.0 {
+        if !replica_counts_valid || !value.is_finite() {
             graph.mark_unverified(&format!("kubernetes:{environment_id}"));
             None
         } else {
@@ -708,7 +716,11 @@ fn derive_kubernetes_resource(
             .as_deref()
             .and_then(|value| sanitize_optional_text(Some(value))),
         scope: item.resource.scope.clone(),
-        status,
+        status: if replica_counts_valid {
+            status
+        } else {
+            ConsoleHealthState::Unknown
+        },
         labels,
         ownership: unassigned_ownership(),
         metric,
