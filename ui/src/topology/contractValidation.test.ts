@@ -88,6 +88,16 @@ it("rejects rendered nodes without evidence or a paired owner", () => {
   expect(isTopologySnapshot(mismatchedOwner)).toBe(false);
 });
 
+it("rejects topology nodes without their backend-issued focus key", () => {
+  const missingFilterKey = structuredClone(topologySnapshotFixture);
+  missingFilterKey.nodes[0].drill_down.filter_key = null;
+  expect(isTopologySnapshot(missingFilterKey)).toBe(false);
+
+  const wrongFilterKey = structuredClone(topologySnapshotFixture);
+  wrongFilterKey.nodes[0].drill_down.filter_key = "node:wrong";
+  expect(isTopologySnapshot(wrongFilterKey)).toBe(false);
+});
+
 it("rejects graph references that are outside the emitted snapshot", () => {
   expect(isTopologySnapshot(topologySnapshotFixture)).toBe(true);
   const snapshot = structuredClone(topologySnapshotFixture);

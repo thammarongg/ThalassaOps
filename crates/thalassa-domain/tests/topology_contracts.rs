@@ -271,6 +271,23 @@ fn topology_snapshot_rejects_path_confidence_above_edge_minimum() {
 }
 
 #[test]
+fn topology_node_drill_down_requires_its_backend_issued_node_id() {
+    let mut missing_filter_key = node("node-a");
+    missing_filter_key.drill_down.filter_key = None;
+    assert_eq!(
+        missing_filter_key.validate(),
+        Err(TopologyError::InvalidRequest)
+    );
+
+    let mut wrong_filter_key = node("node-a");
+    wrong_filter_key.drill_down.filter_key = Some("node-b".into());
+    assert_eq!(
+        wrong_filter_key.validate(),
+        Err(TopologyError::InvalidRequest)
+    );
+}
+
+#[test]
 fn topology_enums_use_explicit_symmetric_wire_values() {
     macro_rules! assert_wire_values {
         ($type:ty, $( $variant:expr => $wire:expr ),+ $(,)?) => {

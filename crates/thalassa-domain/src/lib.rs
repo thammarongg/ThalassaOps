@@ -1731,7 +1731,7 @@ impl TopologyNode {
         {
             return Err(TopologyError::EvidenceMissing);
         }
-        validate_topology_drill_down(&self.drill_down, &self.evidence_ids)
+        validate_topology_node_drill_down(&self.drill_down, &self.evidence_ids, &self.id)
     }
 }
 
@@ -2450,10 +2450,14 @@ fn validate_confidence(value: f64, field: TopologyNumberField) -> Result<(), Top
     Ok(())
 }
 
-fn validate_topology_drill_down(
+fn validate_topology_node_drill_down(
     drill_down: &DrillDownTarget,
     evidence_ids: &[ConsoleEvidenceId],
+    node_id: &str,
 ) -> Result<(), TopologyError> {
+    if drill_down.filter_key.as_deref() != Some(node_id) {
+        return Err(TopologyError::InvalidRequest);
+    }
     validate_drill_down(drill_down, evidence_ids, DrillDownDestination::Topology)
 }
 
