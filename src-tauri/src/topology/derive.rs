@@ -55,11 +55,7 @@ impl DerivedGraph {
             .retain(|evidence_id| self.evidence.contains_key(evidence_id));
     }
 
-    fn source_evidence_ids(
-        &self,
-        source_kind: EvidenceSourceKind,
-        hints: &[&str],
-    ) -> Vec<String> {
+    fn source_evidence_ids(&self, source_kind: EvidenceSourceKind, hints: &[&str]) -> Vec<String> {
         let normalized_hints = hints
             .iter()
             .filter_map(|hint| normalized_hint(hint))
@@ -188,13 +184,9 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
 }
 
 fn load_incident_queue(input: &TopologyInput, graph: &mut DerivedGraph) {
-    let mut queue = input.incident_queue.clone();
-    queue.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.source_id.cmp(&right.source_id))
-    });
-    for item in queue {
+    let mut accepted = BTreeMap::new();
+    let mut conflicting_ids = BTreeSet::new();
+    for item in input.incident_queue.iter().cloned() {
         let valid = safe_identifier(&item.id)
             && input.scope.contains(&item.scope)
             && input.scope.contains(&item.affected_scope)
@@ -203,10 +195,25 @@ fn load_incident_queue(input: &TopologyInput, graph: &mut DerivedGraph) {
                 .evidence_ids
                 .iter()
                 .all(|evidence_id| graph.evidence.contains_key(evidence_id));
-        if !valid || graph.incident_ids.contains(&item.id) {
+        if !valid {
             graph.mark_unverified("incidents");
             continue;
         }
+        if conflicting_ids.contains(&item.id) {
+            continue;
+        }
+        if let Some(existing) = accepted.get(&item.id) {
+            if existing != &item {
+                accepted.remove(&item.id);
+                conflicting_ids.insert(item.id.clone());
+                graph.mark_unverified("incidents");
+            }
+            continue;
+        }
+        accepted.insert(item.id.clone(), item);
+    }
+
+    for item in accepted.into_values() {
         graph.incident_ids.insert(item.id.clone());
         graph
             .incident_affected_resources
@@ -214,7 +221,9 @@ fn load_incident_queue(input: &TopologyInput, graph: &mut DerivedGraph) {
         graph
             .incident_source_ids
             .insert(item.id.clone(), item.source_id.clone());
-        graph.incident_root_nodes.insert(item.id.clone(), Vec::new());
+        graph
+            .incident_root_nodes
+            .insert(item.id.clone(), Vec::new());
         graph.incident_fixture_root_nodes.insert(
             item.id.clone(),
             input
@@ -232,7 +241,7 @@ fn admit_evidence(input: &TopologyInput, graph: &mut DerivedGraph) {
         left.id
             .cmp(&right.id)
             .then_with(|| left.endpoint.cmp(&right.endpoint))
-        .then_with(|| left.excerpt.cmp(&right.excerpt))
+            .then_with(|| left.excerpt.cmp(&right.excerpt))
     });
     let mut rejected_ids = BTreeSet::new();
     for evidence in source_evidence {
@@ -327,9 +336,7 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
     let mut environments = input.environments.clone();
     environments.sort_by(|left, right| left.environment_id.cmp(&right.environment_id));
     for environment in environments {
-        if !safe_identifier(&environment.environment_id)
-            || !safe_identifier(&environment.name)
-        {
+        if !safe_identifier(&environment.environment_id) || !safe_identifier(&environment.name) {
             graph.mark_unverified("cloud");
             continue;
         }
@@ -426,10 +433,7 @@ fn ensure_environment_node(
     {
         return node_id;
     }
-    let evidence_ids = graph.source_evidence_ids(
-        EvidenceSourceKind::Kubernetes,
-        &[environment_id],
-    );
+    let evidence_ids = graph.source_evidence_ids(EvidenceSourceKind::Kubernetes, &[environment_id]);
     let node_id = format!("node:kubernetes:{environment_id}:environment:{environment_id}");
     if evidence_ids.is_empty() {
         graph.mark_unverified(&format!("kubernetes:{environment_id}"));
@@ -1365,7 +1369,9 @@ fn sanitize_labels(labels: &BTreeMap<String, String>) -> BTreeMap<String, String
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
-    value.filter(|value| safe_display_text(value)).map(str::to_owned)
+    value
+        .filter(|value| safe_display_text(value))
+        .map(str::to_owned)
 }
 
 fn sanitize_text(value: &str) -> String {
@@ -1477,9 +1483,8 @@ fn contains_exact_hint(value: &str, hint: &str) -> bool {
         }
     }
 
-    let is_identifier_character = |character: char| {
-        character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
-    };
+    let is_identifier_character =
+        |character: char| character.is_ascii_alphanumeric() || matches!(character, '-' | '_');
     let mut search_start = 0;
     while let Some(relative_index) = value[search_start..].find(&hint) {
         let index = search_start + relative_index;

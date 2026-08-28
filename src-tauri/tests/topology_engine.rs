@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use thalassaops::cloud::CloudResource;
 use thalassa_domain::{
     TopologyDirection, TopologyEdgeKind, TopologyError, TopologyFilter, TopologyPathTermination,
     TopologyRequest, TopologyTraversal,
 };
+use thalassaops::cloud::CloudResource;
 use thalassaops::topology::{
     default_topology_request, fixture_scope, topology_fixture_input, TopologyBuilder,
 };
@@ -65,7 +65,10 @@ fn zero_summary_counts_do_not_borrow_unrelated_evidence() {
         .snapshot_at(&default_topology_request())
         .expect("healthy fixture should build");
 
-    for metric in [&snapshot.summary.affected_nodes, &snapshot.summary.probable_paths] {
+    for metric in [
+        &snapshot.summary.affected_nodes,
+        &snapshot.summary.probable_paths,
+    ] {
         assert_eq!(metric.value, 0.0);
         assert!(metric.evidence_ids.is_empty());
         assert!(metric.drill_down.evidence_ids.is_empty());
@@ -204,6 +207,20 @@ fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
 }
 
 #[test]
+fn conflicting_duplicate_incident_ids_are_rejected_as_ambiguous() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut conflicting = input.incident_queue[0].clone();
+    conflicting.title = "conflicting incident payload".into();
+    input.incident_queue.push(conflicting);
+
+    let mut request = default_topology_request();
+    request.filter.incident_id = Some("alert-checkout-s1".into());
+    let result = TopologyBuilder::from_input(input).snapshot_at(&request);
+
+    assert_eq!(result.unwrap_err(), TopologyError::IncidentNotFound);
+}
+
+#[test]
 fn downstream_impact_traverses_structural_paths_from_a_node() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())
@@ -236,11 +253,7 @@ fn every_path_carries_evidence_for_each_listed_node_and_edge() {
         .expect("healthy fixture should build");
     let checkout_id = node_id_by_name(&base, "checkout");
     let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
-        .snapshot_at(&request_for(
-            Some(checkout_id),
-            TopologyDirection::Both,
-            8,
-        ))
+        .snapshot_at(&request_for(Some(checkout_id), TopologyDirection::Both, 8))
         .expect("traversal should build");
 
     for path in &snapshot.paths {
@@ -253,11 +266,7 @@ fn every_path_carries_evidence_for_each_listed_node_and_edge() {
                 .expect("path node should belong to graph");
             expected.extend(node.evidence_ids.iter().cloned());
         }
-        for edge_id in path
-            .edge_ids
-            .iter()
-            .chain(path.cycle_edge_id.iter())
-        {
+        for edge_id in path.edge_ids.iter().chain(path.cycle_edge_id.iter()) {
             let edge = snapshot
                 .edges
                 .iter()
