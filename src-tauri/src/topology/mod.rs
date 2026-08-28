@@ -16,12 +16,27 @@ pub use fixtures::{
     default_topology_request, fixture_scope, fixture_time, topology_fixture_input, TopologyInput,
 };
 pub use thalassa_domain::{
-    TopologyDirection, TopologyEdge, TopologyEdgeKind, TopologyError, TopologyFilter,
-    TopologyMetric, TopologyNode, TopologyNodeKind, TopologyOwnership, TopologyOwnershipRule,
-    TopologyOwnershipSelector, TopologyOwnershipSource, TopologyPath, TopologyPathKind,
-    TopologyPathTermination, TopologyRequest, TopologySnapshot, TopologySourceKind,
-    TopologySummary, TopologyTraversal,
+    CorrelationWindow, SignalTarget, TopologyDirection, TopologyEdge, TopologyEdgeKind,
+    TopologyError, TopologyFilter, TopologyMetric, TopologyNode, TopologyNodeKind,
+    TopologyOwnership, TopologyOwnershipRule, TopologyOwnershipSelector, TopologyOwnershipSource,
+    TopologyPath, TopologyPathKind, TopologyPathTermination, TopologyRequest, TopologySnapshot,
+    TopologySourceKind, TopologySummary, TopologyTraversal,
 };
+
+/// Bounded topology lookup used by signal correlation.
+///
+/// The correlation module supplies validated backend-issued target IDs and an
+/// explicit correlation window. Implementations remain responsible for graph
+/// derivation, ownership and traversal; correlation only consumes the
+/// resulting Sprint 12 `TopologyPath`.
+pub trait TopologyCorrelationResolver {
+    fn relation(
+        &self,
+        left: &SignalTarget,
+        right: &SignalTarget,
+        window: &CorrelationWindow,
+    ) -> Result<Option<TopologyPath>, TopologyError>;
+}
 
 use crate::topology::derive::{derive_graph, DerivedGraph};
 use crate::topology::filter::{
@@ -154,6 +169,75 @@ impl TopologyBuilder {
 
         snapshot.validate()?;
         Ok(snapshot)
+    }
+
+    /// Resolve one bounded relationship using the existing Sprint 12 graph
+    /// derivation and traversal engine. No graph ownership or adjacency walk
+    /// is implemented by the correlation layer.
+    pub fn correlation_relation(
+        &self,
+        left: &SignalTarget,
+        right: &SignalTarget,
+        window: &CorrelationWindow,
+    ) -> Result<Option<TopologyPath>, TopologyError> {
+        window
+            .validate()
+            .map_err(|_| TopologyError::InvalidRequest)?;
+        if left.validate().is_err() || right.validate().is_err() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if left == right {
+            return Ok(None);
+        }
+
+        let graph = derive_graph(&self.input);
+        let request = TopologyRequest {
+            filter: TopologyFilter {
+                environment_ids: Vec::new(),
+                team_ids: Vec::new(),
+                incident_id: None,
+            },
+            focus_node_id: Some(left.id.clone()),
+            traversal: TopologyTraversal {
+                direction: TopologyDirection::Both,
+                max_depth: 8,
+            },
+        };
+        if !graph.nodes.contains_key(&left.id) || !graph.nodes.contains_key(&right.id) {
+            return Err(TopologyError::NodeNotFound);
+        }
+        validate_request_against_graph(&self.input, &graph, &request)?;
+        let paths = traverse(
+            std::slice::from_ref(&left.id),
+            &graph.nodes,
+            &graph.edges,
+            request.traversal,
+        )?;
+        let node_ids = graph.nodes.keys().cloned().collect();
+        let edges = graph
+            .edges
+            .iter()
+            .map(|edge| (edge.id.clone(), edge.clone()))
+            .collect();
+        paths
+            .into_iter()
+            .filter(|path| path.node_ids.contains(&right.id))
+            .find_map(|path| {
+                path.validate_against_graph(&node_ids, &edges).ok()?;
+                Some(path)
+            })
+            .map_or(Ok(None), |path| Ok(Some(path)))
+    }
+}
+
+impl TopologyCorrelationResolver for TopologyBuilder {
+    fn relation(
+        &self,
+        left: &SignalTarget,
+        right: &SignalTarget,
+        window: &CorrelationWindow,
+    ) -> Result<Option<TopologyPath>, TopologyError> {
+        self.correlation_relation(left, right, window)
     }
 }
 

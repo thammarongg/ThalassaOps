@@ -6,8 +6,10 @@
 //! operational adapter seam; later Sprint 13 tasks build correlation on top.
 
 pub mod adapters;
+pub mod aggregate;
 pub mod dedup;
 pub mod fixtures;
+pub mod grouping;
 pub mod source_records;
 pub mod window;
 
@@ -22,6 +24,13 @@ pub use window::{
     assign_window, build_window, evaluate_window, request_with_clock, signal_membership,
     CorrelationClock, CorrelationWindowEvaluator, EvaluationClock, FixedClock,
     SignalWindowMembership, WindowAssignment, WindowError,
+};
+
+pub use crate::topology::TopologyCorrelationResolver;
+pub use aggregate::{aggregate_snapshot, assemble_snapshot, CorrelationInput};
+pub use grouping::{
+    build_signal_groups, group_signals, group_signals_in_scope, CorrelationComponent,
+    CorrelationTopologyResolver, GroupingResult,
 };
 
 pub use adapters::{SignalAdapter, SignalAdapterError};
@@ -103,4 +112,102 @@ pub fn prepare_correlation(
         dedup_index,
         window,
     })
+}
+
+/// Run the pure Task 6 correlation pipeline over already normalized Signals.
+/// Source adapters remain outside this function; their admitted evidence is
+/// passed through the input and is closed by snapshot validation.
+pub fn correlate_signals(
+    input: CorrelationInput,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    correlate_signals_inner(input, None, resolver)
+}
+
+/// Run correlation while deriving source-aware keys from the retained local
+/// source-record ledger. This is the production adapter for callers that do
+/// not rely on adapter-populated `Signal.dedup_key` values.
+pub fn correlate_signals_with_records(
+    input: CorrelationInput,
+    records: &SourceRecordStore,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    correlate_signals_inner(input, Some(records), resolver)
+}
+
+fn correlate_signals_inner(
+    mut input: CorrelationInput,
+    records: Option<&SourceRecordStore>,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    let preparation = prepare_correlation(
+        input.signals.clone(),
+        &input.request,
+        records,
+        input.prior_window.as_ref(),
+    )
+    .map_err(|error| match error {
+        CorrelationPreparationError::Dedup(error) => match error {
+            DedupError::Signal(validation) => validation,
+            DedupError::SourceRecordMissing => CorrelationError::CandidateReferenceMissing,
+            DedupError::SourceMismatch => CorrelationError::SourceMismatch,
+            DedupError::UnsafeIdentity => CorrelationError::InvalidId,
+            DedupError::InvalidPayload | DedupError::MissingIdentity => {
+                CorrelationError::InvalidPayload
+            }
+            DedupError::ConflictingNativeIdentity => CorrelationError::DuplicateId,
+            DedupError::DuplicateSignal => CorrelationError::DuplicateId,
+        },
+        CorrelationPreparationError::Window(error) => match error {
+            WindowError::InvalidRequest(validation) | WindowError::InvalidSignal(validation) => {
+                validation
+            }
+            WindowError::InvalidTimestamp
+            | WindowError::WatermarkOverflow
+            | WindowError::WindowMismatch
+            | WindowError::EvaluationBeforePrevious => CorrelationError::InvalidWindow,
+        },
+    })?;
+    // Carry the canonical keys and deterministic Signal order produced by the
+    // preparation phase into the snapshot projection.  This matters for
+    // callers that rely on the retained source-record ledger rather than an
+    // adapter-populated `dedup_key`.
+    input.signals = preparation.signals.clone();
+    let grouping = group_signals_in_scope(
+        &preparation.window.eligible_signals,
+        &input.scope,
+        &preparation.window.window,
+        resolver,
+    )?;
+    aggregate_snapshot(
+        &input,
+        &preparation.window.window,
+        &grouping,
+        &preparation.window.late_signal_ids,
+    )
+}
+
+/// Alias for callers that use the domain term correlation projection.
+pub fn correlate(
+    input: CorrelationInput,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    correlate_signals(input, resolver)
+}
+
+/// Alias for [`correlate_signals_with_records`].
+pub fn correlate_with_records(
+    input: CorrelationInput,
+    records: &SourceRecordStore,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    correlate_signals_with_records(input, records, resolver)
+}
+
+/// Alias for callers that name the output as a correlation snapshot.
+pub fn build_correlation_snapshot(
+    input: CorrelationInput,
+    resolver: &dyn TopologyCorrelationResolver,
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    correlate_signals(input, resolver)
 }
