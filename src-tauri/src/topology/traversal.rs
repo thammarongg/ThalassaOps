@@ -95,12 +95,16 @@ fn walk_direction(
     }
 
     let adjacency = build_adjacency(direction, edges, nodes);
+    let root_evidence_ids = nodes
+        .get(root)
+        .map(|node| node.evidence_ids.iter().cloned().collect())
+        .unwrap_or_default();
     let mut stack = vec![WalkState {
         root_node_id: root.into(),
         direction,
         node_ids: vec![root.into()],
         edge_ids: Vec::new(),
-        evidence_ids: BTreeSet::new(),
+        evidence_ids: root_evidence_ids,
         visited: BTreeSet::from([root.into()]),
         confidence: 1.0,
     }];
@@ -173,6 +177,10 @@ fn walk_direction(
             next.edge_ids.push(edge.id.clone());
             next.visited.insert(neighbor.node_id.clone());
             next.evidence_ids.extend(edge.evidence_ids.iter().cloned());
+            if let Some(node) = nodes.get(&neighbor.node_id) {
+                next.evidence_ids
+                    .extend(node.evidence_ids.iter().cloned());
+            }
             next.confidence = next.confidence.min(edge.confidence);
             stack.push(next);
             pushed = true;

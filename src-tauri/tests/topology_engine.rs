@@ -85,6 +85,49 @@ fn downstream_impact_traverses_structural_paths_from_a_node() {
 }
 
 #[test]
+fn every_path_carries_evidence_for_each_listed_node_and_edge() {
+    let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&default_topology_request())
+        .expect("healthy fixture should build");
+    let checkout_id = node_id_by_name(&base, "checkout");
+    let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&request_for(
+            Some(checkout_id),
+            TopologyDirection::Both,
+            8,
+        ))
+        .expect("traversal should build");
+
+    for path in &snapshot.paths {
+        let mut expected = BTreeSet::new();
+        for node_id in &path.node_ids {
+            let node = snapshot
+                .nodes
+                .iter()
+                .find(|candidate| candidate.id == *node_id)
+                .expect("path node should belong to graph");
+            expected.extend(node.evidence_ids.iter().cloned());
+        }
+        for edge_id in path
+            .edge_ids
+            .iter()
+            .chain(path.cycle_edge_id.iter())
+        {
+            let edge = snapshot
+                .edges
+                .iter()
+                .find(|candidate| candidate.id == *edge_id)
+                .expect("path edge should belong to graph");
+            expected.extend(edge.evidence_ids.iter().cloned());
+        }
+
+        assert!(expected
+            .iter()
+            .all(|evidence_id| path.evidence_ids.contains(evidence_id)));
+    }
+}
+
+#[test]
 fn upstream_impact_reverses_edges_without_changing_their_orientation() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())
