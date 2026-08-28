@@ -145,11 +145,13 @@ ui/
       widgetConfig.ts
 ```
 
-The projection types live under `operations` rather than in the canonical
-domain crate. Existing `Signal`, `Incident`, `Evidence` and `Audit` types stay
-the long-lived domain contracts; Sprint 11's console types are read models
-that can be replaced or mapped when Sprint 13 and Sprint 15 deliver their
-canonical workflows.
+The projection types are exported from the canonical `thalassa-domain` crate
+so Rust producers and future IPC adapters share one symmetric contract.
+Producer implementations stay under `src-tauri/src/operations`; existing
+`Signal`, `Incident`, `Evidence` and `Audit` types remain the long-lived
+workflow contracts. Sprint 11's console types are read models that can be
+replaced or mapped when Sprint 13 and Sprint 15 deliver their canonical
+workflows.
 
 ## Data model
 
@@ -239,6 +241,21 @@ pub struct CriticalNumber {
     pub unit: NumberUnit,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
     pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TimeWindow {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DrillDownReference {
+    pub source_query: String,
+    pub scope: ResourceScope,
+    pub time_window: Option<TimeWindow>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -261,10 +278,11 @@ backend does not send preformatted prose.
 
 The aggregator rejects a snapshot when a critical number has no evidence IDs,
 when an ID is not present in the snapshot evidence set, or when its
-`drill_down.evidence_ids` does not identify at least one of the number's
-evidence sources. This is an invariant, not a convention. A number that has no
-source is omitted from the projection and represented by a source-unavailable
-state rather than guessed.
+`drill_down.evidence_ids` or `drill_down_reference.evidence_ids` does not
+identify at least one of the number's evidence sources. The reference also
+retains the source query, scope and optional time window. This is an invariant,
+not a convention. A number that has no source is omitted from the projection
+and represented by a source-unavailable state rather than guessed.
 
 The evidence endpoint accepts only IDs emitted by the aggregator and resolves
 them within the current workspace. Its request never accepts a user-supplied
@@ -317,6 +335,20 @@ pub enum ConsoleSeverity {
     S5,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ConsolePriority {
+    #[serde(rename = "P1")]
+    P1,
+    #[serde(rename = "P2")]
+    P2,
+    #[serde(rename = "P3")]
+    P3,
+    #[serde(rename = "P4")]
+    P4,
+    #[serde(rename = "P5")]
+    P5,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BusinessImpact {
     pub level: ImpactLevel,
@@ -346,6 +378,15 @@ pub struct HealthSummary {
     pub impacted_services: CriticalNumber,
     pub active_by_severity: Vec<CriticalNumber>,
     pub environments_by_state: Vec<CriticalNumber>,
+    pub contributing_scopes: Vec<ContributingScope>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContributingScope {
+    pub scope: ResourceScope,
+    pub impact: ImpactLevel,
+    pub summary: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
 }
 ```
 
@@ -411,12 +452,17 @@ pub struct IncidentQueueItem {
     pub source_kind: QueueItemSourceKind,
     pub source_id: String,
     pub severity: ConsoleSeverity,
+    pub priority: Option<ConsolePriority>,
     pub status: QueueStatus,
     pub business_impact: BusinessImpact,
     pub scope: ResourceScope,
     pub detected_at: String,
+    pub opened_at: String,
+    pub last_update: String,
+    pub affected_scope: ResourceScope,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
     pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
 }
 ```
 
@@ -425,7 +471,8 @@ closed and dispositions are not represented as active queue items. Each alert,
 anomaly or scheduled check remains a separate item even when its labels or
 scope look similar; Sprint 13 owns correlation. Queue ordering is severity
 ascending (`S1` first), then status order (`detected` through `monitoring`),
-then `detected_at` descending, then stable `id` ascending.
+then `detected_at` descending, then stable `id` ascending. `priority` is
+optional source data and is never synthesized from severity when absent.
 
 ### Alert, anomaly and health-check summary
 
@@ -610,6 +657,9 @@ pub struct HealthCheckSchedule {
     pub cooldown_seconds: u64,
     pub last_run_at: Option<String>,
     pub last_signal_at: Option<String>,
+    pub defined_by: Option<String>,
+    pub defined_at: Option<String>,
+    pub last_outcome: Option<HealthCheckOutcome>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -691,7 +741,9 @@ manual trigger is added. The audit record contains scope, source, timing,
 outcome and policy version, but never credentials, authorization headers or
 raw provider response bodies. A local audit record may be retained by the
 existing local-first state layer; no external audit integration is added in
-this sprint.
+this sprint. `defined_by`, `defined_at` and `last_outcome` are optional
+definition metadata; absent source data stays absent rather than being
+represented by an empty string.
 
 ### Recent change stream
 
@@ -714,10 +766,13 @@ pub enum ChangeKind {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ChangeStreamItem {
     pub id: String,
+    pub source: Option<String>,
     pub occurred_at: String,
     pub kind: ChangeKind,
     pub summary: String,
     pub actor: Option<String>,
+    pub target_resource: Option<String>,
+    pub native_link: Option<String>,
     pub scope: ResourceScope,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
     pub drill_down: DrillDownTarget,
@@ -847,6 +902,21 @@ pub struct WidgetPreference {
     pub size: WidgetSize,
     pub collapsed: bool,
 }
+
+pub type WidgetOptions = std::collections::BTreeMap<String, serde_json::Value>;
+
+pub type WidgetKind = WidgetId;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WidgetConfig {
+    pub id: WidgetId,
+    pub kind: WidgetKind,
+    pub visible: bool,
+    pub order: u16,
+    pub options: WidgetOptions,
+}
+
+pub fn curated_default_layout() -> Vec<WidgetConfig>;
 ```
 
 The registry is fixed to the five widgets above. `health_summary` and
