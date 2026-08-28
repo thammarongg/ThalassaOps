@@ -265,6 +265,30 @@ fn evidence_matching_prefers_typed_resource_identity() {
 }
 
 #[test]
+fn observability_environment_hints_require_exact_identity() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.alerts[0]
+        .labels
+        .insert("environment".into(), "prod".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("an ambiguous environment hint should degrade observability");
+    let service = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "checkout")
+        .expect("the checkout service should remain in the graph");
+
+    assert!(!service
+        .evidence_ids
+        .contains(&"evidence-topology-alert-checkout".to_string()));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "observability" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn kubernetes_resources_do_not_borrow_similar_kind_evidence() {
     let mut input = topology_fixture_input(fixture_scope());
     let production = input

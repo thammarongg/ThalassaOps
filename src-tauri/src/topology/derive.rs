@@ -1322,10 +1322,10 @@ fn find_observability_candidates(
                 node.kind == TopologyNodeKind::Environment
                     && node.environment_id.as_deref() == Some(environment_id.as_str())
             });
-            let hint = environment_hint.to_ascii_lowercase();
-            let matches_environment = environment_id.eq_ignore_ascii_case(environment_hint)
+            let hint = environment_hint.trim();
+            let matches_environment = environment_id.eq_ignore_ascii_case(hint)
                 || environment_node.is_some_and(|node| {
-                    node.name.to_ascii_lowercase().contains(&hint)
+                    node.name.eq_ignore_ascii_case(hint)
                         || node
                             .environment_id
                             .as_deref()
