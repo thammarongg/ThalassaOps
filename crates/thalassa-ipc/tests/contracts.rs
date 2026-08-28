@@ -45,3 +45,18 @@ fn operations_commands_declare_their_read_only_capabilities() {
     assert_eq!(evidence.required_permission, Permission::Read);
     assert!(!evidence.scope.is_bounded());
 }
+
+#[test]
+fn topology_commands_declare_their_read_only_capabilities() {
+    let snapshot = topology_snapshot_descriptor();
+    assert_eq!(snapshot.name.to_string(), "topology.snapshot");
+    assert_eq!(snapshot.required_capability, Capability::WorkspaceRead);
+    assert_eq!(snapshot.required_permission, Permission::Read);
+    assert!(!snapshot.scope.is_bounded());
+
+    let evidence = topology_evidence_descriptor();
+    assert_eq!(evidence.name.to_string(), "topology.evidence");
+    assert_eq!(evidence.required_capability, Capability::ResourceRead);
+    assert_eq!(evidence.required_permission, Permission::Read);
+    assert!(!evidence.scope.is_bounded());
+}

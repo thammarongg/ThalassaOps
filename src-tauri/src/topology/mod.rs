@@ -2,10 +2,11 @@
 //!
 //! The topology module consumes provider-neutral records emitted by the
 //! existing Kubernetes, cloud, observability and Operations modules.  It does
-//! not perform provider access or expose an IPC command; the application layer
-//! owns that boundary in a later sprint task.
+//! not perform provider access; the application layer owns the IPC boundary
+//! and policy checks.
 
 mod derive;
+pub(crate) mod evidence;
 mod filter;
 pub mod fixtures;
 mod ownership;
