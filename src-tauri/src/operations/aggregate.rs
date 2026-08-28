@@ -1060,6 +1060,43 @@ fn project_environments(
             );
             continue;
         }
+        let Some(last_observed_at) = parse_timestamp(&environment.last_observed_at) else {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &[],
+                evidence,
+                None,
+            );
+            continue;
+        };
+        let resource_value = environment.resource_count.value.trim().to_owned();
+        let Ok(parsed_resource_count) = resource_value.parse::<f64>() else {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &[],
+                evidence,
+                None,
+            );
+            continue;
+        };
+        if !parsed_resource_count.is_finite() {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &[],
+                evidence,
+                None,
+            );
+            continue;
+        }
         let mut ids = evidence.usable_ids(&environment.evidence_ids);
         if ids.is_empty() {
             let derived = format!(
@@ -1085,43 +1122,6 @@ fn project_environments(
                 Some(StatusReason::Unknown),
                 Some("environment evidence is unavailable"),
                 &[],
-                evidence,
-                None,
-            );
-            continue;
-        }
-        let Some(last_observed_at) = parse_timestamp(&environment.last_observed_at) else {
-            statuses.mark(
-                "environment_status",
-                SourceState::Unverified,
-                Some(StatusReason::Unknown),
-                Some("an environment record was malformed"),
-                &ids,
-                evidence,
-                None,
-            );
-            continue;
-        };
-        let resource_value = environment.resource_count.value.trim().to_owned();
-        let Ok(parsed_resource_count) = resource_value.parse::<f64>() else {
-            statuses.mark(
-                "environment_status",
-                SourceState::Unverified,
-                Some(StatusReason::Unknown),
-                Some("an environment record was malformed"),
-                &ids,
-                evidence,
-                None,
-            );
-            continue;
-        };
-        if !parsed_resource_count.is_finite() {
-            statuses.mark(
-                "environment_status",
-                SourceState::Unverified,
-                Some(StatusReason::Unknown),
-                Some("an environment record was malformed"),
-                &ids,
                 evidence,
                 None,
             );
