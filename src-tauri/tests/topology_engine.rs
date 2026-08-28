@@ -473,3 +473,23 @@ fn malformed_topology_source_statuses_are_unverified_instead_of_fresh() {
         Some("source record was omitted after validation")
     );
 }
+
+#[test]
+fn unsafe_topology_metric_keys_are_omitted_and_mark_source_unverified() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.environments[0].resource_count.key = "account_id".into();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("unsafe metric identity should not prevent projection");
+    let environment = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "AWS production")
+        .expect("fixture should contain the AWS environment node");
+    assert!(environment.metric.is_none());
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "cloud" && status.state == SourceState::Unverified));
+}

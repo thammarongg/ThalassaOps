@@ -1239,6 +1239,10 @@ fn topology_metric_from_critical_number(
     graph: &mut DerivedGraph,
     source_key: &str,
 ) -> Option<TopologyMetric> {
+    if !safe_identifier(&number.key) {
+        graph.mark_unverified(source_key);
+        return None;
+    }
     let value = match number.value.trim().parse::<f64>() {
         Ok(value) if value.is_finite() => value,
         _ => {
