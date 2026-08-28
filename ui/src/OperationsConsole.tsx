@@ -668,6 +668,7 @@ function WidgetSettings({
                   <input
                     type="checkbox"
                     checked={preference.collapsed}
+                    disabled={isRequired}
                     onChange={() => onCollapse(preference.id)}
                   />{" "}
                   {t("operations.collapseWidget", { widget: title })}

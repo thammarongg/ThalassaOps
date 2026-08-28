@@ -431,11 +431,37 @@ it("persists curated widget visibility and order while keeping required widgets 
     within(settings).getByRole("checkbox", { name: "Show Active incident queue" })
   ).toBeChecked();
   expect(within(settings).getByRole("checkbox", { name: "Show Health summary" })).toBeDisabled();
+  expect(
+    within(settings).getByRole("checkbox", { name: "Collapse Health summary" })
+  ).not.toBeChecked();
+  expect(
+    within(settings).getByRole("checkbox", { name: "Collapse Health summary" })
+  ).toBeDisabled();
 
   cleanup();
   renderConsole(healthySnapshot());
   await screen.findByRole("heading", { name: "Operations Console" });
   expect(screen.queryByRole("heading", { name: "Alerts and anomalies" })).not.toBeInTheDocument();
+});
+
+it("keeps required attention widgets expanded when restoring saved preferences", async () => {
+  localStorage.setItem(
+    "thalassaops.operations.widgets.v1",
+    JSON.stringify({
+      version: 1,
+      preferences: [
+        { id: "health_summary", visible: true, order: 0, size: "wide", collapsed: true },
+        { id: "incident_queue", visible: true, order: 1, size: "wide", collapsed: true }
+      ]
+    })
+  );
+
+  renderConsole(anomalySnapshot());
+
+  expect(
+    await screen.findByRole("heading", { name: "Checkout API is affecting customers" })
+  ).toBeInTheDocument();
+  expect(screen.queryAllByRole("button", { name: "Expand widget" })).toHaveLength(0);
 });
 
 it("gives every rendered critical number a focusable affordance with issued evidence ids", async () => {

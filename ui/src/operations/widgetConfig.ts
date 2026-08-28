@@ -125,7 +125,7 @@ export const reconcileWidgetPreferences = (
       visible: requiredWidgetIds.has(fallback.id) ? true : (preference?.visible ?? true),
       order: preference?.order ?? fallback.order,
       size: preference?.size ?? definition?.default_size ?? fallback.size,
-      collapsed: preference?.collapsed ?? false
+      collapsed: requiredWidgetIds.has(fallback.id) ? false : (preference?.collapsed ?? false)
     } satisfies WidgetPreference;
   });
 
