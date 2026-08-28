@@ -655,10 +655,14 @@ fn derive_kubernetes_resource(
         "node:kubernetes:{environment_id}:{}:{identity}",
         topology_kind_name(kind)
     );
-    let typed_name = namespace.map_or_else(
-        || format!("{}-{canonical_name}", topology_kind_name(kind)),
-        |namespace| format!("{}-{canonical_name}-{namespace}", topology_kind_name(kind)),
-    );
+    let typed_name = if item.resource.native_id.is_some() {
+        format!("{}-{canonical_name}", topology_kind_name(kind))
+    } else {
+        namespace.map_or_else(
+            || format!("{}-{canonical_name}", topology_kind_name(kind)),
+            |namespace| format!("{}-{canonical_name}-{namespace}", topology_kind_name(kind)),
+        )
+    };
     let mut evidence_hints = Vec::new();
     if let Some(native_id) = item.resource.native_id.as_deref() {
         evidence_hints.push(native_id);
