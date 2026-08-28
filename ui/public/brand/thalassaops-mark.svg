@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>ThalassaOps mark</title>
+  <desc>A lighthouse wrapped by a calm ocean wave.</desc>
+  <defs>
+    <linearGradient id="wave" x1="94" y1="102" x2="432" y2="458" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#53D7E8" />
+      <stop offset="1" stop-color="#1698C0" />
+    </linearGradient>
+    <linearGradient id="tower" x1="242" y1="198" x2="297" y2="388" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5FFFF" />
+      <stop offset="1" stop-color="#B7DADC" />
+    </linearGradient>
+    <linearGradient id="beacon" x1="244" y1="174" x2="286" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF8A76" />
+      <stop offset="1" stop-color="#FF6B6B" />
+    </linearGradient>
+  </defs>
+
+  <path d="M287 190L430 151V229L287 199V190Z" fill="#FF6B6B" opacity="0.9" />
+
+  <path
+    d="M103 322C84 207 164 102 278 91C377 81 454 130 459 197C462 231 442 255 411 260"
+    stroke="url(#wave)"
+    stroke-width="46"
+    stroke-linecap="round"
+  />
+  <path
+    d="M106 331C119 420 201 473 291 464C375 456 437 405 463 336"
+    stroke="url(#wave)"
+    stroke-width="46"
+    stroke-linecap="round"
+  />
+  <path
+    d="M121 337C145 397 207 431 272 426C333 421 386 390 414 351"
+    stroke="#0E2C3D"
+    stroke-width="16"
+    stroke-linecap="round"
+  />
+
+  <path d="M174 385C211 360 303 357 347 386C330 413 299 428 261 428C224 428 193 413 174 385Z" fill="#0E2C3D" />
+
+  <path d="M224 386L240 204H288L304 386C280 396 248 396 224 386Z" fill="url(#tower)" />
+  <path d="M232 299L296 269L299 302L229 334L232 299Z" fill="#0E2C3D" />
+  <path d="M227 353L301 319L304 353L224 389L227 353Z" fill="#0E2C3D" />
+  <path d="M216 384H312L328 407H200L216 384Z" fill="#0E2C3D" />
+  <path d="M229 204H299L310 220H218L229 204Z" fill="#0E2C3D" />
+
+  <path d="M231 166L264 133L297 166H231Z" fill="#DCEFF0" />
+  <circle cx="264" cy="132" r="7" fill="#FF6B6B" />
+  <rect x="236" y="166" width="56" height="40" rx="10" fill="#0E2C3D" />
+  <rect x="243" y="173" width="42" height="27" rx="7" fill="url(#beacon)" />
+  <circle cx="264" cy="187" r="8" fill="#FFEBC2" />
+
+  <path
+    d="M108 335C142 421 227 458 310 433C374 414 420 376 452 329"
+    stroke="#53D7E8"
+    stroke-width="22"
+    stroke-linecap="round"
+  />
+</svg>
