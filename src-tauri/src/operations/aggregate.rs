@@ -1913,6 +1913,21 @@ fn contains_sensitive_word(value: &str) -> bool {
         "access_key",
         "private_key",
         "sk-live-",
+        "subscription",
+        "subscription_id",
+        "subscriptionid",
+        "account_id",
+        "accountid",
+        "cursor",
+        "next_link",
+        "nextlink",
+        "next_token",
+        "nexttoken",
+        "page_token",
+        "pagetoken",
+        "skip_token",
+        "skiptoken",
+        "arn:aws:",
     ]
     .iter()
     .any(|word| value.contains(word))
