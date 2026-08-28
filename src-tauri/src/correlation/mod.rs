@@ -12,8 +12,9 @@ pub mod source_records;
 pub use adapters::{SignalAdapter, SignalAdapterError};
 
 pub use fixtures::{
-    correlation_fixture_catalog, fixture_scope, fixture_time, CorrelationFixtureCatalog,
-    ReplayableSignalFixture, FIXTURE_CLOCK,
+    correlation_fixture_catalog, falco_fixture, fixture_scope, fixture_time, gatekeeper_fixture,
+    kyverno_fixture, mixed_signal_fixture_catalog, security_fixture_for, trivy_fixture,
+    CorrelationFixtureCatalog, ReplayableSignalFixture, FIXTURE_CLOCK,
 };
 
 pub use source_records::{

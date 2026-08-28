@@ -136,6 +136,74 @@ pub fn fixture_time() -> DateTime<Utc> {
         .expect("the committed Sprint 13 fixture clock is a valid timestamp")
 }
 
+/// Return the committed Trivy replay fixture in isolation.
+pub fn trivy_fixture() -> ReplayableSignalFixture {
+    security_fixture(
+        "security-trivy",
+        EvidenceSourceKind::Trivy,
+        TRIVY_RECORD,
+        "2026-08-28T08:57:00Z",
+        "evidence-security-trivy",
+        "fixture://security/trivy",
+        &fixture_scope(),
+    )
+}
+
+/// Return the committed Falco replay fixture in isolation.
+pub fn falco_fixture() -> ReplayableSignalFixture {
+    security_fixture(
+        "security-falco",
+        EvidenceSourceKind::Falco,
+        FALCO_RECORD,
+        "2026-08-28T08:58:30Z",
+        "evidence-security-falco",
+        "fixture://security/falco",
+        &fixture_scope(),
+    )
+}
+
+/// Return the committed Kyverno replay fixture in isolation.
+pub fn kyverno_fixture() -> ReplayableSignalFixture {
+    security_fixture(
+        "security-kyverno",
+        EvidenceSourceKind::Kyverno,
+        KYVERNO_RECORD,
+        "2026-08-28T08:59:00Z",
+        "evidence-security-kyverno",
+        "fixture://security/kyverno",
+        &fixture_scope(),
+    )
+}
+
+/// Return the committed OPA Gatekeeper replay fixture in isolation.
+pub fn gatekeeper_fixture() -> ReplayableSignalFixture {
+    security_fixture(
+        "security-gatekeeper",
+        EvidenceSourceKind::OpaGatekeeper,
+        GATEKEEPER_RECORD,
+        "2026-08-28T08:59:15Z",
+        "evidence-security-gatekeeper",
+        "fixture://security/gatekeeper",
+        &fixture_scope(),
+    )
+}
+
+/// Return one committed security fixture by its typed source kind.
+pub fn security_fixture_for(source_kind: EvidenceSourceKind) -> Option<ReplayableSignalFixture> {
+    match source_kind {
+        EvidenceSourceKind::Trivy => Some(trivy_fixture()),
+        EvidenceSourceKind::Falco => Some(falco_fixture()),
+        EvidenceSourceKind::Kyverno => Some(kyverno_fixture()),
+        EvidenceSourceKind::OpaGatekeeper => Some(gatekeeper_fixture()),
+        _ => None,
+    }
+}
+
+/// Return the deterministic mixed operational/security replay scenario.
+pub fn mixed_signal_fixture_catalog() -> CorrelationFixtureCatalog {
+    correlation_fixture_catalog()
+}
+
 /// Return the deterministic source and policy fixture catalog.
 pub fn correlation_fixture_catalog() -> CorrelationFixtureCatalog {
     let scope = fixture_scope();
