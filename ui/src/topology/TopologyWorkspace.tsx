@@ -372,14 +372,17 @@ export function TopologyWorkspace({
         if (requestId !== snapshotRequestRef.current) return;
         if (result.ok && isTopologySnapshot(result.value)) {
           setSnapshot(result.value);
+          setSnapshotError("");
           setSnapshotState("ready");
         } else {
+          setSnapshot(undefined);
           setSnapshotState("error");
           setSnapshotError(t("topology.snapshotError"));
         }
       })
       .catch(() => {
         if (requestId !== snapshotRequestRef.current) return;
+        setSnapshot(undefined);
         setSnapshotState("error");
         setSnapshotError(t("topology.snapshotError"));
       });

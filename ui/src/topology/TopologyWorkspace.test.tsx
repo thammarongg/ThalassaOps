@@ -255,6 +255,30 @@ it("rejects a contract-invalid snapshot with the error state", async () => {
   expect(alerts[0]).toHaveTextContent("The topology snapshot is unavailable.");
 });
 
+it("clears the previous graph when a later snapshot response is invalid", async () => {
+  const user = userEvent.setup();
+  let snapshotCalls = 0;
+  const invoke = topologyInvoke({
+    snapshotResult: () => {
+      snapshotCalls += 1;
+      return snapshotCalls <= 2
+        ? ok(unfocusedSnapshot())
+        : ok({ ...topologySnapshotFixture, evidence: [] });
+    }
+  });
+  renderWorkspace(invoke);
+
+  expect(await screen.findByRole("button", { name: /^checkout,/ })).toBeInTheDocument();
+  await user.selectOptions(screen.getByRole("combobox", { name: "Direction" }), "upstream");
+
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /^checkout,/ })).not.toBeInTheDocument();
+  });
+  expect(screen.getAllByRole("alert")[0]).toHaveTextContent(
+    "The topology snapshot is unavailable."
+  );
+});
+
 it("shows node detail for a selected resource and re-reads traversal through IPC", async () => {
   const user = userEvent.setup();
   const invoke = topologyInvoke();
