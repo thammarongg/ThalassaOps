@@ -198,8 +198,15 @@ pub fn topology_edges(inventory: &KubernetesInventory) -> Vec<KubernetesTopology
         }
         if item.resource.kind == "Service" {
             if let Some(selector) = &item.service_selector {
+                let Some((service_namespace, _)) = item.resource.name.split_once('/') else {
+                    continue;
+                };
                 for pod in inventory.resources.iter().filter(|candidate| {
+                    let Some((pod_namespace, _)) = candidate.resource.name.split_once('/') else {
+                        return false;
+                    };
                     candidate.resource.kind == "Pod"
+                        && pod_namespace == service_namespace
                         && selector
                             .iter()
                             .all(|(key, value)| candidate.resource.labels.get(key) == Some(value))
@@ -763,12 +770,19 @@ mod tests {
         };
         let mut pod = pod;
         pod.resource.labels.insert("app".into(), "api".into());
+        let mut staging_pod = pod.clone();
+        staging_pod.resource.name = "staging/api".into();
+        staging_pod.owner = None;
         let inventory = KubernetesInventory {
-            resources: vec![pod, service],
+            resources: vec![pod, staging_pod, service],
             availability: vec![],
             topology: vec![],
         };
-        assert_eq!(topology_edges(&inventory).len(), 2);
+        let edges = topology_edges(&inventory);
+        assert_eq!(edges.len(), 2);
+        assert!(edges.iter().all(|edge| {
+            edge.relationship != "selects" || edge.to_name == "prod/api"
+        }));
         assert_eq!(
             kubectl_command("Pod", Some("prod"), "api", "ctx"),
             "kubectl --context ctx -n prod logs api --tail=200"
