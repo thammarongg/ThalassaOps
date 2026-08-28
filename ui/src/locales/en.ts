@@ -439,7 +439,13 @@ const en = {
       team: "Team",
       teamAll: "All teams",
       incident: "Incident",
-      incidentNone: "No incident selected"
+      incidentNone: "No incident selected",
+      direction: "Direction",
+      directionUpstream: "Upstream dependencies",
+      directionDownstream: "Downstream impact",
+      directionBoth: "Upstream and downstream",
+      maxDepth: "Maximum depth",
+      depthValue: "{{depth}} hop(s)"
     },
     graph: {
       nodesTitle: "Resources",
@@ -539,6 +545,7 @@ const en = {
       query: "Query",
       observedAt: "Observed",
       excerpt: "Excerpt",
+      openNative: "Open trusted source",
       masked: "Sensitive fields masked",
       notMasked: "No fields masked",
       parsed: "parsed",

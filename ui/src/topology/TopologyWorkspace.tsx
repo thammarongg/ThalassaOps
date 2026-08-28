@@ -10,6 +10,7 @@ import type {
   SourceStatus,
   StatusReason,
   TopologyNode,
+  TopologyDirection,
   TopologyRequest,
   TopologySnapshot
 } from "../../contracts/ipc";
@@ -212,6 +213,8 @@ export function TopologyWorkspace({
   const [environment, setEnvironment] = useState(ALL);
   const [team, setTeam] = useState(ALL);
   const [incident, setIncident] = useState(initialIncidentId ?? NO_SELECTION);
+  const [direction, setDirection] = useState<TopologyDirection>("both");
+  const [maxDepth, setMaxDepth] = useState(DEFAULT_MAX_DEPTH);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [evidenceRequest, setEvidenceRequest] = useState<{
     subject: string;
@@ -293,7 +296,7 @@ export function TopologyWorkspace({
         incident_id: incident === NO_SELECTION ? null : incident
       },
       focus_node_id: selectedNodeId,
-      traversal: { direction: "both", max_depth: DEFAULT_MAX_DEPTH }
+      traversal: { direction, max_depth: maxDepth }
     };
     void invoke<TopologyRequest, TopologySnapshot>("topology_snapshot", {
       envelope: topologyEnvelope("snapshot", "WorkspaceRead", request)
@@ -313,7 +316,7 @@ export function TopologyWorkspace({
         setSnapshotState("error");
         setSnapshotError(t("topology.snapshotError"));
       });
-  }, [invoke, t, environment, team, incident, selectedNodeId]);
+  }, [invoke, t, environment, team, incident, selectedNodeId, direction, maxDepth]);
 
   const selectedNode = useMemo(
     () =>
@@ -420,9 +423,13 @@ export function TopologyWorkspace({
         environment={environment}
         team={team}
         incident={incident}
+        direction={direction}
+        maxDepth={maxDepth}
         onEnvironmentChange={setEnvironment}
         onTeamChange={setTeam}
         onIncidentChange={setIncident}
+        onDirectionChange={setDirection}
+        onMaxDepthChange={setMaxDepth}
       />
       {incidentsError && (
         <p className="topology-workspace__incidents-note" role="status">

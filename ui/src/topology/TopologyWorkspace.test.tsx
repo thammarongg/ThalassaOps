@@ -331,6 +331,27 @@ it("re-reads the graph through IPC when the team filter changes", async () => {
   expect(screen.queryByText("staging-orders")).not.toBeInTheDocument();
 });
 
+it("re-reads the graph through IPC when traversal direction and depth change", async () => {
+  const user = userEvent.setup();
+  const invoke = topologyInvoke();
+  renderWorkspace(invoke);
+
+  await user.selectOptions(
+    await screen.findByRole("combobox", { name: "Direction" }),
+    "downstream"
+  );
+  await user.selectOptions(
+    await screen.findByRole("combobox", { name: "Maximum depth" }),
+    "5"
+  );
+
+  await waitFor(() =>
+    expect(topologySnapshotCalls(invoke).at(-1)?.envelope.payload).toMatchObject({
+      traversal: { direction: "downstream", max_depth: 5 }
+    })
+  );
+});
+
 it("narrows to the incident blast radius when an incident is selected", async () => {
   const user = userEvent.setup();
   const invoke = topologyInvoke();

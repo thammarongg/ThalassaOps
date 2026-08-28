@@ -1,4 +1,4 @@
-import type { IncidentQueueItem } from "../../contracts/ipc";
+import type { IncidentQueueItem, TopologyDirection } from "../../contracts/ipc";
 import { useTranslation } from "../i18n";
 
 export type EnvironmentOption = { id: string; name: string };
@@ -14,9 +14,13 @@ export function TopologyFilters({
   environment,
   team,
   incident,
+  direction,
+  maxDepth,
   onEnvironmentChange,
   onTeamChange,
-  onIncidentChange
+  onIncidentChange,
+  onDirectionChange,
+  onMaxDepthChange
 }: {
   environments: EnvironmentOption[];
   teams: TeamOption[];
@@ -24,9 +28,13 @@ export function TopologyFilters({
   environment: string;
   team: string;
   incident: string;
+  direction: TopologyDirection;
+  maxDepth: number;
   onEnvironmentChange: (environment: string) => void;
   onTeamChange: (team: string) => void;
   onIncidentChange: (incident: string) => void;
+  onDirectionChange: (direction: TopologyDirection) => void;
+  onMaxDepthChange: (maxDepth: number) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -72,6 +80,32 @@ export function TopologyFilters({
           {incidents.map((item) => (
             <option key={item.id} value={item.id}>
               {item.title}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="topology-filters__field">
+        <label htmlFor="topology-filter-direction">{t("topology.filters.direction")}</label>
+        <select
+          id="topology-filter-direction"
+          value={direction}
+          onChange={(event) => onDirectionChange(event.target.value as TopologyDirection)}
+        >
+          <option value="upstream">{t("topology.filters.directionUpstream")}</option>
+          <option value="downstream">{t("topology.filters.directionDownstream")}</option>
+          <option value="both">{t("topology.filters.directionBoth")}</option>
+        </select>
+      </div>
+      <div className="topology-filters__field">
+        <label htmlFor="topology-filter-depth">{t("topology.filters.maxDepth")}</label>
+        <select
+          id="topology-filter-depth"
+          value={maxDepth}
+          onChange={(event) => onMaxDepthChange(Number(event.target.value))}
+        >
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((depth) => (
+            <option key={depth} value={depth}>
+              {t("topology.filters.depthValue", { depth })}
             </option>
           ))}
         </select>

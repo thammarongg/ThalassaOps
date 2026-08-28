@@ -439,7 +439,13 @@ const th = {
       team: "ทีม",
       teamAll: "ทุกทีม",
       incident: "เหตุการณ์",
-      incidentNone: "ไม่ได้เลือกเหตุการณ์"
+      incidentNone: "ไม่ได้เลือกเหตุการณ์",
+      direction: "ทิศทาง",
+      directionUpstream: "การพึ่งพาต้นทาง",
+      directionDownstream: "ผลกระทบปลายทาง",
+      directionBoth: "ทั้งต้นทางและปลายทาง",
+      maxDepth: "ความลึกสูงสุด",
+      depthValue: "{{depth}} ระดับ"
     },
     graph: {
       nodesTitle: "ทรัพยากร",
@@ -539,6 +545,7 @@ const th = {
       query: "คำค้น",
       observedAt: "เวลาที่สังเกต",
       excerpt: "ข้อความตัดตอน",
+      openNative: "เปิดแหล่งข้อมูลที่เชื่อถือได้",
       masked: "ปิดบังข้อมูลที่อ่อนไหวแล้ว",
       notMasked: "ไม่มีข้อมูลที่ถูกปิดบัง",
       parsed: "แยกวิเคราะห์แล้ว",
