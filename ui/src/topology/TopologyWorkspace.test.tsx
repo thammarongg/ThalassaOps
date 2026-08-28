@@ -369,7 +369,9 @@ it("shows typed edge provenance and edge sequences for probable paths", async ()
   expect(within(paths).getAllByText("Edge sequence").length).toBeGreaterThan(0);
   expect(within(paths).getAllByText("Provenance").length).toBeGreaterThan(0);
   expect(within(paths).getAllByText("fixture:topology").length).toBeGreaterThan(0);
-  expect(within(paths).getByText(/checkout-rds-replica depends on checkout-rds/)).toBeInTheDocument();
+  expect(
+    within(paths).getByText(/checkout-rds-replica depends on checkout-rds/)
+  ).toBeInTheDocument();
 });
 
 it("renders bidirectional probable paths in their own group", async () => {

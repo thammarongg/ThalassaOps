@@ -76,7 +76,9 @@ const isTopologyDrillDown = (value: unknown, evidenceIds: string[]) =>
   sharesEvidence(evidenceIds, value.evidence_ids);
 
 const isNodeTopologyDrillDown = (value: unknown, evidenceIds: string[], nodeId: string) =>
-  isTopologyDrillDown(value, evidenceIds) && value.filter_key === nodeId;
+  isDrillDownTarget(value) &&
+  isTopologyDrillDown(value, evidenceIds) &&
+  value.filter_key === nodeId;
 
 const isEvidenceDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&

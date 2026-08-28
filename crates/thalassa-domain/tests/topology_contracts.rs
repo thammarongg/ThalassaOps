@@ -75,7 +75,7 @@ fn ownership() -> TopologyOwnership {
 }
 
 fn node(id: &str) -> TopologyNode {
-    TopologyNode {
+    let mut node = TopologyNode {
         id: id.into(),
         kind: TopologyNodeKind::Service,
         name: "checkout".into(),
@@ -91,7 +91,9 @@ fn node(id: &str) -> TopologyNode {
         affected_by_incident: true,
         evidence_ids: vec!["evidence-node".into()],
         drill_down: drill_down(),
-    }
+    };
+    node.drill_down.filter_key = Some(id.into());
+    node
 }
 
 fn edge(upstream_node_id: &str, downstream_node_id: &str) -> TopologyEdge {

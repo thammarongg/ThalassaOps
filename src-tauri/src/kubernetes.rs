@@ -787,12 +787,12 @@ mod tests {
         };
         let edges = topology_edges(&inventory);
         assert_eq!(edges.len(), 2);
-        assert!(edges.iter().all(|edge| {
-            edge.relationship != "selects" || edge.to_name == "prod/api"
-        }));
-        assert!(edges.iter().any(|edge| {
-            edge.relationship == "owns" && edge.from_name == "prod/api-rs"
-        }));
+        assert!(edges
+            .iter()
+            .all(|edge| { edge.relationship != "selects" || edge.to_name == "prod/api" }));
+        assert!(edges
+            .iter()
+            .any(|edge| { edge.relationship == "owns" && edge.from_name == "prod/api-rs" }));
         assert_eq!(
             kubectl_command("Pod", Some("prod"), "api", "ctx"),
             "kubectl --context ctx -n prod logs api --tail=200"

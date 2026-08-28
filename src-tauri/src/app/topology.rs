@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn unverified_evidence_is_denied_through_the_command_path() {
+    fn rejected_evidence_is_not_returned_through_the_command_path() {
         let (_directory, state) = test_state();
         let mut input = topology_fixture_input(state.topology_workspace_scope());
         let evidence_id = input.evidence[0].id.clone();
@@ -507,8 +507,8 @@ mod tests {
         assert!(matches!(
             result,
             IpcResult::Err { error, .. }
-                if error.code == IpcErrorCode::PolicyDenied
-                    && error.message == "topology evidence is not verified"
+                if error.code == IpcErrorCode::NotFound
+                    && error.message == "topology evidence not found"
         ));
     }
 
