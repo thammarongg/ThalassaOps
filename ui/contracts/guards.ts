@@ -3,16 +3,34 @@
 /** Runtime guards shared by every IPC contract consumer. */
 
 import type {
+  CandidateStatus,
+  CorrelationCandidate,
+  CorrelationMetric,
+  CorrelationMetricKey,
+  CorrelationReason,
+  CorrelationReasonKind,
+  CorrelationSnapshot,
+  CorrelationWindowState,
   ConsoleEvidenceId,
   DrillDownDestination,
   DrillDownReference,
   DrillDownTarget,
   EvidenceRef,
   EvidenceSourceKind,
+  FindingAssetKind,
+  FindingSeverity,
   ResourceScope,
+  Signal,
+  SignalKind,
+  SignalPayload,
+  SignalState,
+  SignalTarget,
+  SignalTargetKind,
+  SourceRecordRef,
   SourceStatus,
   StatusReason,
-  TimeWindow
+  TimeWindow,
+  VulnerabilityFinding
 } from "./ipc";
 
 type UnknownRecord = Record<string, unknown>;
@@ -46,6 +64,12 @@ const evidenceSources: EvidenceSourceKind[] = [
   "cloud",
   "health_check",
   "fixture",
+  "trivy",
+  "falco",
+  "kyverno",
+  "opa_gatekeeper"
+];
+const securityEvidenceSources: EvidenceSourceKind[] = [
   "trivy",
   "falco",
   "kyverno",
@@ -204,4 +228,456 @@ export const isEvidenceResponse = (
     returnedIds.size === requestedIds.size &&
     expectedIds.every((id) => returnedIds.has(id))
   );
+};
+
+const signalKinds: SignalKind[] = ["alert", "anomaly", "security_finding", "health_check"];
+const signalStates: SignalState[] = ["active", "cleared", "observed", "unknown"];
+const signalTargetKinds: SignalTargetKind[] = ["resource", "service", "deployment", "topology"];
+const findingAssetKinds: FindingAssetKind[] = [
+  "container_image",
+  "runtime_resource",
+  "kubernetes_resource",
+  "host",
+  "policy_subject"
+];
+const findingSeverities: FindingSeverity[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "negligible",
+  "unknown"
+];
+const correlationReasonKinds: CorrelationReasonKind[] = [
+  "shared_resource",
+  "shared_service",
+  "shared_deployment",
+  "topology_relation"
+];
+const correlationMetricKeys: CorrelationMetricKey[] = [
+  "normalized_signals",
+  "active_candidates",
+  "suppressed_candidates",
+  "uncorrelated_signals"
+];
+const correlationWindowStates: CorrelationWindowState[] = [
+  "open",
+  "ready_to_finalize",
+  "finalized",
+  "reopened"
+];
+const candidateStatuses: CandidateStatus[] = ["active", "provisional", "suppressed"];
+const numberUnits = ["count", "percentage", "milliseconds", "seconds"] as const;
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const isFiniteNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+const isTimestamp = (value: unknown): value is string =>
+  isSafeDisplayText(value) && !Number.isNaN(Date.parse(value));
+
+const isSignalTarget = (value: unknown): value is SignalTarget =>
+  isRecord(value) &&
+  isEnum(value.kind, signalTargetKinds) &&
+  isSafeDisplayText(value.id);
+
+const isCorrelationRequest = (value: unknown) =>
+  isRecord(value) &&
+  isTimeWindow(value.window) &&
+  isTimestamp(value.window.start) &&
+  isTimestamp(value.window.end) &&
+  Date.parse(value.window.start) < Date.parse(value.window.end) &&
+  isTimestamp(value.evaluated_at) &&
+  Date.parse(value.evaluated_at) >= Date.parse(value.window.start) &&
+  isFiniteNonNegativeInteger(value.allowed_lateness_seconds) &&
+  value.allowed_lateness_seconds <= 21_600;
+
+const isCorrelationWindow = (value: unknown): value is CorrelationSnapshot["window"] =>
+  isRecord(value) &&
+  isTimeWindow(value.range) &&
+  isTimestamp(value.range.start) &&
+  isTimestamp(value.range.end) &&
+  Date.parse(value.range.start) < Date.parse(value.range.end) &&
+  isTimestamp(value.evaluated_at) &&
+  isTimestamp(value.watermark) &&
+  isFiniteNonNegativeInteger(value.allowed_lateness_seconds) &&
+  value.allowed_lateness_seconds <= 21_600 &&
+  isEnum(value.state, correlationWindowStates);
+
+const isAnomalyCondition = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  if (isRecord(value.threshold)) {
+    return (
+      Object.keys(value).length === 1 &&
+      isEnum(value.threshold.operator, ["gt", "gte", "lt", "lte"]) &&
+      isSafeDisplayText(value.threshold.threshold)
+    );
+  }
+  if (isRecord(value.rate_of_change)) {
+    return (
+      Object.keys(value).length === 1 &&
+      isEnum(value.rate_of_change.direction, ["increase", "decrease", "absolute"]) &&
+      isSafeDisplayText(value.rate_of_change.threshold_per_second) &&
+      isFiniteNonNegativeInteger(value.rate_of_change.window_seconds)
+    );
+  }
+  return false;
+};
+
+const isSourceRecord = (value: unknown): value is SourceRecordRef =>
+  isRecord(value) &&
+  isEnum(value.source_kind, evidenceSources) &&
+  isNullableSafeDisplayText(value.native_id) &&
+  isNullableSafeDisplayText(value.revision) &&
+  isSafeDisplayText(value.content_digest) &&
+  isSafeStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  new Set(value.evidence_ids).size === value.evidence_ids.length;
+
+const isSecurityPayload = (value: unknown): boolean => {
+  if (!isRecord(value) || !isRecord(value.security_finding)) return false;
+  if (Object.keys(value).length !== 1) return false;
+  const finding = value.security_finding.finding;
+  if (!isRecord(finding) || !isEnum(finding.source, evidenceSources)) return false;
+  if (!isRecord(finding.asset)) return false;
+  return (
+    isEnum(finding.asset.kind, findingAssetKinds) &&
+    isSignalTarget(finding.asset.target) &&
+    isNullableSafeDisplayText(finding.asset.display_name) &&
+    isNullableSafeDisplayText(finding.asset.artifact_digest) &&
+    (finding.severity === null || isEnum(finding.severity, findingSeverities)) &&
+    (finding.exploitability === null ||
+      isEnum(finding.exploitability, [
+        "exploited",
+        "known_exploit",
+        "probable",
+        "possible",
+        "unlikely",
+        "none",
+        "unknown"
+      ])) &&
+    (finding.cvss_score === null ||
+      (isFiniteNumber(finding.cvss_score) && finding.cvss_score >= 0 && finding.cvss_score <= 10)) &&
+    isSafeStringArray(finding.evidence_ids) &&
+    finding.evidence_ids.length > 0
+  );
+};
+
+const isSignalPayload = (value: unknown): value is SignalPayload => {
+  if (value === "alert") return true;
+  if (!isRecord(value)) return false;
+  if (isRecord(value.anomaly) && Object.keys(value).length === 1) {
+    return (
+      isFiniteNumber(value.anomaly.observed_value) &&
+      isFiniteNumber(value.anomaly.comparison_value) &&
+      isAnomalyCondition(value.anomaly.condition)
+    );
+  }
+  if (isSecurityPayload(value)) return true;
+  if (isRecord(value.health_check) && Object.keys(value).length === 1) {
+    return isEnum(value.health_check.outcome, [
+      "healthy",
+      "degraded",
+      "unavailable",
+      "timed_out",
+      "skipped_not_due",
+      "skipped_cooldown",
+      "skipped_disabled"
+    ]);
+  }
+  return false;
+};
+
+const signalPayloadKindMatches = (kind: SignalKind, payload: SignalPayload) => {
+  if (kind === "alert") return payload === "alert";
+  if (typeof payload !== "object") return false;
+  if (kind === "anomaly") return "anomaly" in payload;
+  if (kind === "security_finding") return "security_finding" in payload;
+  return "health_check" in payload;
+};
+
+const isEvidenceDrillDownForCorrelation = (value: unknown, evidenceIds: string[]) =>
+  isDrillDownTarget(value) &&
+  value.destination === "evidence" &&
+  value.filter_key === null &&
+  isSafeStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  value.evidence_ids.every((id) => evidenceIds.includes(id));
+
+const isCorrelationSignal = (value: unknown): value is Signal => {
+  if (
+    !isRecord(value) ||
+    !isSafeDisplayText(value.id) ||
+    !isEnum(value.kind, signalKinds) ||
+    !isEnum(value.source, evidenceSources) ||
+    !isEnum(value.state, signalStates) ||
+    (value.observed_at !== null && !isTimestamp(value.observed_at)) ||
+    (value.ingested_at !== null && !isTimestamp(value.ingested_at)) ||
+    !isScope(value.scope) ||
+    !Array.isArray(value.targets) ||
+    !value.targets.every(isSignalTarget) ||
+    (value.business_severity !== null &&
+      !isEnum(value.business_severity, ["S1", "S2", "S3", "S4", "S5"])) ||
+    !isSignalPayload(value.payload) ||
+    !signalPayloadKindMatches(value.kind, value.payload) ||
+    !isSourceRecord(value.source_record) ||
+    value.source_record.source_kind !== value.source ||
+    (value.dedup_key !== null && !isSafeDisplayText(value.dedup_key)) ||
+    !isRecord(value.suppression) ||
+    !isEnum(value.suppression.kind, [
+      "not_suppressed",
+      "rule",
+      "maintenance_window",
+      "rule_and_maintenance_window"
+    ]) ||
+    !isSafeStringArray(value.suppression.rule_ids) ||
+    !isSafeStringArray(value.suppression.maintenance_window_ids) ||
+    !isTimestamp(value.suppression.evaluated_at) ||
+    !isFiniteNonNegativeInteger(value.suppression.policy_version) ||
+    !isSafeStringArray(value.evidence_ids) ||
+    value.evidence_ids.length === 0 ||
+    new Set(value.evidence_ids).size !== value.evidence_ids.length ||
+    !value.source_record.evidence_ids.every((id) =>
+      (value.evidence_ids as string[]).includes(id)
+    ) ||
+    !isDrillDownTarget(value.drill_down) ||
+    !isEvidenceDrillDownForCorrelation(value.drill_down, value.evidence_ids) ||
+    !isDrillDownReference(value.drill_down_reference) ||
+    !value.drill_down_reference.evidence_ids.every((id) =>
+      (value.evidence_ids as string[]).includes(id)
+    ) ||
+    !isScope(value.drill_down_reference.scope)
+  ) {
+    return false;
+  }
+
+  if (value.kind === "security_finding") {
+    const finding = (
+      value.payload as { security_finding: { finding: VulnerabilityFinding } }
+    ).security_finding.finding;
+    if (
+      typeof value.payload !== "object" ||
+      !("security_finding" in value.payload) ||
+      !securityEvidenceSources.includes(finding.source) ||
+      finding.source !== value.source ||
+      !value.targets.some(
+        (target) =>
+          target.kind === finding.asset.target.kind && target.id === finding.asset.target.id
+      ) ||
+      !finding.evidence_ids.every((id) => (value.evidence_ids as string[]).includes(id))
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const isCorrelationReason = (value: unknown): value is CorrelationReason => {
+  if (
+    !isRecord(value) ||
+    !isEnum(value.kind, correlationReasonKinds) ||
+    !isEnum(value.qualification, ["exact_association", "probable_structural"]) ||
+    !isSafeStringArray(value.signal_ids) ||
+    value.signal_ids.length === 0 ||
+    (value.target !== null && !isSignalTarget(value.target)) ||
+    !isSafeStringArray(value.topology_path_ids) ||
+    !isSafeStringArray(value.evidence_ids) ||
+    value.evidence_ids.length === 0
+  ) {
+    return false;
+  }
+  if (value.kind === "topology_relation") {
+    return (
+      value.target === null &&
+      value.topology_path_ids.length > 0 &&
+      value.qualification === "probable_structural"
+    );
+  }
+  const targetKind =
+    value.kind === "shared_resource"
+      ? "resource"
+      : value.kind === "shared_service"
+        ? "service"
+        : "deployment";
+  return (
+    value.target !== null &&
+    value.target.kind === targetKind &&
+    value.topology_path_ids.length === 0 &&
+    value.qualification === "exact_association"
+  );
+};
+
+const isCorrelationMetric = (value: unknown): value is CorrelationMetric =>
+  isRecord(value) &&
+  isEnum(value.key, correlationMetricKeys) &&
+  isFiniteNumber(value.value) &&
+  value.value >= 0 &&
+  isEnum(value.unit, numberUnits) &&
+  isSafeStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  isEvidenceDrillDownForCorrelation(value.drill_down, value.evidence_ids) &&
+  isDrillDownReference(value.drill_down_reference) &&
+  value.drill_down_reference.evidence_ids.some((id) =>
+    (value.evidence_ids as string[]).includes(id)
+  );
+
+const isCorrelationCandidate = (value: unknown): value is CorrelationCandidate =>
+  isRecord(value) &&
+  isSafeDisplayText(value.id) &&
+  isScope(value.scope) &&
+  isCorrelationWindow(value.window) &&
+  isSafeStringArray(value.signal_ids) &&
+  value.signal_ids.length >= 2 &&
+  Array.isArray(value.grouping_targets) &&
+  value.grouping_targets.every(isSignalTarget) &&
+  Array.isArray(value.reasons) &&
+  value.reasons.length > 0 &&
+  value.reasons.every(isCorrelationReason) &&
+  isEnum(value.status, candidateStatuses) &&
+  isSafeStringArray(value.late_signal_ids) &&
+  isSafeStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  isEvidenceDrillDownForCorrelation(value.drill_down, value.evidence_ids) &&
+  isDrillDownReference(value.drill_down_reference) &&
+  value.drill_down_reference.evidence_ids.some((id) =>
+    (value.evidence_ids as string[]).includes(id)
+  );
+
+const sameWindow = (
+  left: CorrelationSnapshot["window"],
+  right: CorrelationSnapshot["window"]
+) =>
+  left.range.start === right.range.start &&
+  left.range.end === right.range.end &&
+  left.evaluated_at === right.evaluated_at &&
+  left.watermark === right.watermark &&
+  left.allowed_lateness_seconds === right.allowed_lateness_seconds &&
+  left.state === right.state;
+
+/**
+ * Runtime guard for the source-preserving `correlation.snapshot` response.
+ * Every reference is closed over the issued evidence set before React uses
+ * the projection; malformed or partial snapshots are rejected as a whole.
+ */
+export const isCorrelationSnapshot = (value: unknown): value is CorrelationSnapshot => {
+  if (
+    !isRecord(value) ||
+    !isTimestamp(value.generated_at) ||
+    !isScope(value.scope) ||
+    !isCorrelationRequest(value.request) ||
+    !isCorrelationWindow(value.window) ||
+    !isRecord(value.summary) ||
+    !Array.isArray(value.summary.metrics) ||
+    !value.summary.metrics.every(isCorrelationMetric) ||
+    !Array.isArray(value.signals) ||
+    !value.signals.every(isCorrelationSignal) ||
+    !Array.isArray(value.candidates) ||
+    !value.candidates.every(isCorrelationCandidate) ||
+    !Array.isArray(value.topology_paths) ||
+    !Array.isArray(value.source_status) ||
+    !value.source_status.every(isSourceStatus) ||
+    !Array.isArray(value.evidence) ||
+    !value.evidence.every(isEvidence)
+  ) {
+    return false;
+  }
+
+  const snapshot = value as CorrelationSnapshot;
+  if (
+    snapshot.request.window.start !== snapshot.window.range.start ||
+    snapshot.request.window.end !== snapshot.window.range.end ||
+    snapshot.request.evaluated_at !== snapshot.window.evaluated_at ||
+    snapshot.request.allowed_lateness_seconds !== snapshot.window.allowed_lateness_seconds ||
+    new Set(snapshot.evidence.map((item) => item.id)).size !== snapshot.evidence.length ||
+    new Set(snapshot.signals.map((signal) => signal.id)).size !== snapshot.signals.length ||
+    new Set(snapshot.candidates.map((candidate) => candidate.id)).size !==
+      snapshot.candidates.length ||
+    new Set(snapshot.source_status.map((status) => status.source_key)).size !==
+      snapshot.source_status.length ||
+    new Set(snapshot.summary.metrics.map((metric) => metric.key)).size !==
+      snapshot.summary.metrics.length
+  ) {
+    return false;
+  }
+
+  const evidenceIds = new Set(snapshot.evidence.map((item) => item.id));
+  const signalIds = new Set(snapshot.signals.map((signal) => signal.id));
+  const pathIds = new Set<string>();
+  for (const path of snapshot.topology_paths) {
+    if (
+      !isRecord(path) ||
+      !isSafeDisplayText(path.id) ||
+      !isSafeDisplayText(path.root_node_id) ||
+      !isSafeDisplayText(path.terminal_node_id) ||
+      !isSafeStringArray(path.node_ids) ||
+      !isSafeStringArray(path.edge_ids) ||
+      !isEnum(path.direction, ["upstream", "downstream", "both"]) ||
+      !isFiniteNonNegativeInteger(path.depth) ||
+      !isFiniteNumber(path.confidence) ||
+      path.confidence < 0 ||
+      path.confidence > 1 ||
+      path.kind !== "probable_structural" ||
+      !isEnum(path.termination, ["leaf", "cycle_detected", "depth_limit"]) ||
+      (path.cycle_edge_id !== null && !isSafeDisplayText(path.cycle_edge_id)) ||
+      !isSafeStringArray(path.evidence_ids) ||
+      path.evidence_ids.length === 0 ||
+      !isEvidenceDrillDownForCorrelation(path.drill_down, path.evidence_ids) ||
+      path.evidence_ids.some((id) => !evidenceIds.has(id))
+    ) {
+      return false;
+    }
+    if (pathIds.has(path.id)) return false;
+    pathIds.add(path.id);
+  }
+
+  if (
+    snapshot.summary.metrics.some(
+      (metric) =>
+        metric.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+        metric.drill_down.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+        metric.drill_down_reference.evidence_ids.some((id) => !evidenceIds.has(id))
+    )
+  ) {
+    return false;
+  }
+
+  for (const signal of snapshot.signals) {
+    if (
+      signal.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      signal.drill_down.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      signal.drill_down_reference.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      signal.source_record.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      (typeof signal.payload === "object" &&
+        "security_finding" in signal.payload &&
+        signal.payload.security_finding.finding.evidence_ids.some((id) => !evidenceIds.has(id)))
+    ) {
+      return false;
+    }
+  }
+
+  for (const candidate of snapshot.candidates) {
+    if (
+      candidate.scope.workspace_id !== snapshot.scope.workspace_id ||
+      candidate.scope.team_id !== snapshot.scope.team_id ||
+      candidate.scope.organization_id !== snapshot.scope.organization_id ||
+      !sameWindow(candidate.window, snapshot.window) ||
+      candidate.signal_ids.some((id) => !signalIds.has(id)) ||
+      candidate.late_signal_ids.some((id) => !signalIds.has(id)) ||
+      candidate.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      candidate.drill_down.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      candidate.drill_down_reference.evidence_ids.some((id) => !evidenceIds.has(id)) ||
+      candidate.reasons.some(
+        (reason) =>
+          reason.signal_ids.some((id) => !candidate.signal_ids.includes(id)) ||
+          reason.topology_path_ids.some((id) => !pathIds.has(id)) ||
+          reason.evidence_ids.some((id) => !evidenceIds.has(id))
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 };

@@ -10,6 +10,9 @@ import {
   correlationFixtureSourceKinds,
   SPRINT_13_FIXTURE_CLOCK
 } from "./correlation-fixtures";
+import { isCorrelationSnapshot } from "../../contracts/guards";
+import en from "../locales/en";
+import th from "../locales/th";
 
 describe("Signal correlation IPC contracts", () => {
   it("keeps all four security source wire values stable", () => {
@@ -30,6 +33,13 @@ describe("Signal correlation IPC contracts", () => {
     expect(snapshot.candidates[0].signal_ids).toEqual(
       expect.arrayContaining(snapshot.signals.slice(0, 2).map((signal) => signal.id))
     );
+  });
+
+  it("accepts only evidence-closed correlation snapshots", () => {
+    expect(isCorrelationSnapshot(correlationFixtureSnapshot)).toBe(true);
+    const malformed = structuredClone(correlationFixtureSnapshot);
+    malformed.candidates[0].evidence_ids = ["evidence-not-issued"];
+    expect(isCorrelationSnapshot(malformed)).toBe(false);
   });
 
   it("uses null for absent optional source values and number for numeric facts", () => {
@@ -55,5 +65,15 @@ describe("Signal correlation IPC contracts", () => {
       "exact_association"
     );
     expect(correlationFixtureSnapshot.summary.metrics[0].unit).toBe("count");
+  });
+
+  it("keeps the correlation catalog structurally identical in English and Thai", () => {
+    const keyPaths = (value: unknown, prefix = ""): string[] =>
+      Object.entries(value as Record<string, unknown>).flatMap(([key, inner]) =>
+        typeof inner === "object" && inner !== null
+          ? keyPaths(inner, `${prefix}${key}.`)
+          : [`${prefix}${key}`]
+      );
+    expect(keyPaths(th.correlation).sort()).toEqual(keyPaths(en.correlation).sort());
   });
 });

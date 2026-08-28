@@ -24,12 +24,14 @@ import { useTranslation } from "./i18n";
 import { EnvironmentWorkspace } from "./EnvironmentWorkspace";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 import { OperationsConsole } from "./OperationsConsole";
+import { CorrelationWorkspace } from "./correlation/CorrelationWorkspace";
 import { TopologyWorkspace } from "./topology/TopologyWorkspace";
 type Area =
   | "commandCenter"
   | "incidents"
   | "environments"
   | "observability"
+  | "correlation"
   | "topology"
   | "changes"
   | "vulnerability"
@@ -43,6 +45,7 @@ const areas: Area[] = [
   "incidents",
   "environments",
   "observability",
+  "correlation",
   "topology",
   "changes",
   "vulnerability",
@@ -216,7 +219,11 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </aside>
       <main className="shell-main">
         {active === "commandCenter" ? (
-          <OperationsConsole invoke={invoke} onOpenIncidentTopology={openIncidentTopology} />
+          <OperationsConsole
+            invoke={invoke}
+            onOpenIncidentTopology={openIncidentTopology}
+            onOpenCorrelation={() => setActive("correlation")}
+          />
         ) : active === "environments" ? (
           <>
             <h1>{t(`shell.${active}`)}</h1>
@@ -232,6 +239,8 @@ export function Shell({ invoke }: { invoke: Invoke }) {
             <h1>{t(`shell.${active}`)}</h1>
             <ObservabilityWorkspace invoke={invoke} />
           </>
+        ) : active === "correlation" ? (
+          <CorrelationWorkspace invoke={invoke} />
         ) : active === "topology" ? (
           <TopologyWorkspace invoke={invoke} initialIncidentId={topologyIncidentId} />
         ) : (

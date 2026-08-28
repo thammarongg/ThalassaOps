@@ -360,6 +360,22 @@ it("hands an incident to the topology workspace when its handler is provided", a
   expect(onOpenIncidentTopology).toHaveBeenCalledWith("incident-1");
 });
 
+it("exposes the read-only correlation entry point when requested", async () => {
+  const user = userEvent.setup();
+  const onOpenCorrelation = vi.fn();
+  const invoke = vi.fn();
+  invoke.mockResolvedValue({ ok: true, value: healthySnapshot() });
+  render(
+    <I18nProvider>
+      <OperationsConsole invoke={invoke} onOpenCorrelation={onOpenCorrelation} />
+    </I18nProvider>
+  );
+
+  await screen.findByRole("heading", { name: "Operations Console" });
+  await user.click(screen.getByRole("button", { name: "Open signal correlation" }));
+  expect(onOpenCorrelation).toHaveBeenCalledOnce();
+});
+
 it("omits the topology affordance when no handler is provided", async () => {
   renderConsole(anomalySnapshot());
 

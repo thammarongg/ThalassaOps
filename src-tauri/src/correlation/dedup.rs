@@ -445,13 +445,12 @@ pub fn deduplicate_signals(
                     signal_ids: Vec::new(),
                     source_records: Vec::new(),
                 });
-        if association.source_records.iter().any(|record| {
-            record.source_kind == signal.source
-                && record.native_id != signal.source_record.native_id
-                && record.revision == signal.source_record.revision
-        }) {
-            return Err(DedupError::ConflictingNativeIdentity);
-        }
+        // A stable logical key may intentionally span multiple source
+        // revisions or execution IDs (for example, repeated health-check
+        // runs).  The native identity/revision index above rejects an actual
+        // conflicting identity; an association key must still retain every
+        // source reference rather than treating distinct revisions as a
+        // duplicate or conflict.
         association.signal_ids.push(signal.id);
         if !association.source_records.contains(&signal.source_record) {
             association

@@ -44,6 +44,7 @@ const en = {
     incidents: "Incidents",
     environments: "Environments",
     observability: "Observability",
+    correlation: "Signal correlation",
     topology: "Resource topology",
     changes: "Changes",
     vulnerability: "Vulnerability",
@@ -306,6 +307,7 @@ const en = {
     unknownProvider: "Unknown provider",
     lastObserved: "Last observed",
     lastSync: "Last sync: {{timestamp}}",
+    openCorrelation: "Open signal correlation",
     customizeConsole: "Customize console",
     customizeHint: "Choose from the curated widgets and set their order or presentation.",
     showWidget: "Show {{widget}}",
@@ -407,6 +409,202 @@ const en = {
       stale: "degraded",
       unavailable: "unavailable",
       unverified: "unverified"
+    }
+  },
+  correlation: {
+    eyebrow: "Signal correlation / read-only model",
+    title: "Signal correlation",
+    subtitle: "Review explainable candidates and follow every claim back to its evidence.",
+    loading: "Loading correlation…",
+    lastSync: "Generated {{timestamp}}",
+    sourceNotice: "{{source}} is {{state}} ({{reason}}).",
+    sourcesTitle: "Signal sources",
+    sourceStates: {
+      fresh: "fresh",
+      stale: "degraded",
+      unavailable: "unavailable",
+      unverified: "unverified"
+    },
+    windowStates: {
+      open: "open",
+      ready_to_finalize: "ready to finalize",
+      finalized: "finalized",
+      reopened: "reopened"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "Cloud",
+      health_check: "Health check",
+      fixture: "Fixture",
+      trivy: "Trivy",
+      falco: "Falco",
+      kyverno: "Kyverno",
+      opa_gatekeeper: "OPA Gatekeeper",
+      topology: "Topology",
+      unknown: "Unknown source"
+    },
+    summary: {
+      eyebrow: "Evidence-backed summary",
+      title: "Correlation summary",
+      window: "{{start}} → {{end}}"
+    },
+    metrics: {
+      normalized_signals: "normalized signals",
+      active_candidates: "active candidates",
+      suppressed_candidates: "suppressed candidates",
+      uncorrelated_signals: "uncorrelated signals",
+      unavailable: "Number unavailable; evidence could not be verified.",
+      openEvidence: "View {{label}} ({{value}}); evidence available"
+    },
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " ms",
+      seconds: " s"
+    },
+    candidates: {
+      title: "Correlation candidates",
+      description: "Each candidate includes its structural reason and contributing signals.",
+      empty: "No correlation candidates were emitted for this window.",
+      select: "Select candidate {{id}} ({{reason}})"
+    },
+    candidateStatus: {
+      active: "Active",
+      provisional: "Provisional",
+      suppressed: "Suppressed"
+    },
+    reasons: {
+      shared_resource: "shared resource",
+      shared_service: "shared service",
+      shared_deployment: "shared deployment",
+      topology_relation: "topology relation",
+      not_configured: "not configured",
+      unreachable: "unreachable",
+      timed_out: "timed out",
+      policy_denied: "blocked by policy",
+      no_data_in_window: "empty in this window",
+      unknown: "unavailable"
+    },
+    qualifications: {
+      exact_association: "exact association",
+      probable_structural: "probable structural relation"
+    },
+    findingSeverities: {
+      critical: "critical",
+      high: "high",
+      medium: "medium",
+      low: "low",
+      negligible: "negligible",
+      unknown: "unknown"
+    },
+    exploitability: {
+      exploited: "exploited",
+      known_exploit: "known exploit",
+      probable: "probable",
+      possible: "possible",
+      unlikely: "unlikely",
+      none: "none",
+      unknown: "unknown"
+    },
+    assetKinds: {
+      container_image: "container image",
+      runtime_resource: "runtime resource",
+      kubernetes_resource: "Kubernetes resource",
+      host: "host",
+      policy_subject: "policy subject"
+    },
+    healthOutcomes: {
+      healthy: "healthy",
+      degraded: "degraded",
+      unavailable: "unavailable",
+      timed_out: "timed out",
+      skipped_not_due: "skipped: not due",
+      skipped_cooldown: "skipped: cooldown",
+      skipped_disabled: "skipped: disabled"
+    },
+    signalKinds: {
+      alert: "alert",
+      anomaly: "anomaly",
+      security_finding: "security finding",
+      health_check: "health check"
+    },
+    signalStates: {
+      active: "active",
+      cleared: "cleared",
+      observed: "observed",
+      unknown: "unknown"
+    },
+    targetKinds: {
+      resource: "resource",
+      service: "service",
+      deployment: "deployment",
+      topology: "topology"
+    },
+    suppression: {
+      notSuppressed: "Not suppressed",
+      rule: "Suppressed by correlation rule",
+      maintenance_window: "Suppressed by maintenance window",
+      rule_and_maintenance_window: "Suppressed by rule and maintenance window"
+    },
+    details: {
+      title: "Candidate details",
+      eyebrow: "Explainable candidate",
+      reasons: "Why these signals are grouped",
+      members: "Member signals",
+      membersUnavailable: "Member signal details are unavailable.",
+      nativeId: "Source identity",
+      revision: "Revision",
+      target: "Target",
+      targetLabel: "Target: {{target}}",
+      noTarget: "No exact target",
+      signalId: "Signal ID",
+      lateSignals: "This candidate includes a late or reopened signal.",
+      windowState: "Window state: {{state}}",
+      topologyPath: "Topology path: {{id}}",
+      businessSeverity: "Business severity",
+      findingSeverity: "Finding severity",
+      exploitability: "Exploitability",
+      cvssScore: "CVSS score",
+      assetKind: "Asset kind",
+      assetName: "Asset name",
+      artifactDigest: "Artifact digest",
+      observedValue: "Observed value",
+      comparisonValue: "Comparison value",
+      outcome: "Outcome",
+      suppression: "Suppression",
+      suppressionIds: "Suppression IDs: {{ids}}",
+      policyVersion: "Policy version: {{version}}",
+      notProvided: "Not provided",
+      selectCandidate: "Select a candidate to inspect its member signals.",
+      openEvidence: "Open evidence",
+      openEvidenceFor: "Open evidence for candidate {{id}}"
+    },
+    evidence: {
+      title: "Correlation evidence",
+      context: "Evidence for {{subject}}",
+      loading: "Loading evidence…",
+      empty: "No verified evidence is available.",
+      connector: "Connector",
+      endpoint: "Endpoint",
+      query: "Query",
+      observedAt: "Observed",
+      excerpt: "Excerpt",
+      masked: "Sensitive fields masked",
+      notMasked: "No fields masked",
+      unparsed: "Unparsed source",
+      parsed: "Parsed source",
+      openNative: "Open trusted source"
+    },
+    errors: {
+      invalidRequest: "The correlation request is invalid.",
+      notFound: "The requested correlation evidence is unavailable.",
+      permissionDenied: "You do not have permission to view correlation data.",
+      policyDenied: "This correlation view is blocked by policy.",
+      connectorUnavailable: "The correlation source is unavailable.",
+      malformedResponse: "The correlation response could not be verified.",
+      internalError: "The correlation view is unavailable."
     }
   },
   topology: {

@@ -1,5 +1,6 @@
 pub(crate) mod cloud;
 mod connectors;
+mod correlation;
 mod kubernetes;
 mod observability;
 mod operations;

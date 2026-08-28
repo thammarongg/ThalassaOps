@@ -220,6 +220,22 @@ fn topology_evidence(
     state.topology_evidence(envelope)
 }
 
+#[tauri::command]
+fn correlation_snapshot(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::CorrelationSnapshot> {
+    state.correlation_snapshot(envelope)
+}
+
+#[tauri::command]
+fn correlation_evidence(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<thalassa_domain::EvidenceRef>> {
+    state.correlation_evidence(envelope)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -255,6 +271,8 @@ fn main() {
             operations_evidence,
             topology_snapshot,
             topology_evidence,
+            correlation_snapshot,
+            correlation_evidence,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,
