@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { open } from "@tauri-apps/plugin-shell";
 import type {
   BusinessImpact,
   CriticalNumber,
@@ -12,6 +13,8 @@ import type {
 } from "../../contracts/ipc";
 import { I18nProvider, i18n } from "../i18n";
 import { OperationsConsole } from "../OperationsConsole";
+
+vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn().mockResolvedValue(undefined) }));
 
 const scope = { resource_ids: [] };
 const observedAt = "2026-08-28T09:00:00Z";
@@ -138,7 +141,9 @@ const healthySnapshot = (): OperationsSnapshot => {
       headline: impactFor(),
       attention: numberFor("attention", "0", "evidence-attention", "incident_queue"),
       impacted_services: numberFor("impacted_services", "0", "evidence-services"),
-      active_by_severity: [numberFor("active_s1", "0", "evidence-severity", "incident_queue")],
+      active_by_severity: [
+        numberFor("active_by_severity.S1", "0", "evidence-severity", "incident_queue")
+      ],
       environments_by_state: [
         numberFor("healthy_environments", "1", "evidence-environments", "environment_status")
       ],
@@ -249,8 +254,8 @@ const anomalySnapshot = (): OperationsSnapshot => {
     "evidence-services"
   );
   snapshot.health_summary.active_by_severity = [
-    numberFor("active_s1", "1", "evidence-severity", "incident_queue"),
-    numberFor("active_s2", "2", "evidence-severity", "incident_queue")
+    numberFor("active_by_severity.S1", "1", "evidence-severity", "incident_queue"),
+    numberFor("active_by_severity.S2", "2", "evidence-severity", "incident_queue")
   ];
   snapshot.signal_summary.active_alerts = numberFor(
     "active_alerts",
@@ -412,9 +417,7 @@ it("persists curated widget visibility and order while keeping required widgets 
   await user.click(within(settings).getByRole("checkbox", { name: "Show Alerts and anomalies" }));
   await user.click(within(settings).getByRole("button", { name: "Move Recent change stream up" }));
 
-  const stored = JSON.parse(
-    localStorage.getItem("thalassaops.operations-console.layout.v1") ?? "null"
-  );
+  const stored = JSON.parse(localStorage.getItem("thalassaops.operations.widgets.v1") ?? "null");
   expect(stored.version).toBe(1);
   expect(
     stored.preferences.find((preference: { id: string }) => preference.id === "signal_summary")
@@ -471,4 +474,94 @@ it("opens evidence for a critical number through the read-only evidence command"
       })
     )
   );
+});
+
+it("shows the evidence connector and opens only its trusted HTTPS source link", async () => {
+  const user = userEvent.setup();
+  const snapshot = healthySnapshot();
+  const nativeEvidence = snapshot.evidence.find((item) => item.id === "evidence-attention");
+  if (!nativeEvidence) throw new Error("attention evidence fixture is required");
+  nativeEvidence.connector_id = "fixture-connector";
+  nativeEvidence.native_url = "https://source.example/evidence";
+  const invoke = vi
+    .fn()
+    .mockImplementation((name: string) =>
+      name === "operations_snapshot"
+        ? Promise.resolve({ ok: true, value: snapshot })
+        : Promise.resolve({ ok: true, value: [nativeEvidence] })
+    );
+
+  render(
+    <I18nProvider>
+      <OperationsConsole invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await screen.findByText("No active business impact");
+  await user.click(
+    within(screen.getAllByTestId("operations-critical-number")[0]).getByRole("button")
+  );
+
+  expect(await screen.findByText("fixture-connector")).toBeInTheDocument();
+  const openButton = await screen.findByRole("button", { name: "Open trusted source" });
+  await user.click(openButton);
+  expect(open).toHaveBeenCalledWith("https://source.example/evidence");
+});
+
+it("does not let an older drill-down response replace the latest selection", async () => {
+  const user = userEvent.setup();
+  const snapshot = healthySnapshot();
+  const pending: Array<(result: unknown) => void> = [];
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "operations_snapshot") {
+      return Promise.resolve({ ok: true, value: snapshot });
+    }
+    return new Promise((resolve) => pending.push(resolve));
+  });
+
+  render(
+    <I18nProvider>
+      <OperationsConsole invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await screen.findByText("No active business impact");
+  const criticalNumbers = screen.getAllByTestId("operations-critical-number");
+  await user.click(within(criticalNumbers[0]).getByRole("button"));
+  await user.click(within(criticalNumbers[1]).getByRole("button"));
+  expect(pending).toHaveLength(2);
+
+  pending[1]({ ok: true, value: [snapshot.evidence[2]] });
+  expect(await screen.findByText("evidence-services evidence")).toBeInTheDocument();
+  pending[0]({ ok: true, value: [snapshot.evidence[1]] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await waitFor(() =>
+    expect(screen.queryByText("evidence-attention evidence")).not.toBeInTheDocument()
+  );
+});
+
+it("rejects a malformed nested evidence response before rendering it", async () => {
+  const user = userEvent.setup();
+  const snapshot = healthySnapshot();
+  const invoke = vi
+    .fn()
+    .mockImplementation((name: string) =>
+      name === "operations_snapshot"
+        ? Promise.resolve({ ok: true, value: snapshot })
+        : Promise.resolve({ ok: true, value: [{ id: "malformed-evidence" }] })
+    );
+
+  render(
+    <I18nProvider>
+      <OperationsConsole invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await screen.findByText("No active business impact");
+  await user.click(
+    within(screen.getAllByTestId("operations-critical-number")[0]).getByRole("button")
+  );
+  expect(
+    await screen.findByText("Evidence is unavailable for this drill-down.")
+  ).toBeInTheDocument();
 });

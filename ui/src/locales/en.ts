@@ -315,6 +315,7 @@ const en = {
     expandWidget: "Expand widget",
     evidenceTitle: "Evidence and drill-down",
     destination: "Destination",
+    connector: "Connector",
     sourceQuery: "Source query",
     timeWindow: "Time window",
     evidenceLoading: "Loading evidence…",
@@ -331,6 +332,7 @@ const en = {
     openDrillDown: "Open evidence for {{label}} ({{value}})",
     openItemEvidence: "Open evidence for {{label}}",
     openEvidence: "Open evidence",
+    openTrustedSource: "Open trusted source",
     sizes: {
       compact: "Compact",
       standard: "Standard",

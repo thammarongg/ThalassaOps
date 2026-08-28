@@ -315,6 +315,7 @@ const th = {
     expandWidget: "ขยายวิดเจ็ต",
     evidenceTitle: "หลักฐานและการเจาะดูรายละเอียด",
     destination: "ปลายทาง",
+    connector: "ตัวเชื่อมต่อ",
     sourceQuery: "คำสั่งแหล่งข้อมูล",
     timeWindow: "ช่วงเวลา",
     evidenceLoading: "กำลังโหลดหลักฐาน…",
@@ -331,6 +332,7 @@ const th = {
     openDrillDown: "เปิดหลักฐานสำหรับ {{label}} ({{value}})",
     openItemEvidence: "เปิดหลักฐานสำหรับ {{label}}",
     openEvidence: "เปิดหลักฐาน",
+    openTrustedSource: "เปิดแหล่งข้อมูลที่เชื่อถือได้",
     sizes: {
       compact: "กะทัดรัด",
       standard: "มาตรฐาน",

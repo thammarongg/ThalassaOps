@@ -85,15 +85,28 @@ const isRecord = (value: unknown): value is UnknownRecord =>
 
 const isString = (value: unknown): value is string => typeof value === "string";
 
-const isNonEmptyString = (value: unknown): value is string => isString(value) && value.trim() !== "";
+const isNonEmptyString = (value: unknown): value is string =>
+  isString(value) && value.trim() !== "";
 
 const isNullableString = (value: unknown): value is string | null =>
   value === null || isString(value);
+
+export const isTrustedNativeUrl = (value: unknown): value is string => {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname !== "" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
 
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => isString(item) && item.trim() !== "");
+
+const sharesEvidence = (left: string[], right: string[]) => left.some((id) => right.includes(id));
 
 const isEnum = <T extends string>(value: unknown, values: readonly T[]): value is T =>
   isString(value) && values.includes(value as T);
@@ -142,7 +155,9 @@ const isCriticalNumber = (value: unknown): value is CriticalNumber => {
     isEnum(value.unit, numberUnits) &&
     isStringArray(value.evidence_ids) &&
     isDrillDownTarget(value.drill_down) &&
-    isDrillDownReference(value.drill_down_reference)
+    isDrillDownReference(value.drill_down_reference) &&
+    sharesEvidence(value.evidence_ids, value.drill_down.evidence_ids) &&
+    sharesEvidence(value.evidence_ids, value.drill_down_reference.evidence_ids)
   );
 };
 
@@ -156,7 +171,7 @@ const isSourceStatus = (value: unknown): value is SourceStatus =>
   Array.isArray(value.evidence_ids) &&
   value.evidence_ids.every(isNonEmptyString);
 
-const isEvidence = (value: unknown): value is EvidenceRef =>
+export const isEvidence = (value: unknown): value is EvidenceRef =>
   isRecord(value) &&
   isNonEmptyString(value.id) &&
   isEnum(value.source_kind, evidenceSources) &&
@@ -166,7 +181,7 @@ const isEvidence = (value: unknown): value is EvidenceRef =>
   (value.query === null || isString(value.query)) &&
   isNonEmptyString(value.observed_at) &&
   isNonEmptyString(value.excerpt) &&
-  (value.native_url === null || isString(value.native_url)) &&
+  (value.native_url === null || isTrustedNativeUrl(value.native_url)) &&
   isRecord(value.redaction) &&
   isBoolean(value.redaction.classification_verified) &&
   isBoolean(value.redaction.redaction_verified) &&
@@ -174,6 +189,19 @@ const isEvidence = (value: unknown): value is EvidenceRef =>
   isBoolean(value.redaction.unparsed) &&
   value.redaction.classification_verified &&
   value.redaction.redaction_verified;
+
+export const isEvidenceResponse = (
+  value: unknown,
+  expectedIds: string[]
+): value is EvidenceRef[] => {
+  if (!Array.isArray(value) || !value.every(isEvidence)) return false;
+  const returnedIds = new Set(value.map((item) => item.id));
+  return (
+    returnedIds.size === value.length &&
+    returnedIds.size === expectedIds.length &&
+    expectedIds.every((id) => returnedIds.has(id))
+  );
+};
 
 const isQueueItem = (value: unknown): value is IncidentQueueItem =>
   isRecord(value) &&
@@ -192,7 +220,9 @@ const isQueueItem = (value: unknown): value is IncidentQueueItem =>
   isScope(value.affected_scope) &&
   isStringArray(value.evidence_ids) &&
   isDrillDownTarget(value.drill_down) &&
-  isDrillDownReference(value.drill_down_reference);
+  isDrillDownReference(value.drill_down_reference) &&
+  sharesEvidence(value.evidence_ids, value.drill_down.evidence_ids) &&
+  sharesEvidence(value.evidence_ids, value.drill_down_reference.evidence_ids);
 
 const isSignalCount = (value: unknown): value is SignalCount =>
   isRecord(value) && isEnum(value.source_kind, queueSources) && isCriticalNumber(value.count);
@@ -218,7 +248,8 @@ const isChange = (value: unknown): value is ChangeStreamItem =>
   isNullableString(value.native_link) &&
   isScope(value.scope) &&
   isStringArray(value.evidence_ids) &&
-  isDrillDownTarget(value.drill_down);
+  isDrillDownTarget(value.drill_down) &&
+  sharesEvidence(value.evidence_ids, value.drill_down.evidence_ids);
 
 const isChangeStatus = (value: unknown): value is ChangeStreamStatus =>
   isRecord(value) &&
@@ -236,7 +267,9 @@ const isEnvironment = (value: unknown): value is EnvironmentStatus =>
   isCriticalNumber(value.resource_count) &&
   isNonEmptyString(value.last_observed_at) &&
   isStringArray(value.evidence_ids) &&
-  isDrillDownTarget(value.drill_down);
+  isDrillDownTarget(value.drill_down) &&
+  sharesEvidence(value.evidence_ids, value.drill_down.evidence_ids) &&
+  sharesEvidence(value.evidence_ids, value.resource_count.evidence_ids);
 
 const isHealthSummary = (value: unknown): value is HealthSummary =>
   isRecord(value) &&

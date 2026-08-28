@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   CommandEnvelope,
   ConsoleHealthState,
@@ -31,7 +31,12 @@ import {
   persistWidgetPreferences,
   updateWidgetPreference
 } from "./operations/widgetConfig";
-import { isOperationsSnapshot } from "./operations/contractValidation";
+import {
+  isEvidenceResponse,
+  isOperationsSnapshot,
+  isTrustedNativeUrl
+} from "./operations/contractValidation";
+import { open } from "@tauri-apps/plugin-shell";
 
 type SnapshotState = "loading" | "ready" | "error";
 type EvidenceState = "idle" | "loading" | "ready" | "error";
@@ -77,8 +82,9 @@ const statusReasonKey = (reason: StatusReason | null) =>
 
 const criticalNumberLabelKey = (number: CriticalNumber, category: "severity" | "environment") => {
   const suffix = number.key.split(".").at(-1)?.toLowerCase();
-  if (category === "severity" && suffix && /^active_s[1-5]$/.test(suffix)) {
-    return `operations.severityTotals.${suffix}`;
+  const severityKey = suffix && /^s[1-5]$/.test(suffix) ? `active_${suffix}` : suffix;
+  if (category === "severity" && severityKey && /^active_s[1-5]$/.test(severityKey)) {
+    return `operations.severityTotals.${severityKey}`;
   }
   const knownSuffixes = ["critical", "degraded", "healthy", "unknown"];
   if (suffix && knownSuffixes.includes(suffix)) {
@@ -704,12 +710,14 @@ function EvidencePanel({
   selection,
   evidenceState,
   evidence,
-  errorMessage
+  errorMessage,
+  onOpenNative
 }: {
   selection?: DrillDownSelection;
   evidenceState: EvidenceState;
   evidence: EvidenceRef[];
   errorMessage: string;
+  onOpenNative: (url: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -749,6 +757,12 @@ function EvidencePanel({
                 <span className="operations-evidence-entry__id">{item.id}</span>
               </div>
               <dl>
+                {item.connector_id && (
+                  <div>
+                    <dt>{t("operations.connector")}</dt>
+                    <dd>{item.connector_id}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>{t("operations.endpoint")}</dt>
                   <dd>
@@ -772,6 +786,11 @@ function EvidencePanel({
                   <dd>{item.excerpt}</dd>
                 </div>
               </dl>
+              {item.native_url && isTrustedNativeUrl(item.native_url) && (
+                <button type="button" onClick={() => onOpenNative(item.native_url as string)}>
+                  {t("operations.openTrustedSource")}
+                </button>
+              )}
               <p className="operations-evidence-entry__redaction" role="status">
                 {item.redaction.masked ? t("operations.masked") : t("operations.notMasked")} ·{" "}
                 {item.redaction.unparsed ? t("operations.unparsed") : t("operations.parsed")}
@@ -798,6 +817,7 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
   const [evidence, setEvidence] = useState<EvidenceRef[]>([]);
   const [evidenceError, setEvidenceError] = useState("");
   const [selection, setSelection] = useState<DrillDownSelection>();
+  const drillDownRequestRef = useRef(0);
 
   const definitions = snapshot?.widget_registry?.length
     ? snapshot.widget_registry
@@ -892,6 +912,7 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
 
   const openDrillDown = useCallback(
     (target: DrillDownTarget, reference: DrillDownReference, evidenceIds: string[]) => {
+      const requestId = ++drillDownRequestRef.current;
       const ids = uniqueIssuedEvidenceIds(evidenceIds, issuedEvidenceIds);
       setSelection({ target, reference, evidenceIds: ids });
       setEvidence([]);
@@ -907,7 +928,8 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
         envelope: operationsEnvelope("evidence", "ResourceRead", { evidence_ids: ids })
       })
         .then((result) => {
-          if (result.ok && Array.isArray(result.value)) {
+          if (requestId !== drillDownRequestRef.current) return;
+          if (result.ok && isEvidenceResponse(result.value, ids)) {
             setEvidence(result.value);
             setEvidenceState("ready");
           } else {
@@ -916,12 +938,18 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
           }
         })
         .catch(() => {
+          if (requestId !== drillDownRequestRef.current) return;
           setEvidenceState("error");
           setEvidenceError(t("operations.evidenceError"));
         });
     },
     [invoke, issuedEvidenceIds, t]
   );
+
+  const openNativeSource = useCallback((url: string) => {
+    if (!isTrustedNativeUrl(url)) return;
+    void Promise.resolve(open(url)).catch(() => undefined);
+  }, []);
 
   const renderWidget = (id: WidgetId) => {
     if (!snapshot) return null;
@@ -1004,6 +1032,7 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
           evidenceState={evidenceState}
           evidence={evidence}
           errorMessage={evidenceError}
+          onOpenNative={openNativeSource}
         />
       </Drawer>
     </div>

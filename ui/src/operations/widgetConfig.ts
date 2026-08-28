@@ -1,6 +1,6 @@
 import type { WidgetDefinition, WidgetId, WidgetPreference, WidgetSize } from "../../contracts/ipc";
 
-export const OPERATIONS_LAYOUT_STORAGE_KEY = "thalassaops.operations-console.layout.v1";
+export const OPERATIONS_LAYOUT_STORAGE_KEY = "thalassaops.operations.widgets.v1";
 export const OPERATIONS_LAYOUT_VERSION = 1 as const;
 
 export const CURATED_WIDGET_DEFINITIONS: WidgetDefinition[] = [
