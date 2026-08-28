@@ -128,9 +128,10 @@ impl AppState {
                 &descriptor.required_permission,
             )
         {
-            return Err(IpcError::permission_denied(
-                descriptor.name.to_string(),
-                envelope.scope.clone(),
+            return Err(IpcError::new(
+                IpcErrorCode::PermissionDenied,
+                "permission denied",
+                serde_json::json!({ "required_command": descriptor.name.to_string() }),
             ));
         }
         Ok(())

@@ -140,6 +140,28 @@ fn snapshot_command_rejects_bounded_scope_and_role_without_read_permission() {
 }
 
 #[test]
+fn permission_denials_do_not_echo_caller_scope_identifiers() {
+    let (_directory, state) = test_state();
+    let mut request = envelope(&state, "snapshot", Capability::WorkspaceRead, Value::Null);
+    request.scope = ResourceScope::environment(
+        Uuid::from_u128(0x1111),
+        Uuid::from_u128(0x2222),
+        Uuid::from_u128(0x3333),
+        Uuid::from_u128(0x4444),
+    );
+
+    let IpcResult::Err { error, .. } = state.operations_snapshot(request) else {
+        panic!("a bounded operations scope must be denied")
+    };
+
+    assert_eq!(error.code, thalassa_ipc::IpcErrorCode::PermissionDenied);
+    assert_eq!(
+        error.details,
+        json!({ "required_command": "operations.snapshot" })
+    );
+}
+
+#[test]
 fn snapshot_command_checks_audit_policy_before_retaining_health_check_metadata() {
     let (_directory, mut state) = test_state();
     state.policy = PolicyRuntime::load(
