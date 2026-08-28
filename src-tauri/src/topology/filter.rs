@@ -101,10 +101,10 @@ pub(crate) fn traversal_roots(
     request: &TopologyRequest,
     incident_roots: &BTreeSet<String>,
 ) -> Vec<String> {
-    let mut roots = incident_roots.clone();
     if let Some(focus_node_id) = request.focus_node_id.as_ref() {
-        roots.insert(focus_node_id.clone());
+        return vec![focus_node_id.clone()];
     }
+    let roots = incident_roots.clone();
     roots.into_iter().collect()
 }
 

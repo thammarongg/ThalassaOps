@@ -516,6 +516,30 @@ fn downstream_impact_traverses_structural_paths_from_a_node() {
 }
 
 #[test]
+fn focus_node_overrides_incident_root_for_traversal() {
+    let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&default_topology_request())
+        .expect("healthy fixture should build");
+    let workload_id = node_id_by_name(&base, "checkout-api");
+    let mut request = request_for(
+        Some(workload_id.clone()),
+        TopologyDirection::Downstream,
+        1,
+    );
+    request.filter.incident_id = Some("alert-checkout-s1".into());
+
+    let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&request)
+        .expect("focused incident traversal should build");
+
+    assert!(!snapshot.paths.is_empty());
+    assert!(snapshot
+        .paths
+        .iter()
+        .all(|path| path.root_node_id == workload_id));
+}
+
+#[test]
 fn every_path_carries_evidence_for_each_listed_node_and_edge() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())
