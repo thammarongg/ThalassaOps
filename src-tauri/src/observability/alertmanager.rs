@@ -34,13 +34,13 @@ pub enum ResourceReference {
     Unresolved { reason: String },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct AlertSourceReference {
     pub connector_id: String,
     pub endpoint: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct NormalizedAlert {
     pub fingerprint: String,
     pub state: String,

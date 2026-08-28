@@ -2,6 +2,7 @@ pub(crate) mod cloud;
 mod connectors;
 mod kubernetes;
 mod observability;
+mod operations;
 
 use crate::connectors::{
     ConnectorError, ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,

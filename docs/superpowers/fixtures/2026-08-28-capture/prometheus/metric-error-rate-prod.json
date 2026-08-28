@@ -1,0 +1,19 @@
+{
+  "series": [
+    {
+      "labels": {
+        "__name__": "checkout_error_rate",
+        "environment": "prod"
+      },
+      "samples": [
+        {"timestamp": 1787907540.0, "value": "0.010"},
+        {"timestamp": 1787907600.0, "value": "0.080"}
+      ]
+    }
+  ],
+  "source": {
+    "connector_id": "prometheus-prod",
+    "query": "checkout_error_rate",
+    "endpoint": "/api/v1/query_range"
+  }
+}

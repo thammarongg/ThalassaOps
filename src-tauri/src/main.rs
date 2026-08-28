@@ -185,6 +185,25 @@ async fn grafana_link(
     Ok(state.inner().clone().grafana_link(envelope).await)
 }
 
+// These two Tauri commands are intentionally synchronous because their work
+// is pure in-memory fixture aggregation with no I/O. Do not add a blocking
+// source call inside them; an I/O-backed source needs an async command path.
+#[tauri::command]
+fn operations_snapshot(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::OperationsSnapshot> {
+    state.operations_snapshot(envelope)
+}
+
+#[tauri::command]
+fn operations_evidence(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<thalassa_domain::EvidenceRef>> {
+    state.operations_evidence(envelope)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -216,6 +235,8 @@ fn main() {
             alertmanager_alerts,
             grafana_health,
             grafana_link,
+            operations_snapshot,
+            operations_evidence,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,

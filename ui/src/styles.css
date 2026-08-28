@@ -614,6 +614,615 @@ td {
   color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
 }
 
+/* Operations Console: a restrained command-bridge layout with one visual tide line. */
+.operations-console {
+  display: grid;
+  gap: clamp(1rem, 2.4vw, 1.75rem);
+  max-width: 88rem;
+}
+
+.operations-console__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-block-end: var(--space-2);
+  border-block-end: 1px solid color-mix(in srgb, var(--color-reef-cyan) 38%, transparent);
+}
+
+.operations-console__header h1 {
+  margin-block: 0.25rem 0.45rem;
+  color: var(--color-sea-glass);
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -0.04em;
+}
+
+.operations-console__subtitle {
+  max-width: 40rem;
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+}
+
+.operations-console__header-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.6rem;
+  flex: none;
+}
+
+.operations-console__header-actions button,
+.operations-widget-settings > button,
+.operations-widget-settings__order button,
+.operations-widget__expand {
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--color-sea-glass);
+  background: transparent;
+  cursor: pointer;
+}
+
+.operations-console__header-actions button:hover,
+.operations-widget-settings > button:hover,
+.operations-widget-settings__order button:hover:not(:disabled),
+.operations-widget__expand:hover {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+
+.operations-console__sync {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 68%, transparent);
+  font: 400 0.75rem var(--font-mono);
+}
+
+.operations-console__error {
+  margin: 0;
+  border-inline-start: 3px solid var(--color-coral);
+  padding: 0.7rem 0.85rem;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-coral) 11%, var(--color-abyss));
+}
+
+.operations-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: start;
+}
+
+.operations-widget {
+  min-width: 0;
+}
+
+.operations-widget--compact {
+  grid-column: span 4;
+}
+
+.operations-widget--standard,
+.operations-widget--wide {
+  grid-column: span 6;
+}
+
+.operations-widget .card {
+  height: 100%;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--color-reef-cyan) 24%, transparent);
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 13%);
+}
+
+.operations-widget .card > h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--color-sea-glass);
+  letter-spacing: -0.01em;
+}
+
+.operations-widget .card > h2::before {
+  width: 1.75rem;
+  height: 2px;
+  content: "";
+  background: var(--color-reef-cyan);
+}
+
+.operations-widget-state {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+}
+
+.operations-widget-state--error {
+  border-inline-start: 3px solid var(--color-coral);
+  padding-inline-start: 0.75rem;
+  color: var(--color-sea-glass);
+}
+
+.operations-widget__expand {
+  width: 100%;
+}
+
+.operations-health-summary,
+.operations-incident-queue,
+.operations-signal-summary,
+.operations-change-stream,
+.operations-environment-status {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.operations-health-headline {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  overflow: hidden;
+  padding: var(--space-2);
+  border-inline-start: 3px solid var(--color-kelp);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-kelp) 13%, transparent),
+    transparent 68%
+  );
+}
+
+.operations-health-headline::after {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, var(--color-reef-cyan), transparent 78%);
+  opacity: 0.8;
+}
+
+.operations-health-headline--critical {
+  border-inline-start-color: var(--color-coral);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-coral) 15%, transparent),
+    transparent 68%
+  );
+}
+
+.operations-health-headline--degraded,
+.operations-health-headline--unknown {
+  border-inline-start-color: var(--color-amber);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-amber) 13%, transparent),
+    transparent 68%
+  );
+}
+
+.operations-health-headline h3,
+.operations-health-headline p {
+  margin: 0;
+}
+
+.operations-health-headline h3 {
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.operations-health-headline > div > p:not(.operations-health-headline__meta) {
+  margin-block-start: 0.25rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+.operations-health-headline__meta {
+  margin-block-start: 0.75rem !important;
+  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  font: 400 0.75rem var(--font-mono);
+}
+
+.operations-number-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.65rem;
+}
+
+.operations-number-grid--primary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.operations-critical-number {
+  min-width: 0;
+}
+
+.operations-critical-number__button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  width: 100%;
+  min-height: 4.3rem;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 18%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  text-align: start;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-abyss) 54%, transparent);
+  cursor: pointer;
+}
+
+.operations-critical-number__button:hover {
+  border-color: var(--color-reef-cyan);
+  background: color-mix(in srgb, var(--color-reef-cyan) 9%, var(--color-abyss));
+}
+
+.operations-critical-number__value {
+  color: var(--color-reef-cyan);
+  font: 700 clamp(1.2rem, 3vw, 1.75rem) var(--font-mono);
+}
+
+.operations-critical-number__label {
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-sea-glass) 76%, transparent);
+  font-size: 0.78rem;
+}
+
+.operations-critical-number__affordance {
+  color: var(--color-reef-cyan);
+  font: 700 1.1rem var(--font-mono);
+}
+
+.operations-critical-number__unavailable,
+.operations-item-drilldown__unavailable {
+  display: block;
+  min-height: 4.3rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed color-mix(in srgb, var(--color-coral) 55%, transparent);
+  border-radius: 0.5rem;
+  color: var(--color-sea-glass);
+}
+
+.operations-health-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.operations-health-breakdown h3,
+.operations-signal-sources h3,
+.operations-contributing-scopes h3 {
+  margin-block: 0 0.65rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 74%, transparent);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.operations-number-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.operations-number-list .operations-critical-number__button {
+  min-height: 2.8rem;
+}
+
+.operations-number-list .operations-critical-number__value {
+  font-size: 1rem;
+}
+
+.operations-contributing-scopes ul,
+.operations-change-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operations-contributing-scopes li {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+}
+
+.operations-incident-list,
+.operations-environment-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.operations-incident-entry,
+.operations-environment-entry,
+.operations-change-entry {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.85rem;
+  background: color-mix(in srgb, var(--color-abyss) 32%, transparent);
+}
+
+.operations-incident-entry__topline,
+.operations-environment-entry__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.operations-incident-entry h3,
+.operations-environment-entry h3,
+.operations-change-entry h3 {
+  margin: 0.65rem 0 0.25rem;
+  font-size: 1rem;
+}
+
+.operations-incident-entry p,
+.operations-environment-entry p,
+.operations-change-entry p {
+  margin: 0.2rem 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+}
+
+.operations-incident-entry__meta,
+.operations-environment-entry__observed,
+.operations-change-entry__time {
+  font: 400 0.75rem var(--font-mono);
+}
+
+.operations-priority,
+.operations-incident-status {
+  border: 1px solid color-mix(in srgb, var(--color-amber) 75%, transparent);
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  color: var(--color-amber);
+  font: 700 0.7rem var(--font-mono);
+}
+
+.operations-incident-status {
+  border-color: color-mix(in srgb, var(--color-sea-glass) 24%, transparent);
+  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+.operations-item-drilldown {
+  margin-block-start: 0.7rem;
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  color: var(--color-sea-glass);
+  background: transparent;
+  cursor: pointer;
+}
+
+.operations-item-drilldown:hover {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+
+.operations-widget-caption {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 58%, transparent);
+  font-size: 0.78rem;
+}
+
+.operations-source-notices {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.operations-source-notice {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  border-inline-start: 3px solid var(--color-amber);
+  padding: 0.55rem 0.7rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 82%, transparent);
+  background: color-mix(in srgb, var(--color-amber) 8%, var(--color-abyss));
+  font-size: 0.8rem;
+}
+
+.operations-source-notice[role="alert"] {
+  border-inline-start-color: var(--color-coral);
+  background: color-mix(in srgb, var(--color-coral) 9%, var(--color-abyss));
+}
+
+.operations-source-notice__detail {
+  flex-basis: 100%;
+  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.operations-change-entry {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.operations-change-entry__time,
+.operations-evidence-entry__id {
+  color: var(--color-reef-cyan) !important;
+  font-family: var(--font-mono);
+}
+
+.operations-environment-entry__header {
+  justify-content: space-between;
+  align-items: start;
+}
+
+.operations-environment-entry__provider {
+  font: 400 0.75rem var(--font-mono);
+}
+
+.operations-widget-settings {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.operations-widget-settings > p {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+}
+
+.operations-widget-settings__list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operations-widget-settings__item {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-block-end: 1px solid color-mix(in srgb, var(--color-sea-glass) 12%, transparent);
+  padding-block-end: 0.65rem;
+}
+
+.operations-widget-settings__main {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.operations-widget-settings__main label {
+  color: color-mix(in srgb, var(--color-sea-glass) 85%, transparent);
+  font-size: 0.82rem;
+}
+
+.operations-widget-settings__main select {
+  max-width: 9rem;
+  color: var(--color-sea-glass);
+  background: var(--color-abyss);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border-radius: 0.35rem;
+  padding: 0.3rem;
+}
+
+.operations-widget-settings__order {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.operations-widget-settings__order button {
+  min-width: 2.1rem;
+  min-height: 2.1rem;
+  padding: 0.25rem;
+  font-family: var(--font-mono);
+}
+
+.operations-widget-settings__order button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.operations-evidence-panel {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.operations-evidence-panel__context {
+  border-inline-start: 3px solid var(--color-reef-cyan);
+  padding-inline-start: 0.75rem;
+}
+
+.operations-evidence-panel__context p {
+  margin: 0.25rem 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 76%, transparent);
+  font-size: 0.82rem;
+}
+
+.operations-evidence-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.operations-evidence-entry {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--color-abyss) 35%, transparent);
+}
+
+.operations-evidence-entry__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.operations-evidence-entry h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.operations-evidence-entry__id {
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+}
+
+.operations-evidence-entry dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.8rem 0 0;
+}
+
+.operations-evidence-entry dl div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.operations-evidence-entry dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 57%, transparent);
+  font-size: 0.72rem;
+}
+
+.operations-evidence-entry dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-sea-glass) 84%, transparent);
+  font-size: 0.8rem;
+}
+
+.operations-evidence-entry dd code {
+  font-family: var(--font-mono);
+}
+
+.operations-evidence-entry__redaction {
+  margin: 0.8rem 0 0;
+  color: var(--color-kelp);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .operations-widget--compact,
+  .operations-widget--standard,
+  .operations-widget--wide {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 640px) {
+  .operations-console__header,
+  .operations-change-entry {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .operations-console__header-actions {
+    justify-items: start;
+  }
+
+  .operations-number-grid--primary,
+  .operations-health-breakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-widget-settings__item {
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 640px) {
   .environment-panel__header,
   .environment-access {

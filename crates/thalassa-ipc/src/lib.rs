@@ -107,6 +107,29 @@ impl CommandDescriptor {
     }
 }
 
+/// Stable command descriptors for the read-only Operations Console surface.
+///
+/// Keeping the command name, capability and permission in the IPC crate gives
+/// Tauri handlers and contract tests one source of truth.  The operation
+/// payloads and responses remain provider-neutral domain values.
+pub fn operations_snapshot_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "operations",
+        "snapshot",
+        Capability::WorkspaceRead,
+        Permission::Read,
+    )
+}
+
+pub fn operations_evidence_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "operations",
+        "evidence",
+        Capability::ResourceRead,
+        Permission::Read,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,

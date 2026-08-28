@@ -1,0 +1,19 @@
+{
+  "series": [
+    {
+      "labels": {
+        "__name__": "node_cpu_utilization",
+        "environment": "prod"
+      },
+      "samples": [
+        {"timestamp": 1787907540.0, "value": "70"},
+        {"timestamp": 1787907600.0, "value": "92"}
+      ]
+    }
+  ],
+  "source": {
+    "connector_id": "prometheus-prod",
+    "query": "node_cpu_utilization",
+    "endpoint": "/api/v1/query_range"
+  }
+}
