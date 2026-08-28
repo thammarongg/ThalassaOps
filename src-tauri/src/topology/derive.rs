@@ -371,8 +371,21 @@ fn load_source_status(input: &TopologyInput, graph: &mut DerivedGraph) {
             status.reason = None;
             status.detail = Some("source record was omitted after validation".into());
         }
+        let invalid_detail = status
+            .detail
+            .as_deref()
+            .is_some_and(|detail| !safe_display_text(detail));
+        let invalid_observed_at = status
+            .observed_at
+            .as_deref()
+            .is_some_and(|observed_at| !safe_display_text(observed_at));
         status.detail = sanitize_optional_text(status.detail.as_deref());
         status.observed_at = sanitize_optional_text(status.observed_at.as_deref());
+        if invalid_detail || invalid_observed_at {
+            status.state = SourceState::Unverified;
+            status.reason = None;
+            status.detail = Some("source record was omitted after validation".into());
+        }
         let original_evidence_count = status.evidence_ids.len();
         status.evidence_ids.retain(|evidence_id| {
             graph.evidence.contains_key(evidence_id) && safe_identifier(evidence_id)

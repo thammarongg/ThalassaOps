@@ -544,6 +544,27 @@ fn malformed_topology_source_statuses_are_unverified_instead_of_fresh() {
 }
 
 #[test]
+fn sensitive_topology_source_status_fields_are_unverified_instead_of_fresh() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.source_status[0].observed_at = Some("token=opaque-fixture-value".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("unsafe source status fields should not prevent projection");
+    let status = snapshot
+        .source_status
+        .iter()
+        .find(|status| status.source_key == "cloud")
+        .expect("fixture should contain a cloud source status");
+    assert_eq!(status.state, SourceState::Unverified);
+    assert_eq!(status.observed_at, None);
+    assert_eq!(
+        status.detail.as_deref(),
+        Some("source record was omitted after validation")
+    );
+}
+
+#[test]
 fn unsafe_topology_metric_keys_are_omitted_and_mark_source_unverified() {
     let mut input = topology_fixture_input(fixture_scope());
     input.environments[0].resource_count.key = "account_id".into();
