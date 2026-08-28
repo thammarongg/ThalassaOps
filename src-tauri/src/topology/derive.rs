@@ -1,7 +1,7 @@
 //! Source adapters and graph construction for the topology projection.
 
 use super::fixtures::TopologyInput;
-use super::ownership::resolve_ownership;
+use super::ownership::{resolve_ownership, validate_rules};
 use crate::cloud::{CloudHealthState, CloudResource, CloudResourceType};
 use crate::kubernetes::{KubernetesHealth, KubernetesResource};
 use crate::observability::alertmanager::{NormalizedAlert, ResourceReference};
@@ -169,22 +169,10 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         edges: Vec::new(),
         source_status: BTreeMap::new(),
         evidence: BTreeMap::new(),
-        incident_ids: input
-            .incident_queue
-            .iter()
-            .map(|item| item.id.clone())
-            .collect(),
-        incident_root_nodes: input.incident_root_nodes.clone(),
-        incident_affected_resources: input
-            .incident_queue
-            .iter()
-            .map(|item| (item.id.clone(), item.affected_scope.resource_ids.clone()))
-            .collect(),
-        incident_source_ids: input
-            .incident_queue
-            .iter()
-            .map(|item| (item.id.clone(), item.source_id.clone()))
-            .collect(),
+        incident_ids: BTreeSet::new(),
+        incident_root_nodes: BTreeMap::new(),
+        incident_affected_resources: BTreeMap::new(),
+        incident_source_ids: BTreeMap::new(),
         resource_id_nodes: BTreeMap::new(),
         node_lookup: BTreeMap::new(),
         k8s_resources: BTreeMap::new(),
@@ -192,6 +180,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
 
     admit_evidence(input, &mut graph);
     load_source_status(input, &mut graph);
+    load_incident_queue(input, &mut graph);
     derive_environments(input, &mut graph);
     derive_kubernetes(input, &mut graph);
     derive_cloud(input, &mut graph);
@@ -201,6 +190,44 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
 
     graph.edges.sort_by(|left, right| left.id.cmp(&right.id));
     graph
+}
+
+fn load_incident_queue(input: &TopologyInput, graph: &mut DerivedGraph) {
+    let mut queue = input.incident_queue.clone();
+    queue.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.source_id.cmp(&right.source_id))
+    });
+    for item in queue {
+        let valid = safe_identifier(&item.id)
+            && input.scope.contains(&item.scope)
+            && input.scope.contains(&item.affected_scope)
+            && !item.evidence_ids.is_empty()
+            && item
+                .evidence_ids
+                .iter()
+                .all(|evidence_id| graph.evidence.contains_key(evidence_id));
+        if !valid || graph.incident_ids.contains(&item.id) {
+            graph.mark_unverified("incidents");
+            continue;
+        }
+        graph.incident_ids.insert(item.id.clone());
+        graph
+            .incident_affected_resources
+            .insert(item.id.clone(), item.affected_scope.resource_ids.clone());
+        graph
+            .incident_source_ids
+            .insert(item.id.clone(), item.source_id.clone());
+        graph.incident_root_nodes.insert(
+            item.id.clone(),
+            input
+                .incident_root_nodes
+                .get(&item.id)
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
 }
 
 fn admit_evidence(input: &TopologyInput, graph: &mut DerivedGraph) {
@@ -355,6 +382,13 @@ fn derive_kubernetes(input: &TopologyInput, graph: &mut DerivedGraph) {
             graph.mark_unverified("kubernetes");
             continue;
         }
+        if !has_environment_node(graph, environment_id) {
+            // An inventory key is not itself a scope grant. Require the
+            // environment projection admitted for this workspace before
+            // exposing any resources under that key.
+            graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+            continue;
+        }
         let environment_node_id = ensure_environment_node(input, graph, environment_id);
         let mut resources = inventory.resources.clone();
         resources.sort_by(|left, right| resource_order(&left.resource, &right.resource));
@@ -416,6 +450,13 @@ fn ensure_environment_node(
         &node_id,
     );
     node_id
+}
+
+fn has_environment_node(graph: &DerivedGraph, environment_id: &str) -> bool {
+    graph.nodes.values().any(|node| {
+        node.kind == TopologyNodeKind::Environment
+            && node.environment_id.as_deref() == Some(environment_id)
+    })
 }
 
 fn derive_kubernetes_resource(
@@ -756,6 +797,14 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
         graph.mark_unverified("cloud");
         return;
     }
+    if !has_environment_node(graph, &resource.environment_id) {
+        // CloudResource has no independent ResourceScope field. Its
+        // environment projection is therefore the scope anchor; an unknown
+        // environment must never become an orphan node that a filter can
+        // surface.
+        graph.mark_unverified("cloud");
+        return;
+    }
     let kind = match resource.resource_type {
         CloudResourceType::KubernetesCluster => TopologyNodeKind::Cluster,
         CloudResourceType::ComputeInstance => TopologyNodeKind::CloudResource,
@@ -1057,16 +1106,25 @@ fn attach_evidence_to_node(graph: &mut DerivedGraph, node_id: &str, evidence_ids
 
 fn resolve_node_ownership(input: &TopologyInput, graph: &mut DerivedGraph) {
     let known_evidence = graph.evidence.keys().cloned().collect::<BTreeSet<_>>();
+    let (ownership_rules, rejected_selectors, invalid_rules) =
+        validate_rules(&input.ownership_rules, &known_evidence, input.scope.team_id);
+    if invalid_rules {
+        graph.mark_unverified("ownership");
+    }
     let mut node_ids = graph.nodes.keys().cloned().collect::<Vec<_>>();
     node_ids.sort();
     for node_id in node_ids {
         let Some(node) = graph.nodes.get(&node_id).cloned() else {
             continue;
         };
-        let ownership = match resolve_ownership(&node, &input.ownership_rules, &known_evidence) {
+        let ownership = match resolve_ownership(&node, &ownership_rules, &rejected_selectors) {
             Ok(ownership) => ownership,
-            Err(TopologyError::EvidenceMissing | TopologyError::MalformedSource) => {
-                graph.mark_unverified("fixtures");
+            Err(TopologyError::EvidenceMissing) => {
+                mark_ownership_issue(graph, "ownership_evidence_missing");
+                unassigned_ownership()
+            }
+            Err(TopologyError::MalformedSource) => {
+                mark_ownership_issue(graph, "ambiguous_ownership");
                 unassigned_ownership()
             }
             Err(_) => unassigned_ownership(),
@@ -1074,6 +1132,13 @@ fn resolve_node_ownership(input: &TopologyInput, graph: &mut DerivedGraph) {
         if let Some(node) = graph.nodes.get_mut(&node_id) {
             node.ownership = ownership;
         }
+    }
+}
+
+fn mark_ownership_issue(graph: &mut DerivedGraph, detail: &str) {
+    graph.mark_unverified("ownership");
+    if let Some(status) = graph.source_status.get_mut("ownership") {
+        status.detail = Some(detail.into());
     }
 }
 

@@ -6,6 +6,7 @@
 //! owns that boundary in a later sprint task.
 
 mod derive;
+mod filter;
 pub mod fixtures;
 mod ownership;
 mod traversal;
@@ -22,6 +23,10 @@ pub use thalassa_domain::{
 };
 
 use crate::topology::derive::{derive_graph, DerivedGraph};
+use crate::topology::filter::{
+    empty_status, resolve_incident_roots, select_nodes, traversal_roots,
+};
+use crate::topology::ownership::validate_rules;
 use crate::topology::traversal::traverse;
 use std::collections::{BTreeMap, BTreeSet};
 use thalassa_domain::{
@@ -33,6 +38,17 @@ use thalassa_domain::{
 #[derive(Clone, Debug)]
 pub struct TopologyBuilder {
     input: TopologyInput,
+}
+
+/// Validate a topology request against the current workspace graph and queue
+/// projection without returning a snapshot or performing provider I/O.
+pub fn validate_topology_request(
+    request: &TopologyRequest,
+    input: &TopologyInput,
+) -> Result<(), TopologyError> {
+    request.validate()?;
+    let graph = derive_graph(input);
+    validate_request_against_graph(input, &graph, request)
 }
 
 impl TopologyBuilder {
@@ -49,32 +65,36 @@ impl TopologyBuilder {
     ) -> Result<TopologySnapshot, TopologyError> {
         request.validate()?;
         let mut graph = derive_graph(&self.input);
-
-        let node_ids = graph.nodes.keys().cloned().collect::<BTreeSet<_>>();
-        let environment_ids = graph
-            .nodes
-            .values()
-            .filter_map(|node| node.environment_id.clone())
-            .collect::<BTreeSet<_>>();
-        let mut team_ids = graph
-            .nodes
-            .values()
-            .filter_map(|node| node.ownership.team_id)
-            .collect::<BTreeSet<_>>();
-        team_ids.extend(self.input.scope.team_id);
-        team_ids.extend(
-            self.input
-                .ownership_rules
-                .iter()
-                .filter(|rule| rule.validate().is_ok())
-                .map(|rule| rule.team_id),
-        );
-        request.validate_against(&node_ids, &environment_ids, &team_ids, &graph.incident_ids)?;
+        validate_request_against_graph(&self.input, &graph, request)?;
 
         let incident_roots = resolve_incident_roots(&mut graph, request)?;
         let traversal_roots = traversal_roots(request, &incident_roots);
 
-        let visible_node_ids = visible_nodes(&graph.nodes, &request.filter);
+        // Incident selection is resolved against the complete current graph so
+        // that context paths can be identified before Environment/Team
+        // intersection removes nodes. The final traversal is rerun below on
+        // that reduced graph, ensuring no hidden endpoint can leak through.
+        let incident_paths = if request.filter.incident_id.is_some()
+            && request.traversal.max_depth > 0
+            && !traversal_roots.is_empty()
+        {
+            traverse(
+                &traversal_roots,
+                &graph.nodes,
+                &graph.edges,
+                request.traversal,
+            )?
+        } else {
+            Vec::new()
+        };
+        let selection = select_nodes(
+            &graph.nodes,
+            &request.filter,
+            &incident_roots,
+            &traversal_roots,
+            &incident_paths,
+        );
+        let visible_node_ids = selection.visible_node_ids;
         let mut nodes = graph
             .nodes
             .into_iter()
@@ -104,6 +124,9 @@ impl TopologyBuilder {
 
         let summary = topology_summary(&nodes, &edges, &paths, &graph.evidence, &self.input.scope);
         let mut source_status = graph.source_status.into_values().collect::<Vec<_>>();
+        if let Some(reason) = selection.empty_reason {
+            source_status.push(empty_status(reason));
+        }
         source_status.sort_by(|left, right| left.source_key.cmp(&right.source_key));
         let evidence = graph.evidence.into_values().collect::<Vec<_>>();
 
@@ -111,7 +134,13 @@ impl TopologyBuilder {
             generated_at: fixture_or_input_timestamp(&self.input),
             scope: self.input.scope.clone(),
             filter: request.filter.clone(),
-            focus_node_id: request.focus_node_id.clone(),
+            // A focus node removed by an active filter cannot be serialized as
+            // part of the filtered graph. Clearing it keeps the result valid
+            // and, importantly, never widens the caller's selected scope.
+            focus_node_id: request
+                .focus_node_id
+                .clone()
+                .filter(|node_id| nodes.contains_key(node_id)),
             traversal: request.traversal,
             summary,
             nodes: nodes.into_values().collect(),
@@ -126,75 +155,34 @@ impl TopologyBuilder {
     }
 }
 
+fn validate_request_against_graph(
+    input: &TopologyInput,
+    graph: &DerivedGraph,
+    request: &TopologyRequest,
+) -> Result<(), TopologyError> {
+    let node_ids = graph.nodes.keys().cloned().collect::<BTreeSet<_>>();
+    let environment_ids = graph
+        .nodes
+        .values()
+        .filter_map(|node| node.environment_id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut team_ids = graph
+        .nodes
+        .values()
+        .filter_map(|node| node.ownership.team_id)
+        .collect::<BTreeSet<_>>();
+    team_ids.extend(input.scope.team_id);
+    let known_evidence = graph.evidence.keys().cloned().collect::<BTreeSet<_>>();
+    let (admitted_rules, _, _) =
+        validate_rules(&input.ownership_rules, &known_evidence, input.scope.team_id);
+    team_ids.extend(admitted_rules.iter().map(|rule| rule.team_id));
+    request.validate_against(&node_ids, &environment_ids, &team_ids, &graph.incident_ids)
+}
+
 fn fixture_or_input_timestamp(input: &TopologyInput) -> String {
     input
         .generated_at
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
-fn resolve_incident_roots(
-    graph: &mut DerivedGraph,
-    request: &TopologyRequest,
-) -> Result<BTreeSet<String>, TopologyError> {
-    let Some(incident_id) = request.filter.incident_id.as_ref() else {
-        return Ok(BTreeSet::new());
-    };
-
-    if !graph.incident_ids.contains(incident_id) {
-        return Err(TopologyError::IncidentNotFound);
-    }
-
-    let mut roots = BTreeSet::new();
-    if let Some(candidate_roots) = graph.incident_root_nodes.get(incident_id).cloned() {
-        for node_id in candidate_roots {
-            if graph.nodes.contains_key(&node_id) {
-                roots.insert(node_id.clone());
-            } else {
-                graph.mark_unverified("incidents");
-            }
-        }
-    }
-    if let Some(resource_ids) = graph.incident_affected_resources.get(incident_id).cloned() {
-        for resource_id in resource_ids {
-            if let Some(node_id) = graph.resource_id_nodes.get(&resource_id) {
-                roots.insert(node_id.clone());
-            } else {
-                graph.mark_unverified("incidents");
-            }
-        }
-    }
-    Ok(roots)
-}
-
-fn traversal_roots(request: &TopologyRequest, incident_roots: &BTreeSet<String>) -> Vec<String> {
-    let mut roots = incident_roots.clone();
-    if let Some(focus_node_id) = request.focus_node_id.as_ref() {
-        roots.insert(focus_node_id.clone());
-    }
-    roots.into_iter().collect()
-}
-
-fn visible_nodes(
-    nodes: &BTreeMap<String, TopologyNode>,
-    filter: &TopologyFilter,
-) -> BTreeSet<String> {
-    nodes
-        .values()
-        .filter(|node| {
-            let environment_matches = filter.environment_ids.is_empty()
-                || node
-                    .environment_id
-                    .as_ref()
-                    .is_some_and(|environment_id| filter.environment_ids.contains(environment_id));
-            let team_matches = filter.team_ids.is_empty()
-                || filter
-                    .team_ids
-                    .iter()
-                    .any(|team_id| node.ownership.team_id == Some(*team_id));
-            environment_matches && team_matches
-        })
-        .map(|node| node.id.clone())
-        .collect()
 }
 
 fn topology_summary(
