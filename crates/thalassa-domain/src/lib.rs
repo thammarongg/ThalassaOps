@@ -1716,16 +1716,40 @@ impl OperationsSnapshot {
                     ));
                 }
             }
+            if !item
+                .evidence_ids
+                .iter()
+                .any(|id| item.drill_down.evidence_ids.contains(id))
+                || !item
+                    .evidence_ids
+                    .iter()
+                    .any(|id| item.drill_down_reference.evidence_ids.contains(id))
+            {
+                return Err(OperationsSnapshotError::Validation(
+                    "queue drill-down must reference its evidence".into(),
+                ));
+            }
         }
         for change in &self.changes {
-            if change.evidence_ids.is_empty() || change.drill_down.evidence_ids.is_empty() {
+            if change.evidence_ids.is_empty()
+                || change.drill_down.evidence_ids.is_empty()
+                || !change
+                    .evidence_ids
+                    .iter()
+                    .any(|id| change.drill_down.evidence_ids.contains(id))
+            {
                 return Err(OperationsSnapshotError::Validation(
                     "changes require evidence".into(),
                 ));
             }
         }
         for environment in &self.environments {
-            if environment.evidence_ids.is_empty() || environment.drill_down.evidence_ids.is_empty()
+            if environment.evidence_ids.is_empty()
+                || environment.drill_down.evidence_ids.is_empty()
+                || !environment
+                    .evidence_ids
+                    .iter()
+                    .any(|id| environment.drill_down.evidence_ids.contains(id))
             {
                 return Err(OperationsSnapshotError::Validation(
                     "environments require evidence".into(),

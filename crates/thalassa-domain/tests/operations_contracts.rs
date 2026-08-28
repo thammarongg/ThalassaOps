@@ -281,6 +281,16 @@ fn operations_contracts_round_trip_through_json() {
         .evidence_ids = vec!["evidence-does-not-exist".into()];
     assert!(invalid_queue_reference.validate().is_err());
 
+    let mut mismatched_queue_reference = snapshot.clone();
+    let mut second_evidence = mismatched_queue_reference.evidence[0].clone();
+    second_evidence.id = "evidence-2".into();
+    second_evidence.endpoint = "fixture://different-source".into();
+    mismatched_queue_reference.evidence.push(second_evidence);
+    mismatched_queue_reference.incident_queue[0]
+        .drill_down
+        .evidence_ids = vec!["evidence-2".into()];
+    assert!(mismatched_queue_reference.validate().is_err());
+
     let mut duplicate_evidence = snapshot;
     let mut duplicate = duplicate_evidence.evidence[0].clone();
     duplicate.id = "evidence-duplicate-content".into();
