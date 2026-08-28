@@ -1966,6 +1966,15 @@ impl TopologyPath {
             return Err(TopologyError::InvalidRequest);
         }
 
+        let mut expected_confidence: f64 = 1.0;
+        for edge_id in self.edge_ids.iter().chain(self.cycle_edge_id.iter()) {
+            let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+            expected_confidence = expected_confidence.min(edge.confidence);
+        }
+        if self.confidence != expected_confidence {
+            return Err(TopologyError::InvalidRequest);
+        }
+
         for (edge_id, node_pair) in self.edge_ids.iter().zip(self.node_ids.windows(2)) {
             let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
             let follows_direction = match self.direction {

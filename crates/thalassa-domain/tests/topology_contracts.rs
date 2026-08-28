@@ -263,6 +263,14 @@ fn topology_snapshot_rejects_duplicate_source_status_keys() {
 }
 
 #[test]
+fn topology_snapshot_rejects_path_confidence_above_edge_minimum() {
+    let mut invalid = snapshot();
+    invalid.paths[0].confidence = 0.8;
+
+    assert_eq!(invalid.validate(), Err(TopologyError::InvalidRequest));
+}
+
+#[test]
 fn topology_enums_use_explicit_symmetric_wire_values() {
     macro_rules! assert_wire_values {
         ($type:ty, $( $variant:expr => $wire:expr ),+ $(,)?) => {

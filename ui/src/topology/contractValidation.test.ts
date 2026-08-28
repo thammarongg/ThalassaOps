@@ -99,6 +99,13 @@ it("rejects duplicate topology source status keys", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects path confidence that exceeds its weakest relationship", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.paths[0].confidence = 0.8;
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("keeps the UI fixture identity catalog aligned with the Rust topology fixture", () => {
   const expectedNodeIds = [
     "node:cloud:env-aws-prod:cloud_resource:checkout-rds",

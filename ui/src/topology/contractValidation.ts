@@ -355,6 +355,12 @@ export const isTopologySnapshot = (value: unknown): value is TopologySnapshot =>
       ) {
         return true;
       }
+      const pathEdgeIds = [...path.edge_ids, ...(path.cycle_edge_id ? [path.cycle_edge_id] : [])];
+      const expectedConfidence = pathEdgeIds.reduce(
+        (minimum, edgeId) => Math.min(minimum, edgeById.get(edgeId)?.confidence ?? 1),
+        1
+      );
+      if (path.confidence !== expectedConfidence) return true;
       const expectedEvidence = new Set<ConsoleEvidenceId>();
       for (const nodeId of path.node_ids) {
         const node = snapshot.nodes.find((candidate) => candidate.id === nodeId);
