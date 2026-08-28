@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use thalassa_domain::{
-    ResourceScope, SourceState, StatusReason, TopologyDirection, TopologyFilter, TopologyRequest,
-    TopologyTraversal,
+    ResourceScope, SourceState, SourceStatus, StatusReason, TopologyDirection, TopologyFilter,
+    TopologyRequest, TopologyTraversal,
 };
 use thalassaops::topology::{
     default_topology_request, fixture_scope, topology_fixture_input, TopologyBuilder,
@@ -196,6 +196,39 @@ fn empty_filter_result_reports_reason_and_applied_filter() {
     assert_eq!(empty_status.state, SourceState::Unavailable);
     assert_eq!(empty_status.reason, Some(StatusReason::NoDataInWindow));
     assert_eq!(empty_status.detail.as_deref(), Some("no_matching_nodes"));
+}
+
+#[test]
+fn empty_filter_status_does_not_duplicate_an_input_status_key() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.source_status.push(SourceStatus {
+        source_key: "topology_filter".into(),
+        state: SourceState::Fresh,
+        reason: None,
+        detail: None,
+        observed_at: None,
+        evidence_ids: Vec::new(),
+    });
+    let filter = TopologyFilter {
+        environment_ids: vec!["env-gcp-staging".into()],
+        team_ids: vec![],
+        incident_id: Some("alert-checkout-s1".into()),
+    };
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request(filter, 0))
+        .expect("an empty filtered graph should build");
+
+    let filter_statuses = snapshot
+        .source_status
+        .iter()
+        .filter(|status| status.source_key == "topology_filter")
+        .collect::<Vec<_>>();
+    assert_eq!(filter_statuses.len(), 1);
+    assert_eq!(filter_statuses[0].state, SourceState::Unavailable);
+    assert_eq!(
+        filter_statuses[0].reason,
+        Some(StatusReason::NoDataInWindow)
+    );
 }
 
 #[test]

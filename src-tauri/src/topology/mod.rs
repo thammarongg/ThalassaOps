@@ -126,6 +126,7 @@ impl TopologyBuilder {
         let summary = topology_summary(&nodes, &edges, &paths, &graph.evidence, &self.input.scope);
         let mut source_status = graph.source_status.into_values().collect::<Vec<_>>();
         if let Some(reason) = selection.empty_reason {
+            source_status.retain(|status| status.source_key != "topology_filter");
             source_status.push(empty_status(reason));
         }
         source_status.sort_by(|left, right| left.source_key.cmp(&right.source_key));
