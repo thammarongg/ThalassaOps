@@ -44,8 +44,28 @@ pub(crate) fn resolve_incident_roots(
         return Err(TopologyError::IncidentNotFound);
     }
 
-    let mut roots = BTreeSet::new();
+    let explicit_resource_ids = graph
+        .incident_affected_resources
+        .get(incident_id)
+        .cloned()
+        .unwrap_or_default();
+    if !explicit_resource_ids.is_empty() {
+        let mut roots = BTreeSet::new();
+        for resource_id in explicit_resource_ids {
+            if let Some(node_id) = graph.resource_id_nodes.get(&resource_id) {
+                roots.insert(node_id.clone());
+            } else {
+                graph.mark_unverified("incidents");
+            }
+        }
+        if roots.is_empty() {
+            graph.mark_unverified("incidents");
+        }
+        return Ok(roots);
+    }
+
     if let Some(candidate_roots) = graph.incident_root_nodes.get(incident_id).cloned() {
+        let mut roots = BTreeSet::new();
         for node_id in candidate_roots {
             if graph.nodes.contains_key(&node_id) {
                 roots.insert(node_id);
@@ -53,11 +73,20 @@ pub(crate) fn resolve_incident_roots(
                 graph.mark_unverified("incidents");
             }
         }
+        if !roots.is_empty() {
+            return Ok(roots);
+        }
     }
-    if let Some(resource_ids) = graph.incident_affected_resources.get(incident_id).cloned() {
-        for resource_id in resource_ids {
-            if let Some(node_id) = graph.resource_id_nodes.get(&resource_id) {
-                roots.insert(node_id.clone());
+
+    let mut roots = BTreeSet::new();
+    if let Some(candidate_roots) = graph
+        .incident_fixture_root_nodes
+        .get(incident_id)
+        .cloned()
+    {
+        for node_id in candidate_roots {
+            if graph.nodes.contains_key(&node_id) {
+                roots.insert(node_id);
             } else {
                 graph.mark_unverified("incidents");
             }

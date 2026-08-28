@@ -85,6 +85,55 @@ fn incident_filter_selects_affected_roots_from_the_sprint_eleven_queue() {
 }
 
 #[test]
+fn incident_root_resolution_prefers_explicit_resource_ids() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.incident_root_nodes.insert(
+        "alert-checkout-s1".into(),
+        vec!["node:kubernetes:env-aws-prod:workload:uid-workload-unassigned-worker".into()],
+    );
+    let filter = TopologyFilter {
+        environment_ids: vec![],
+        team_ids: vec![],
+        incident_id: Some("alert-checkout-s1".into()),
+    };
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request(filter, 0))
+        .expect("incident filter should build");
+
+    assert_eq!(snapshot.nodes.len(), 1);
+    assert_eq!(snapshot.nodes[0].name, "checkout");
+}
+
+#[test]
+fn incident_root_resolution_prefers_exact_source_binding_over_fixture_binding() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input
+        .incident_queue
+        .first_mut()
+        .expect("fixture incident")
+        .affected_scope
+        .resource_ids
+        .clear();
+    input.incident_root_nodes.insert(
+        "alert-checkout-s1".into(),
+        vec!["node:kubernetes:env-aws-prod:workload:uid-workload-unassigned-worker".into()],
+    );
+    let filter = TopologyFilter {
+        environment_ids: vec![],
+        team_ids: vec![],
+        incident_id: Some("alert-checkout-s1".into()),
+    };
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request(filter, 0))
+        .expect("incident filter should build");
+
+    assert_eq!(snapshot.nodes.len(), 1);
+    assert_eq!(snapshot.nodes[0].name, "checkout");
+}
+
+#[test]
 fn environment_team_and_incident_filters_intersect_without_widening() {
     let filter = TopologyFilter {
         environment_ids: vec!["env-aws-prod".into()],

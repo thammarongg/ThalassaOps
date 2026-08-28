@@ -25,6 +25,7 @@ pub(crate) struct DerivedGraph {
     pub(crate) evidence: BTreeMap<String, EvidenceRef>,
     pub(crate) incident_ids: BTreeSet<String>,
     pub(crate) incident_root_nodes: BTreeMap<String, Vec<String>>,
+    pub(crate) incident_fixture_root_nodes: BTreeMap<String, Vec<String>>,
     pub(crate) incident_affected_resources: BTreeMap<String, Vec<ResourceId>>,
     incident_source_ids: BTreeMap<String, String>,
     pub(crate) resource_id_nodes: BTreeMap<ResourceId, String>,
@@ -149,6 +150,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         evidence: BTreeMap::new(),
         incident_ids: BTreeSet::new(),
         incident_root_nodes: BTreeMap::new(),
+        incident_fixture_root_nodes: BTreeMap::new(),
         incident_affected_resources: BTreeMap::new(),
         incident_source_ids: BTreeMap::new(),
         resource_id_nodes: BTreeMap::new(),
@@ -197,7 +199,8 @@ fn load_incident_queue(input: &TopologyInput, graph: &mut DerivedGraph) {
         graph
             .incident_source_ids
             .insert(item.id.clone(), item.source_id.clone());
-        graph.incident_root_nodes.insert(
+        graph.incident_root_nodes.insert(item.id.clone(), Vec::new());
+        graph.incident_fixture_root_nodes.insert(
             item.id.clone(),
             input
                 .incident_root_nodes
@@ -983,6 +986,7 @@ fn bind_incident_source(graph: &mut DerivedGraph, source_id: &str, node_id: &str
         .filter(|(_, candidate_source_id)| candidate_source_id.as_str() == source_id)
         .map(|(incident_id, _)| incident_id.clone())
         .collect::<Vec<_>>();
+    eprintln!("bind source={source_id} node={node_id} incidents={incident_ids:?}");
     for incident_id in incident_ids {
         let roots = graph.incident_root_nodes.entry(incident_id).or_default();
         if !roots.iter().any(|candidate| candidate == node_id) {
@@ -1026,18 +1030,25 @@ fn find_observability_candidates(
     };
     let (_, canonical_name) = canonical_resource_name(name);
     let mut candidates = Vec::new();
+    let namespaced_name = if namespace.trim().is_empty() {
+        None
+    } else {
+        Some(format!("{namespace}/{canonical_name}"))
+    };
     for ((environment_id, candidate_kind, candidate_name), node_ids) in &graph.node_lookup {
         if candidate_kind != topology_kind_name(kind) {
             continue;
         }
-        if candidate_name != canonical_name && candidate_name != name {
+        if candidate_name != canonical_name
+            && candidate_name != name
+            && namespaced_name.as_deref() != Some(candidate_name.as_str())
+        {
             continue;
         }
         let namespace_matches = if namespace.trim().is_empty() {
             true
         } else {
-            let namespaced_name = format!("{namespace}/{canonical_name}");
-            candidate_name == &namespaced_name
+            namespaced_name.as_deref() == Some(candidate_name.as_str())
                 || (candidate_name == canonical_name
                     && node_ids.iter().any(|node_id| {
                         graph
