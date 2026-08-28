@@ -449,6 +449,7 @@ const en = {
     },
     graph: {
       nodesTitle: "Resources",
+      visualTitle: "Visual relationships",
       edgesTitle: "Relationships",
       edgesCaption: "Typed upstream-to-downstream relationships",
       emptyNodes: "No resources match the current filters.",
@@ -464,6 +465,7 @@ const en = {
       evidenceColumn: "Evidence",
       affected: "affected by incident",
       unassigned: "unassigned owner",
+      selectEdge: "Select relationship: {{upstream}} {{relation}} {{downstream}}",
       viewEvidence: "View evidence for {{name}}",
       viewEdgeEvidence: "View evidence for the relationship between {{upstream}} and {{downstream}}"
     },
@@ -528,6 +530,14 @@ const en = {
       affected: "Incident impact",
       affectedYes: "Affected by the selected incident",
       affectedNo: "Not marked as affected"
+    },
+    edgeDetail: {
+      title: "Relationship detail",
+      relation: "Relation",
+      direction: "Direction",
+      upstreamToDownstream: "Upstream to downstream",
+      confidence: "Structural confidence",
+      provenance: "Provenance"
     },
     ownershipSources: {
       explicit_label: "explicit label",

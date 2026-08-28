@@ -9,6 +9,7 @@ import type {
   OperationsSnapshot,
   SourceStatus,
   StatusReason,
+  TopologyEdge,
   TopologyNode,
   TopologyDirection,
   TopologyRequest,
@@ -175,6 +176,57 @@ function NodeDetail({
   );
 }
 
+function EdgeDetail({
+  edge,
+  nodesById,
+  onOpenEvidence
+}: {
+  edge: TopologyEdge;
+  nodesById: Map<string, TopologyNode>;
+  onOpenEvidence: (evidenceIds: ConsoleEvidenceId[], subject: string) => void;
+}) {
+  const { t } = useTranslation();
+  const upstream = nodesById.get(edge.upstream_node_id)?.name ?? edge.upstream_node_id;
+  const downstream = nodesById.get(edge.downstream_node_id)?.name ?? edge.downstream_node_id;
+  const subject = `${upstream} → ${downstream}`;
+  return (
+    <aside className="topology-detail" aria-label={t("topology.edgeDetail.title")}>
+      <h2>{subject}</h2>
+      <dl>
+        <div>
+          <dt>{t("topology.edgeDetail.relation")}</dt>
+          <dd>{t(`topology.relations.${edge.kind}`)}</dd>
+        </div>
+        <div>
+          <dt>{t("topology.edgeDetail.direction")}</dt>
+          <dd>{t("topology.edgeDetail.upstreamToDownstream")}</dd>
+        </div>
+        <div>
+          <dt>{t("topology.edgeDetail.confidence")}</dt>
+          <dd>
+            {t("topology.graph.confidenceValue", { value: Math.round(edge.confidence * 100) })}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("topology.edgeDetail.provenance")}</dt>
+          <dd>
+            {edge.provenance.length > 0
+              ? edge.provenance.map((item) => item.source_key).join(", ")
+              : t("topology.graph.provenanceUnavailable")}
+          </dd>
+        </div>
+      </dl>
+      <button
+        type="button"
+        aria-label={t("topology.graph.viewEdgeEvidence", { upstream, downstream })}
+        onClick={() => onOpenEvidence(edge.evidence_ids, subject)}
+      >
+        {t("topology.graph.evidence")}
+      </button>
+    </aside>
+  );
+}
+
 const environmentOptionsFrom = (snapshot: TopologySnapshot): EnvironmentOption[] => {
   const byId = new Map<string, string>();
   for (const node of snapshot.nodes) {
@@ -216,6 +268,7 @@ export function TopologyWorkspace({
   const [direction, setDirection] = useState<TopologyDirection>("both");
   const [maxDepth, setMaxDepth] = useState(DEFAULT_MAX_DEPTH);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [evidenceRequest, setEvidenceRequest] = useState<{
     subject: string;
     ids: ConsoleEvidenceId[];
@@ -238,6 +291,10 @@ export function TopologyWorkspace({
   const edgesById = useMemo(
     () => new Map((snapshot?.edges ?? []).map((edge) => [edge.id, edge])),
     [snapshot]
+  );
+  const selectedEdge = useMemo(
+    () => (selectedEdgeId ? edgesById.get(selectedEdgeId) : undefined),
+    [edgesById, selectedEdgeId]
   );
 
   // The Incident filter lists the workspace queue, the same projection the
@@ -447,9 +504,15 @@ export function TopologyWorkspace({
               nodes={snapshot.nodes}
               edges={snapshot.edges}
               selectedNodeId={selectedNodeId ?? null}
-              onSelectNode={(nodeId) =>
-                setSelectedNodeId((current) => (current === nodeId ? null : nodeId))
-              }
+              selectedEdgeId={selectedEdgeId}
+              onSelectNode={(nodeId) => {
+                setSelectedEdgeId(null);
+                setSelectedNodeId((current) => (current === nodeId ? null : nodeId));
+              }}
+              onSelectEdge={(edgeId) => {
+                setSelectedNodeId(null);
+                setSelectedEdgeId((current) => (current === edgeId ? null : edgeId));
+              }}
               onOpenEvidence={openEvidence}
             />
           )}
@@ -465,6 +528,9 @@ export function TopologyWorkspace({
             }
             onOpenEvidence={openEvidence}
           />
+        )}
+        {!selectedNode && selectedEdge && (
+          <EdgeDetail edge={selectedEdge} nodesById={nodesById} onOpenEvidence={openEvidence} />
         )}
       </div>
       {!snapshot ? (

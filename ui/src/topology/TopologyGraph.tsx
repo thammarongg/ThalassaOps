@@ -28,18 +28,28 @@ export function TopologyGraph({
   nodes,
   edges,
   selectedNodeId,
+  selectedEdgeId,
   onSelectNode,
+  onSelectEdge,
   onOpenEvidence
 }: {
   nodes: TopologyNode[];
   edges: TopologyEdge[];
   selectedNodeId: string | null;
+  selectedEdgeId: string | null;
   onSelectNode: (nodeId: string) => void;
+  onSelectEdge: (edgeId: string) => void;
   onOpenEvidence: (evidenceIds: ConsoleEvidenceId[], subject: string) => void;
 }) {
   const { t } = useTranslation();
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const nodeName = (nodeId: string) => nodesById.get(nodeId)?.name ?? nodeId;
+  const edgeLabel = (edge: TopologyEdge) =>
+    t("topology.graph.selectEdge", {
+      upstream: nodeName(edge.upstream_node_id),
+      relation: t(`topology.relations.${edge.kind}`),
+      downstream: nodeName(edge.downstream_node_id)
+    });
 
   return (
     <div className="topology-graph">
@@ -94,6 +104,42 @@ export function TopologyGraph({
               );
             })}
           </ul>
+        )}
+      </section>
+      <section className="topology-graph__visual" aria-label={t("topology.graph.visualTitle")}>
+        <h2>{t("topology.graph.visualTitle")}</h2>
+        {edges.length === 0 ? (
+          <EmptyState titleKey="topology.graph.emptyEdges" />
+        ) : (
+          <ol className="topology-graph__relationship-map">
+            {edges.map((edge) => (
+              <li key={edge.id} className="topology-graph__relationship">
+                <button
+                  type="button"
+                  className="topology-graph__relationship-select"
+                  aria-pressed={selectedEdgeId === edge.id}
+                  aria-label={edgeLabel(edge)}
+                  onClick={() => onSelectEdge(edge.id)}
+                >
+                  <span className="topology-graph__relationship-node">
+                    {nodeName(edge.upstream_node_id)}
+                  </span>
+                  <span className="topology-graph__relationship-arrow" aria-hidden="true">
+                    →
+                  </span>
+                  <span className="topology-graph__relationship-kind">
+                    {t(`topology.relations.${edge.kind}`)}
+                  </span>
+                  <span className="topology-graph__relationship-arrow" aria-hidden="true">
+                    →
+                  </span>
+                  <span className="topology-graph__relationship-node">
+                    {nodeName(edge.downstream_node_id)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
         )}
       </section>
       <section className="topology-graph__edges" aria-label={t("topology.graph.edgesTitle")}>

@@ -293,6 +293,43 @@ it("renders upstream and downstream probable paths from the focused resource", a
   ).toBeInTheDocument();
 });
 
+it("renders a keyboard-reachable relationship map and edge detail", async () => {
+  const user = userEvent.setup();
+  const invoke = topologyInvoke({
+    evidenceFor: (ids) => ok(ids.map(evidenceFor))
+  });
+  renderWorkspace(invoke);
+
+  const visual = await screen.findByRole("region", { name: "Visual relationships" });
+  const edgeButton = within(visual).getByRole("button", {
+    name: "Select relationship: checkout depends on checkout-api"
+  });
+  expect(edgeButton).toHaveAttribute("aria-pressed", "false");
+
+  await user.click(edgeButton);
+
+  expect(edgeButton).toHaveAttribute("aria-pressed", "true");
+  const detail = await screen.findByRole("complementary", { name: "Relationship detail" });
+  expect(within(detail).getByText("depends on")).toBeInTheDocument();
+  expect(within(detail).getByText("checkout → checkout-api")).toBeInTheDocument();
+
+  await user.click(
+    within(detail).getByRole("button", {
+      name: "View evidence for the relationship between checkout and checkout-api"
+    })
+  );
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(
+      "topology_evidence",
+      expect.objectContaining({
+        envelope: expect.objectContaining({
+          payload: { evidence_ids: ["evidence-topology-edge-checkout-api"] }
+        })
+      })
+    )
+  );
+});
+
 it("shows typed edge provenance and edge sequences for probable paths", async () => {
   const user = userEvent.setup();
   renderWorkspace(topologyInvoke());

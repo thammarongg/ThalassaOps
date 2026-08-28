@@ -449,6 +449,7 @@ const th = {
     },
     graph: {
       nodesTitle: "ทรัพยากร",
+      visualTitle: "ความสัมพันธ์แบบภาพ",
       edgesTitle: "ความสัมพันธ์",
       edgesCaption: "ความสัมพันธ์แบบมีชนิดจากต้นทางไปปลายทาง",
       emptyNodes: "ไม่มีทรัพยากรที่ตรงกับตัวกรองปัจจุบัน",
@@ -464,6 +465,7 @@ const th = {
       evidenceColumn: "หลักฐาน",
       affected: "ได้รับผลกระทบจากเหตุการณ์",
       unassigned: "ไม่มีเจ้าของที่รับผิดชอบ",
+      selectEdge: "เลือกความสัมพันธ์: {{upstream}} {{relation}} {{downstream}}",
       viewEvidence: "ดูหลักฐานของ {{name}}",
       viewEdgeEvidence: "ดูหลักฐานของความสัมพันธ์ระหว่าง {{upstream}} กับ {{downstream}}"
     },
@@ -528,6 +530,14 @@ const th = {
       affected: "ผลกระทบจากเหตุการณ์",
       affectedYes: "ได้รับผลกระทบจากเหตุการณ์ที่เลือก",
       affectedNo: "ไม่ได้ถูกทำเครื่องหมายว่าได้รับผลกระทบ"
+    },
+    edgeDetail: {
+      title: "รายละเอียดความสัมพันธ์",
+      relation: "ความสัมพันธ์",
+      direction: "ทิศทาง",
+      upstreamToDownstream: "จากต้นทางไปปลายทาง",
+      confidence: "ความมั่นใจเชิงโครงสร้าง",
+      provenance: "แหล่งที่มา"
     },
     ownershipSources: {
       explicit_label: "ป้ายกำกับโดยตรง",
