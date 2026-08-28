@@ -137,6 +137,12 @@ pub fn evaluate_rule(
     }
 
     let samples = eligible_samples(metric, evaluated_at);
+    if samples
+        .windows(2)
+        .any(|pair| pair[0].timestamp_seconds == pair[1].timestamp_seconds)
+    {
+        return Err(AnomalyError::InvalidSample(INVALID_SAMPLE.into()));
+    }
     for sample in &samples {
         parse_sample_value(&sample.value)?;
     }

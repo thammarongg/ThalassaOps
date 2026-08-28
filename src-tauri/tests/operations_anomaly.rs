@@ -274,6 +274,21 @@ fn invalid_values_and_malformed_prometheus_fixtures_return_errors() {
 }
 
 #[test]
+fn duplicate_sample_timestamps_are_rejected_instead_of_ordered_by_input() {
+    let threshold_rule = rule(AnomalyCondition::Threshold {
+        operator: ThresholdOperator::GreaterThan,
+        threshold: "1".into(),
+    });
+    let result = evaluate_rule(
+        &threshold_rule,
+        &metric(vec![sample(100, "2"), sample(100, "0")]),
+        at(100),
+    );
+
+    assert!(matches!(result, Err(AnomalyError::InvalidSample(_))));
+}
+
+#[test]
 fn invalid_duplicate_missing_ambiguous_and_out_of_scope_rules_are_rejected() {
     let base_rule = rule(AnomalyCondition::Threshold {
         operator: ThresholdOperator::GreaterThan,
