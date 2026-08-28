@@ -317,3 +317,21 @@ fn fresh_source_without_records_is_not_reported_as_healthy() {
         status.source_key == "prometheus" && status.state == SourceState::Unverified
     }));
 }
+
+#[test]
+fn malformed_environment_values_are_unverified_instead_of_fabricated() {
+    let mut catalog = fixture_catalog();
+    catalog.environments[0].resource_count.value = "not-a-number".into();
+    catalog.environments[1].last_observed_at = "not-a-timestamp".into();
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("malformed environment records should degrade independently");
+
+    assert!(snapshot.environments.is_empty());
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "environment_status"
+            && status.state == SourceState::Unverified
+            && status.reason == Some(StatusReason::Unknown)
+    }));
+}

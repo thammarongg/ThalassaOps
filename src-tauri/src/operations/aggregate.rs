@@ -1090,28 +1090,52 @@ fn project_environments(
             );
             continue;
         }
+        let Some(last_observed_at) = parse_timestamp(&environment.last_observed_at) else {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &ids,
+                evidence,
+                None,
+            );
+            continue;
+        };
+        let resource_value = environment.resource_count.value.trim().to_owned();
+        let Ok(parsed_resource_count) = resource_value.parse::<f64>() else {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &ids,
+                evidence,
+                None,
+            );
+            continue;
+        };
+        if !parsed_resource_count.is_finite() {
+            statuses.mark(
+                "environment_status",
+                SourceState::Unverified,
+                Some(StatusReason::Unknown),
+                Some("an environment record was malformed"),
+                &ids,
+                evidence,
+                None,
+            );
+            continue;
+        }
         environment.evidence_ids = unique_ids(ids.iter());
         environment.environment_id = safe_id_component(&environment.environment_id);
         environment.name = safe_text(&environment.name, "Environment");
         environment.provider = environment.provider.and_then(safe_identifier);
         environment.status_detail = safe_text(&environment.status_detail, DEFAULT_STATUS_DETAIL);
-        environment.last_observed_at = parse_timestamp(&environment.last_observed_at)
-            .map(format_timestamp)
-            .unwrap_or_else(|| "unknown".into());
-        let number_value = if environment.resource_count.value.trim().is_empty()
-            || environment
-                .resource_count
-                .value
-                .parse::<f64>()
-                .map_or(true, |value| !value.is_finite())
-        {
-            "0".to_owned()
-        } else {
-            environment.resource_count.value.clone()
-        };
+        environment.last_observed_at = format_timestamp(last_observed_at);
         environment.resource_count = critical_number(
             format!("environment.{}.resource_count", environment.environment_id),
-            number_value,
+            resource_value,
             NumberUnit::Count,
             environment.evidence_ids.clone(),
             DrillDownDestination::EnvironmentStatus,
