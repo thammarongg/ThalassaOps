@@ -30,3 +30,18 @@ fn command_descriptors_declare_required_capability_and_scope() {
     assert_eq!(descriptor.name.to_string(), "incident.list");
     assert_eq!(descriptor.required_capability, Capability::IncidentRead);
 }
+
+#[test]
+fn operations_commands_declare_their_read_only_capabilities() {
+    let snapshot = operations_snapshot_descriptor();
+    assert_eq!(snapshot.name.to_string(), "operations.snapshot");
+    assert_eq!(snapshot.required_capability, Capability::WorkspaceRead);
+    assert_eq!(snapshot.required_permission, Permission::Read);
+    assert!(!snapshot.scope.is_bounded());
+
+    let evidence = operations_evidence_descriptor();
+    assert_eq!(evidence.name.to_string(), "operations.evidence");
+    assert_eq!(evidence.required_capability, Capability::ResourceRead);
+    assert_eq!(evidence.required_permission, Permission::Read);
+    assert!(!evidence.scope.is_bounded());
+}

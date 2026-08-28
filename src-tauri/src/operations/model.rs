@@ -12,7 +12,8 @@ pub use thalassa_domain::{
     EvidenceRedaction, EvidenceRef, EvidenceSourceKind, FixtureHealthCheck, HealthCheckAudit,
     HealthCheckOutcome, HealthCheckResult, HealthCheckSchedule, HealthCheckSource, HealthSummary,
     ImpactLevel, ImpactTrajectory, IncidentQueueItem, MetricFixture, MetricFixtureSample,
-    MetricFixtureSource, NumberUnit, OperationsSnapshot, QueueItemSourceKind, QueueStatus,
-    RateDirection, ResourceScope, SignalCount, SignalSummary, SourceState, SourceStatus,
-    StatusReason, ThresholdOperator, TimeWindow, WidgetDefinition, WidgetId, WidgetSize,
+    MetricFixtureSource, NumberUnit, OperationsEvidenceRequest, OperationsSnapshot,
+    QueueItemSourceKind, QueueStatus, RateDirection, ResourceScope, SignalCount, SignalSummary,
+    SourceState, SourceStatus, StatusReason, ThresholdOperator, TimeWindow, WidgetDefinition,
+    WidgetId, WidgetSize,
 };

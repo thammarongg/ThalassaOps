@@ -6,6 +6,7 @@
 
 pub mod aggregate;
 pub mod anomaly;
+pub mod evidence;
 pub mod fixtures;
 pub mod health_check;
 pub mod model;
@@ -15,9 +16,11 @@ pub use anomaly::{
     evaluate_rule, evaluate_rules, metric_fixtures_from_prometheus, parse_prometheus_fixture,
     AnomalyError,
 };
+pub use evidence::{EvidenceError, EvidenceStore};
 pub use fixtures::{fixture_catalog, fixture_time, FixtureCatalog};
 pub use health_check::{
     audit_for, is_due, run_due_checks, run_due_checks_with_policy, BoundedScopePolicy, DueState,
     FixedClock, FixtureLookup, HealthCheckClock, HealthCheckError, HealthCheckPolicy,
     HealthCheckScheduler,
 };
+pub use model::OperationsEvidenceRequest;
