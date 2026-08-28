@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use thalassa_domain::{
-    TopologyDirection, TopologyEdgeKind, TopologyError, TopologyFilter, TopologyPathTermination,
-    TopologyRequest, TopologyTraversal,
+    SourceState, StatusReason, TopologyDirection, TopologyEdgeKind, TopologyError, TopologyFilter,
+    TopologyPathTermination, TopologyRequest, TopologyTraversal,
 };
 use thalassaops::cloud::CloudResource;
 use thalassaops::topology::{
@@ -409,5 +409,67 @@ fn repeated_builds_have_identical_serialized_output_and_ordering() {
     assert_eq!(
         serde_json::to_string(&first).expect("snapshot should serialize"),
         serde_json::to_string(&second).expect("snapshot should serialize")
+    );
+}
+
+#[test]
+fn duplicate_topology_source_statuses_merge_independently_of_input_order() {
+    let mut first_input = topology_fixture_input(fixture_scope());
+    let mut status_a = first_input
+        .source_status
+        .iter()
+        .find(|status| status.source_key == "cloud")
+        .expect("fixture should contain a cloud source status")
+        .clone();
+    status_a.reason = Some(StatusReason::NotConfigured);
+    let mut status_b = status_a.clone();
+    status_b.reason = Some(StatusReason::Unreachable);
+    first_input
+        .source_status
+        .retain(|status| status.source_key != "cloud");
+    first_input
+        .source_status
+        .extend([status_a.clone(), status_b.clone()]);
+
+    let mut second_input = first_input.clone();
+    second_input
+        .source_status
+        .retain(|status| status.source_key != "cloud");
+    second_input.source_status.extend([status_b, status_a]);
+
+    let first = TopologyBuilder::from_input(first_input)
+        .snapshot_at(&default_topology_request())
+        .expect("duplicate source statuses should be merged");
+    let second = TopologyBuilder::from_input(second_input)
+        .snapshot_at(&default_topology_request())
+        .expect("duplicate source statuses should be merged");
+
+    assert_eq!(first, second);
+}
+
+#[test]
+fn malformed_topology_source_statuses_are_unverified_instead_of_fresh() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.source_status.push(thalassa_domain::SourceStatus {
+        source_key: "account_id".into(),
+        state: SourceState::Fresh,
+        reason: None,
+        detail: None,
+        observed_at: None,
+        evidence_ids: Vec::new(),
+    });
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("malformed source status should not prevent projection");
+    let status = snapshot
+        .source_status
+        .iter()
+        .find(|status| status.source_key == "source")
+        .expect("malformed source should have an explicit status");
+    assert_eq!(status.state, SourceState::Unverified);
+    assert_eq!(
+        status.detail.as_deref(),
+        Some("source record was omitted after validation")
     );
 }

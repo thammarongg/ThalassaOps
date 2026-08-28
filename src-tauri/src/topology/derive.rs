@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thalassa_domain::{
     ConsoleHealthState, CriticalNumber, DrillDownDestination, DrillDownReference, DrillDownTarget,
     EvidenceRef, EvidenceSourceKind, MetricFixture, NumberUnit, Resource, ResourceId,
-    ResourceScope, SourceState, SourceStatus, TopologyEdge, TopologyEdgeKind,
+    ResourceScope, SourceState, SourceStatus, StatusReason, TopologyEdge, TopologyEdgeKind,
     TopologyEdgeProvenance, TopologyError, TopologyMetric, TopologyNode, TopologyNodeKind,
     TopologyOwnership, TopologyOwnershipSource, TopologySourceKind,
 };
@@ -279,9 +279,15 @@ fn load_source_status(input: &TopologyInput, graph: &mut DerivedGraph) {
     let mut statuses = input.source_status.clone();
     statuses.sort_by(|left, right| left.source_key.cmp(&right.source_key));
     for mut status in statuses {
+        let source_key_valid = safe_identifier(&status.source_key);
         let source_key = safe_source_key(&status.source_key);
         if source_key != status.source_key {
             status.source_key = source_key.clone();
+        }
+        if !source_key_valid {
+            status.state = SourceState::Unverified;
+            status.reason = None;
+            status.detail = Some("source record was omitted after validation".into());
         }
         status.detail = sanitize_optional_text(status.detail.as_deref());
         status.observed_at = sanitize_optional_text(status.observed_at.as_deref());
@@ -320,7 +326,7 @@ fn merge_source_status(graph: &mut DerivedGraph, status: SourceStatus) {
     }
 }
 
-fn status_preference(status: &SourceStatus) -> (String, String, Vec<String>) {
+fn status_preference(status: &SourceStatus) -> (String, String, u8, Vec<String>) {
     let detail = match status.detail.as_ref() {
         Some(detail) => detail.clone(),
         None => String::new(),
@@ -329,7 +335,24 @@ fn status_preference(status: &SourceStatus) -> (String, String, Vec<String>) {
         Some(observed_at) => observed_at.clone(),
         None => String::new(),
     };
-    (detail, observed_at, status.evidence_ids.clone())
+    (
+        detail,
+        observed_at,
+        status_reason_preference(status.reason),
+        status.evidence_ids.clone(),
+    )
+}
+
+fn status_reason_preference(reason: Option<StatusReason>) -> u8 {
+    match reason {
+        None => 0,
+        Some(StatusReason::NotConfigured) => 1,
+        Some(StatusReason::Unreachable) => 2,
+        Some(StatusReason::TimedOut) => 3,
+        Some(StatusReason::PolicyDenied) => 4,
+        Some(StatusReason::NoDataInWindow) => 5,
+        Some(StatusReason::Unknown) => 6,
+    }
 }
 
 fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
