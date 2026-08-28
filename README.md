@@ -115,9 +115,10 @@ This repository is building the product in small, testable delivery slices. It
 currently provides the Tauri 2 desktop shell, Rust core, React/TypeScript UI,
 secure capability-scoped IPC, local SQLite workspace state, connector
 management, Kubernetes read-only workflows, the first observability
-integrations and read-only cross-cloud inventory for AWS, Azure and GCP.
+integrations, read-only cross-cloud inventory for AWS, Azure and GCP and the
+Operations Console home experience.
 
-The latest approved design is [Sprint 10 — cross-cloud inventory](docs/superpowers/specs/2026-08-26-sprint-10-cloud-inventory-design.md).
+The latest approved design is [Sprint 11 — Operations Console](docs/design/sprint-11-operations-console.md).
 The complete product sequence is tracked in the [product sprint plan](docs/planning/sprint-plan.md).
 For the full source of truth, see the [requirements summary](docs/requirements/requirements-summary.md)
 and the [working system requirements](docs/requirements/system-requirements.md).
