@@ -157,7 +157,7 @@ fn runtime_target(value: Option<&Value>) -> Result<SignalTarget, SignalAdapterEr
             return Err(SignalAdapterError::AmbiguousTarget);
         }
         validate_source_identity(target_name)?;
-        let target_id = match (target_prefix, namespace.as_deref()) {
+        let target_id = match (target_prefix, namespace) {
             ("host", _) => format!("{target_prefix}/{target_name}"),
             (_, Some(namespace)) => format!("{target_prefix}/{namespace}/{target_name}"),
             _ => return Err(SignalAdapterError::AmbiguousTarget),
