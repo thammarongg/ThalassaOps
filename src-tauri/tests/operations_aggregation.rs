@@ -271,3 +271,49 @@ fn out_of_scope_changes_do_not_admit_evidence_before_the_scope_filter() {
         .iter()
         .all(|evidence| evidence.id != "evidence-change-foreign-change"));
 }
+
+#[test]
+fn unavailable_source_without_verified_evidence_reports_unknown_not_critical() {
+    let mut catalog = fixture_catalog();
+    catalog.alerts.clear();
+    catalog.anomaly_rules.clear();
+    catalog.health_checks.clear();
+    for environment in &mut catalog.environments {
+        environment.health = ConsoleHealthState::Healthy;
+    }
+    catalog.source_status.push(thalassa_domain::SourceStatus {
+        source_key: "missing-source".into(),
+        state: SourceState::Unavailable,
+        reason: Some(StatusReason::Unreachable),
+        detail: Some("source did not return a verifiable result".into()),
+        observed_at: None,
+        evidence_ids: Vec::new(),
+    });
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("missing source evidence should leave an honest snapshot");
+
+    assert_eq!(snapshot.health_summary.state, ConsoleHealthState::Unknown);
+}
+
+#[test]
+fn fresh_source_without_records_is_not_reported_as_healthy() {
+    let mut catalog = fixture_catalog();
+    catalog.alerts.clear();
+    catalog.metrics.clear();
+    catalog.anomaly_rules.clear();
+    catalog.health_checks.clear();
+    for environment in &mut catalog.environments {
+        environment.health = ConsoleHealthState::Healthy;
+    }
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("empty source data should leave an honest snapshot");
+
+    assert_eq!(snapshot.health_summary.state, ConsoleHealthState::Unknown);
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "prometheus" && status.state == SourceState::Unverified
+    }));
+}

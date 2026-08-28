@@ -414,6 +414,10 @@ impl StatusBook {
             .cloned()
             .map(|mut status| {
                 status.evidence_ids = evidence.usable_ids(&status.evidence_ids);
+                if status.state == SourceState::Fresh && status.evidence_ids.is_empty() {
+                    status.state = SourceState::Unverified;
+                    status.reason.get_or_insert(StatusReason::NoDataInWindow);
+                }
                 if matches!(
                     status.state,
                     SourceState::Unavailable | SourceState::Unverified
@@ -559,6 +563,30 @@ fn project_anomalies(
     let mut projected = ProjectedAnomalies::default();
     let mut malformed = false;
     let mut seen_ids = BTreeSet::new();
+    let mut source_evidence_ids = Vec::new();
+    for metric in metrics
+        .iter()
+        .filter(|metric| scope.contains(&metric.scope))
+    {
+        let derived = format!("evidence-metric-{}", safe_id_component(&metric.key));
+        let evidence_id = if evidence.contains(&derived) {
+            derived
+        } else if evidence.was_rejected(&derived) {
+            malformed = true;
+            continue;
+        } else {
+            evidence.admit_generated(
+                derived,
+                EvidenceSourceKind::Prometheus,
+                Some(metric.source.connector_id.clone()),
+                metric.source.endpoint.clone(),
+                Some(metric.source.query.clone()),
+                format_timestamp(now),
+                format!("Metric fixture {} is available", metric.key),
+            )
+        };
+        source_evidence_ids.push(evidence_id);
+    }
     for rule in ordered {
         if !rule.enabled {
             continue;
@@ -657,6 +685,11 @@ fn project_anomalies(
     }
     projected.items.sort_by(queue_order);
     let existing_state = statuses.get("prometheus").map(|status| status.state);
+    let status_evidence_ids = source_evidence_ids
+        .iter()
+        .chain(projected.evidence_ids.iter())
+        .cloned()
+        .collect::<Vec<_>>();
     let no_rules = rules.is_empty();
     let missing_metrics = metrics.is_empty() && !no_rules;
     let no_records = no_rules || missing_metrics;
@@ -685,7 +718,7 @@ fn project_anomalies(
             None
         },
         malformed.then_some("one or more metric or rule records were malformed"),
-        &projected.evidence_ids,
+        &status_evidence_ids,
         evidence,
         Some(format_timestamp(now)),
     );
@@ -1425,9 +1458,17 @@ fn overall_state(
     if queue.iter().any(|item| {
         item.severity == ConsoleSeverity::S1 || item.business_impact.level == ImpactLevel::Critical
     }) || statuses.records.values().any(|status| {
-        status.state == SourceState::Unavailable && !status.source_key.starts_with("changes")
+        status.state == SourceState::Unavailable
+            && !status.source_key.starts_with("changes")
+            && !status.evidence_ids.is_empty()
     }) {
         return ConsoleHealthState::Critical;
+    }
+    if statuses.records.values().any(|status| {
+        !status.source_key.starts_with("changes")
+            && (status.state == SourceState::Unverified || status.evidence_ids.is_empty())
+    }) {
+        return ConsoleHealthState::Unknown;
     }
     if queue.iter().any(|item| {
         matches!(
@@ -1447,11 +1488,6 @@ fn overall_state(
             .any(|status| status.state == SourceState::Stale)
     {
         return ConsoleHealthState::Degraded;
-    }
-    if statuses.records.values().any(|status| {
-        matches!(status.state, SourceState::Unverified) && !status.source_key.starts_with("changes")
-    }) {
-        return ConsoleHealthState::Unknown;
     }
     ConsoleHealthState::Healthy
 }
