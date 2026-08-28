@@ -1940,7 +1940,7 @@ impl TopologyPath {
     pub fn validate_against_graph(
         &self,
         node_ids: &BTreeSet<String>,
-        edge_ids: &BTreeSet<String>,
+        edges: &BTreeMap<String, TopologyEdge>,
     ) -> Result<(), TopologyError> {
         self.validate()?;
         if self
@@ -1954,7 +1954,7 @@ impl TopologyPath {
             .edge_ids
             .iter()
             .chain(self.cycle_edge_id.iter())
-            .any(|edge_id| !edge_ids.contains(edge_id))
+            .any(|edge_id| !edges.contains_key(edge_id))
         {
             return Err(TopologyError::InvalidRequest);
         }
@@ -1964,6 +1964,52 @@ impl TopologyPath {
             .is_some_and(|edge_id| self.edge_ids.contains(edge_id))
         {
             return Err(TopologyError::InvalidRequest);
+        }
+
+        for (edge_id, node_pair) in self.edge_ids.iter().zip(self.node_ids.windows(2)) {
+            let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+            let follows_direction = match self.direction {
+                TopologyDirection::Upstream => {
+                    edge.downstream_node_id == node_pair[0] && edge.upstream_node_id == node_pair[1]
+                }
+                TopologyDirection::Downstream => {
+                    edge.upstream_node_id == node_pair[0] && edge.downstream_node_id == node_pair[1]
+                }
+                TopologyDirection::Both => {
+                    (edge.upstream_node_id == node_pair[0]
+                        && edge.downstream_node_id == node_pair[1])
+                        || (edge.downstream_node_id == node_pair[0]
+                            && edge.upstream_node_id == node_pair[1])
+                }
+            };
+            if !follows_direction {
+                return Err(TopologyError::InvalidRequest);
+            }
+        }
+
+        if let Some(cycle_edge_id) = &self.cycle_edge_id {
+            let cycle_edge = edges
+                .get(cycle_edge_id)
+                .ok_or(TopologyError::InvalidRequest)?;
+            let closes_cycle = match self.direction {
+                TopologyDirection::Upstream => {
+                    cycle_edge.downstream_node_id == self.terminal_node_id
+                        && node_ids.contains(&cycle_edge.upstream_node_id)
+                }
+                TopologyDirection::Downstream => {
+                    cycle_edge.upstream_node_id == self.terminal_node_id
+                        && node_ids.contains(&cycle_edge.downstream_node_id)
+                }
+                TopologyDirection::Both => {
+                    (cycle_edge.downstream_node_id == self.terminal_node_id
+                        && node_ids.contains(&cycle_edge.upstream_node_id))
+                        || (cycle_edge.upstream_node_id == self.terminal_node_id
+                            && node_ids.contains(&cycle_edge.downstream_node_id))
+                }
+            };
+            if !closes_cycle {
+                return Err(TopologyError::InvalidRequest);
+            }
         }
         Ok(())
     }
@@ -2151,8 +2197,12 @@ impl TopologySnapshot {
             return Err(TopologyError::NodeNotFound);
         }
 
-        let edge_ids: BTreeSet<_> = self.edges.iter().map(|edge| edge.id.clone()).collect();
-        if edge_ids.len() != self.edges.len()
+        let edges: BTreeMap<_, _> = self
+            .edges
+            .iter()
+            .map(|edge| (edge.id.clone(), edge.clone()))
+            .collect();
+        if edges.len() != self.edges.len()
             || self.edges.iter().any(|edge| edge.id.trim().is_empty())
         {
             return Err(TopologyError::InvalidRequest);
@@ -2168,7 +2218,7 @@ impl TopologySnapshot {
             return Err(TopologyError::InvalidRequest);
         }
         for path in &self.paths {
-            path.validate_against_graph(&node_ids, &edge_ids)?;
+            path.validate_against_graph(&node_ids, &edges)?;
         }
         for (metric, expected) in [
             (&self.summary.visible_nodes, self.nodes.len()),

@@ -432,6 +432,37 @@ fn topology_snapshot_rejects_unknown_edge_endpoints() {
 }
 
 #[test]
+fn topology_snapshot_rejects_paths_that_do_not_follow_edge_orientation() {
+    let mut invalid = snapshot();
+    invalid.edges[0].upstream_node_id = "node-b".into();
+    invalid.edges[0].downstream_node_id = "node-a".into();
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+}
+
+#[test]
+fn topology_snapshot_requires_cycle_edges_to_close_at_the_terminal_node() {
+    let mut valid = snapshot();
+    let mut cycle_edge = edge("node-b", "node-a");
+    cycle_edge.id = "edge-cycle".into();
+    valid.edges.push(cycle_edge);
+    valid.summary.visible_edges.value = 2.0;
+    valid.paths[0].termination = TopologyPathTermination::CycleDetected;
+    valid.paths[0].cycle_edge_id = Some("edge-cycle".into());
+    assert!(valid.validate().is_ok());
+
+    let mut invalid = valid;
+    invalid.edges[1].upstream_node_id = "node-a".into();
+    invalid.edges[1].downstream_node_id = "node-b".into();
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+}
+
+#[test]
 fn topology_snapshot_rejects_summary_counts_that_do_not_match_the_graph() {
     let mut invalid = snapshot();
     invalid.summary.visible_nodes.value = 3.0;
