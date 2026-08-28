@@ -8,6 +8,7 @@ use thalassaops::cloud::CloudResource;
 use thalassaops::topology::{
     default_topology_request, fixture_scope, topology_fixture_input, TopologyBuilder,
 };
+use uuid::Uuid;
 
 fn request_for(
     focus_node_id: Option<String>,
@@ -535,4 +536,72 @@ fn exact_topology_edge_duplicates_are_collapsed() {
         .iter()
         .find(|status| status.source_key == "fixtures")
         .is_some_and(|status| status.state == SourceState::Fresh));
+}
+
+#[test]
+fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let service_index = production
+        .resources
+        .iter()
+        .position(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service");
+    production.resources[service_index].resource.native_id = None;
+    let mut staging_service = production.resources[service_index].clone();
+    staging_service.resource.id = Uuid::from_u128(0x00000000000000000000000000000999);
+    staging_service.resource.name = "staging/checkout".into();
+    staging_service
+        .resource
+        .labels
+        .insert("namespace".into(), "staging".into());
+    staging_service.resource.native_id = None;
+    production.resources.push(staging_service);
+
+    let mut staging_evidence = input
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-topology-k8s-service-checkout")
+        .expect("fixture should contain service evidence")
+        .clone();
+    staging_evidence.id = "evidence-topology-k8s-service-checkout-staging".into();
+    staging_evidence.query = Some("staging/checkout".into());
+    staging_evidence.excerpt = "staging checkout service".into();
+    input.evidence.push(staging_evidence);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("namespace-qualified resources should remain valid");
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.kind == thalassa_domain::TopologyNodeKind::Service
+                    && node.environment_id.as_deref() == Some("env-aws-prod")
+            })
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn unsafe_fixture_edge_ids_are_not_emitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.fixture_edges[0].id = "arn:aws:iam::123456789012:role/topology".into();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("unsafe fixture edge identity should be omitted");
+    assert!(snapshot
+        .edges
+        .iter()
+        .all(|edge| !edge.id.contains("arn:aws:iam::123456789012")));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "fixtures" && status.state == SourceState::Unverified));
 }

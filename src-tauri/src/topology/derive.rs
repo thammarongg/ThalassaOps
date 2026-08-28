@@ -564,8 +564,8 @@ fn derive_kubernetes_resource(
         .as_deref()
         .filter(|native_id| safe_identifier(native_id))
     {
-        Some(native_id) => native_id,
-        None => canonical_name,
+        Some(native_id) => native_id.to_owned(),
+        None => resource_lookup_name(namespace, canonical_name),
     };
     let node_id = format!(
         "node:kubernetes:{environment_id}:{}:{identity}",
@@ -966,6 +966,7 @@ fn derive_fixture_edges(input: &TopologyInput, graph: &mut DerivedGraph) {
     fixture_edges.sort_by(|left, right| left.id.cmp(&right.id));
     for edge in fixture_edges {
         if edge.validate().is_err()
+            || !safe_identifier(&edge.id)
             || !graph.nodes.contains_key(&edge.upstream_node_id)
             || !graph.nodes.contains_key(&edge.downstream_node_id)
             || edge
