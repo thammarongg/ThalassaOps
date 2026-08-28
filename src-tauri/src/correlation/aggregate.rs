@@ -663,7 +663,7 @@ fn safe_text(value: &str) -> bool {
 
 fn contains_sensitive_account_id(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
-    if lower.contains("sha256:") || lower.contains("dedup:v1:") {
+    if lower.contains("sha256:") || lower.contains("dedup:v1:") || lower.contains("candidate:v1:") {
         return false;
     }
     if looks_like_uuid(value) {
