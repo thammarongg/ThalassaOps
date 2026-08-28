@@ -131,7 +131,6 @@ fn path() -> TopologyPath {
 }
 
 fn snapshot() -> TopologySnapshot {
-    let number = summary_metric("visible", 2.0);
     TopologySnapshot {
         generated_at: "2026-08-28T09:00:00Z".into(),
         scope: scope(),
@@ -146,10 +145,10 @@ fn snapshot() -> TopologySnapshot {
             max_depth: 3,
         },
         summary: TopologySummary {
-            visible_nodes: number.clone(),
-            visible_edges: number.clone(),
-            affected_nodes: number.clone(),
-            probable_paths: number,
+            visible_nodes: summary_metric("visible_nodes", 2.0),
+            visible_edges: summary_metric("visible_edges", 1.0),
+            affected_nodes: summary_metric("affected_nodes", 2.0),
+            probable_paths: summary_metric("probable_paths", 1.0),
         },
         nodes: vec![node("node-a"), node("node-b")],
         edges: vec![edge("node-a", "node-b")],
@@ -430,6 +429,37 @@ fn topology_snapshot_rejects_unknown_edge_endpoints() {
     let mut invalid = snapshot();
     invalid.edges[0].downstream_node_id = "node-missing".into();
     assert_eq!(invalid.validate().unwrap_err(), TopologyError::NodeNotFound);
+}
+
+#[test]
+fn topology_snapshot_rejects_summary_counts_that_do_not_match_the_graph() {
+    let mut invalid = snapshot();
+    invalid.summary.visible_nodes.value = 3.0;
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+
+    let mut invalid = snapshot();
+    invalid.summary.visible_edges.value = 2.0;
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+
+    let mut invalid = snapshot();
+    invalid.summary.affected_nodes.value = 1.0;
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
+
+    let mut invalid = snapshot();
+    invalid.summary.probable_paths.value = 0.0;
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
 }
 
 #[test]

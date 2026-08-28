@@ -2170,6 +2170,22 @@ impl TopologySnapshot {
         for path in &self.paths {
             path.validate_against_graph(&node_ids, &edge_ids)?;
         }
+        for (metric, expected) in [
+            (&self.summary.visible_nodes, self.nodes.len()),
+            (&self.summary.visible_edges, self.edges.len()),
+            (
+                &self.summary.affected_nodes,
+                self.nodes
+                    .iter()
+                    .filter(|node| node.affected_by_incident)
+                    .count(),
+            ),
+            (&self.summary.probable_paths, self.paths.len()),
+        ] {
+            if metric.value != expected as f64 {
+                return Err(TopologyError::InvalidRequest);
+            }
+        }
         self.summary.validate()?;
 
         let evidence_ids: BTreeSet<_> = self
@@ -2361,11 +2377,7 @@ fn validate_topology_drill_down(
     drill_down: &DrillDownTarget,
     evidence_ids: &[ConsoleEvidenceId],
 ) -> Result<(), TopologyError> {
-    validate_drill_down(
-        drill_down,
-        evidence_ids,
-        DrillDownDestination::Topology,
-    )
+    validate_drill_down(drill_down, evidence_ids, DrillDownDestination::Topology)
 }
 
 fn validate_evidence_drill_down(
