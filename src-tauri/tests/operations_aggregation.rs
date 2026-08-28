@@ -335,3 +335,64 @@ fn malformed_environment_values_are_unverified_instead_of_fabricated() {
             && status.reason == Some(StatusReason::Unknown)
     }));
 }
+
+#[test]
+fn duplicate_projection_records_are_skipped_as_ambiguous() {
+    let mut catalog = fixture_catalog();
+
+    let mut duplicate_alert = catalog.alerts[0].clone();
+    duplicate_alert.annotations.insert(
+        "summary".into(),
+        "Conflicting checkout alert summary".into(),
+    );
+    catalog.alerts.push(duplicate_alert);
+
+    let mut duplicate_rule = catalog.anomaly_rules[0].clone();
+    duplicate_rule.name = "Conflicting CPU rule".into();
+    catalog.anomaly_rules.push(duplicate_rule);
+
+    let mut duplicate_schedule = catalog.health_checks[0].clone();
+    duplicate_schedule.name = "Conflicting API check".into();
+    catalog.health_checks.push(duplicate_schedule);
+
+    let mut duplicate_change = catalog.changes[0].clone();
+    duplicate_change.summary = "Conflicting deployment summary".into();
+    catalog.changes.push(duplicate_change);
+
+    let mut duplicate_environment = catalog.environments[0].clone();
+    duplicate_environment.name = "Conflicting AWS environment".into();
+    catalog.environments.push(duplicate_environment);
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("ambiguous source records should not abort the projection");
+
+    assert!(snapshot.incident_queue.iter().all(|item| !matches!(
+        item.title.as_str(),
+        "Checkout unavailable"
+            | "Conflicting checkout alert summary"
+            | "Production CPU utilization"
+            | "Conflicting CPU rule"
+            | "API health"
+            | "Conflicting API check"
+    )));
+    assert!(snapshot
+        .changes
+        .iter()
+        .all(|change| change.id != "change-payment-deploy"));
+    assert!(snapshot
+        .environments
+        .iter()
+        .all(|environment| environment.environment_id != "env-aws-prod"));
+    for source_key in [
+        "alertmanager",
+        "prometheus",
+        "health_checks",
+        "changes",
+        "environment_status",
+    ] {
+        assert!(snapshot.source_status.iter().any(|status| {
+            status.source_key == source_key && status.state == SourceState::Unverified
+        }));
+    }
+}

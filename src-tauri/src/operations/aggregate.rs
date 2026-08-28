@@ -205,6 +205,8 @@ impl EvidenceStore {
                 continue;
             }
             if accepted.contains_key(&evidence.id) {
+                rejected.insert(evidence.id.clone());
+                accepted.remove(&evidence.id);
                 continue;
             }
             accepted.insert(evidence.id.clone(), sanitize_evidence(evidence));
@@ -441,7 +443,8 @@ fn project_alerts(
     ordered.sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
     let mut projected = ProjectedItems::default();
     let mut malformed = false;
-    let mut seen_ids = BTreeSet::new();
+    let duplicate_fingerprints =
+        duplicate_keys(alerts.iter().map(|alert| alert.fingerprint.as_str()));
     for alert in ordered {
         if !is_active_alert(alert) || alert.fingerprint.trim().is_empty() {
             if !is_resolved_alert(alert) {
@@ -449,7 +452,7 @@ fn project_alerts(
             }
             continue;
         }
-        if !seen_ids.insert(alert.fingerprint.clone()) {
+        if duplicate_fingerprints.contains(&alert.fingerprint) {
             malformed = true;
             continue;
         }
@@ -562,12 +565,22 @@ fn project_anomalies(
     ordered.sort_by(|left, right| left.id.cmp(&right.id));
     let mut projected = ProjectedAnomalies::default();
     let mut malformed = false;
-    let mut seen_ids = BTreeSet::new();
+    let duplicate_rule_ids = duplicate_keys(rules.iter().map(|rule| rule.id.as_str()));
+    let duplicate_metric_keys = duplicate_keys(
+        metrics
+            .iter()
+            .filter(|metric| scope.contains(&metric.scope))
+            .map(|metric| metric.key.as_str()),
+    );
     let mut source_evidence_ids = Vec::new();
     for metric in metrics
         .iter()
         .filter(|metric| scope.contains(&metric.scope))
     {
+        if metric.key.trim().is_empty() || duplicate_metric_keys.contains(&metric.key) {
+            malformed = true;
+            continue;
+        }
         let derived = format!("evidence-metric-{}", safe_id_component(&metric.key));
         let evidence_id = if evidence.contains(&derived) {
             derived
@@ -591,7 +604,7 @@ fn project_anomalies(
         if !rule.enabled {
             continue;
         }
-        if !seen_ids.insert(rule.id.clone()) {
+        if duplicate_rule_ids.contains(&rule.id) {
             malformed = true;
             continue;
         }
@@ -738,9 +751,10 @@ fn project_health_checks(
     ordered.sort_by(|left, right| left.id.cmp(&right.id));
     let mut projected = ProjectedHealth::default();
     let mut malformed = false;
-    let mut seen_ids = BTreeSet::new();
+    let duplicate_schedule_ids =
+        duplicate_keys(schedules.iter().map(|schedule| schedule.id.as_str()));
     for schedule in ordered {
-        if !seen_ids.insert(schedule.id.clone()) {
+        if duplicate_schedule_ids.contains(&schedule.id) {
             malformed = true;
             continue;
         }
@@ -928,13 +942,13 @@ fn project_changes(
     let mut projected = Vec::new();
     let mut evidence_ids = Vec::new();
     let mut malformed = false;
-    let mut seen_ids = BTreeSet::new();
+    let duplicate_change_ids = duplicate_keys(changes.iter().map(|change| change.id.as_str()));
     for mut change in ordered {
         if change.id.trim().is_empty() || parse_timestamp(&change.occurred_at).is_none() {
             malformed = true;
             continue;
         }
-        if !seen_ids.insert(change.id.clone()) {
+        if duplicate_change_ids.contains(&change.id) {
             malformed = true;
             continue;
         }
@@ -1026,11 +1040,15 @@ fn project_environments(
             .then_with(|| left.name.cmp(&right.name))
             .then_with(|| left.environment_id.cmp(&right.environment_id))
     });
-    let mut seen = BTreeSet::new();
+    let duplicate_environment_ids = duplicate_keys(
+        environments
+            .iter()
+            .map(|environment| environment.environment_id.as_str()),
+    );
     let mut projected = Vec::new();
     for mut environment in ordered {
         if environment.environment_id.trim().is_empty()
-            || !seen.insert(environment.environment_id.clone())
+            || duplicate_environment_ids.contains(&environment.environment_id)
         {
             statuses.mark(
                 "environment_status",
@@ -1897,6 +1915,17 @@ fn unique_ids<'a>(ids: impl IntoIterator<Item = &'a ConsoleEvidenceId>) -> Vec<C
         }
     }
     unique.into_iter().collect()
+}
+
+fn duplicate_keys<'a>(keys: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for key in keys {
+        if !key.trim().is_empty() && !seen.insert(key.to_owned()) {
+            duplicates.insert(key.to_owned());
+        }
+    }
+    duplicates
 }
 
 fn source_state_rank(state: SourceState) -> u8 {
