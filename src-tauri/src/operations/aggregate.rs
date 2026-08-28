@@ -195,7 +195,9 @@ impl EvidenceStore {
             {
                 continue;
             }
-            if !evidence.redaction.classification_verified || !evidence.redaction.redaction_verified
+            if !evidence.redaction.classification_verified
+                || !evidence.redaction.redaction_verified
+                || (evidence.redaction.unparsed && evidence.redaction.masked)
             {
                 rejected.insert(evidence.id.clone());
                 accepted.remove(&evidence.id);

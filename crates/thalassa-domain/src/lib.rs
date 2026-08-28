@@ -1635,6 +1635,11 @@ impl OperationsSnapshot {
         }
         let mut evidence_content = BTreeSet::new();
         for evidence in &self.evidence {
+            if evidence.redaction.unparsed && evidence.redaction.masked {
+                return Err(OperationsSnapshotError::Validation(
+                    "unparsed evidence cannot be marked masked".into(),
+                ));
+            }
             let content = serde_json::to_string(&(
                 evidence.source_kind,
                 &evidence.connector_id,

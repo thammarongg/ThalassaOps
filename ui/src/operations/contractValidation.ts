@@ -191,7 +191,8 @@ export const isEvidence = (value: unknown): value is EvidenceRef =>
   isBoolean(value.redaction.masked) &&
   isBoolean(value.redaction.unparsed) &&
   value.redaction.classification_verified &&
-  value.redaction.redaction_verified;
+  value.redaction.redaction_verified &&
+  (!value.redaction.unparsed || !value.redaction.masked);
 
 export const isEvidenceResponse = (
   value: unknown,

@@ -299,6 +299,65 @@ fn operations_contracts_round_trip_through_json() {
 }
 
 #[test]
+fn unparsed_evidence_cannot_claim_that_sensitive_fields_were_masked() {
+    let mut evidence = EvidenceRef {
+        id: "evidence-1".into(),
+        source_kind: EvidenceSourceKind::Fixture,
+        connector_id: None,
+        scope: scope(),
+        endpoint: "fixture://operations".into(),
+        query: None,
+        observed_at: "2026-08-28T09:00:00Z".into(),
+        excerpt: "unparsed source".into(),
+        native_url: None,
+        redaction: EvidenceRedaction {
+            classification_verified: true,
+            redaction_verified: true,
+            masked: true,
+            unparsed: true,
+        },
+    };
+    let mut snapshot = OperationsSnapshot {
+        generated_at: "2026-08-28T09:00:00Z".into(),
+        scope: scope(),
+        source_status: Vec::new(),
+        health_summary: HealthSummary {
+            state: ConsoleHealthState::Healthy,
+            headline: BusinessImpact {
+                level: ImpactLevel::None,
+                summary: "none".into(),
+                customer_scope: "none".into(),
+                service_criticality: "none".into(),
+                trajectory: ImpactTrajectory::Improving,
+            },
+            attention: critical_number(),
+            impacted_services: critical_number(),
+            active_by_severity: Vec::new(),
+            environments_by_state: Vec::new(),
+            contributing_scopes: Vec::new(),
+        },
+        incident_queue: Vec::new(),
+        signal_summary: SignalSummary {
+            active_alerts: critical_number(),
+            active_anomalies: critical_number(),
+            checks_due: critical_number(),
+            checks_timed_out: critical_number(),
+            by_source: Vec::new(),
+        },
+        changes: Vec::new(),
+        change_stream_status: ChangeStreamStatus::default(),
+        environments: Vec::new(),
+        evidence: vec![evidence.clone()],
+        widget_registry: Vec::new(),
+    };
+    assert!(snapshot.validate().is_err());
+
+    evidence.redaction.masked = false;
+    snapshot.evidence = vec![evidence];
+    assert!(snapshot.validate().is_ok());
+}
+
+#[test]
 fn every_operations_enum_uses_an_explicit_symmetric_wire_value() {
     macro_rules! assert_wire_values {
         ($type:ty, $( $variant:expr => $wire:expr ),+ $(,)?) => {

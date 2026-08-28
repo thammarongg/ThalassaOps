@@ -6,6 +6,7 @@ import type {
   OperationsSnapshot,
   OperationsSnapshotRequest
 } from "../../contracts/ipc";
+import { isOperationsSnapshot } from "./contractValidation";
 
 const scope = { resource_ids: [] };
 const evidence: EvidenceRef = {
@@ -179,5 +180,13 @@ describe("Operations Console IPC contract", () => {
       capability: "ResourceRead",
       payload: { evidence_ids: [evidence.id] }
     });
+  });
+
+  it("rejects evidence that claims unparsed fields were masked", () => {
+    const malformed = structuredClone(operationsSnapshotFixture);
+    malformed.evidence[0].redaction.masked = true;
+    malformed.evidence[0].redaction.unparsed = true;
+
+    expect(isOperationsSnapshot(malformed)).toBe(false);
   });
 });
