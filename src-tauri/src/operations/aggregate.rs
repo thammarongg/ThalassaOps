@@ -1369,7 +1369,8 @@ fn health_summary(
     let headline_item = queue.iter().min_by(|left, right| {
         left.business_impact
             .level
-            .cmp(&right.business_impact.level)
+            .impact_rank()
+            .cmp(&right.business_impact.level.impact_rank())
             .then_with(|| left.severity.cmp(&right.severity))
             .then_with(|| left.id.cmp(&right.id))
     });
@@ -1554,10 +1555,33 @@ fn contributing_scopes(queue: &[IncidentQueueItem]) -> Vec<ContributingScope> {
     }
     scopes.sort_by(|left, right| {
         left.impact
-            .cmp(&right.impact)
+            .impact_rank()
+            .cmp(&right.impact.impact_rank())
             .then_with(|| left.summary.cmp(&right.summary))
+            .then_with(|| {
+                left.scope
+                    .scope_json_key()
+                    .cmp(&right.scope.scope_json_key())
+            })
     });
     scopes
+}
+
+trait ImpactRank {
+    fn impact_rank(self) -> u8;
+}
+
+impl ImpactRank for ImpactLevel {
+    fn impact_rank(self) -> u8 {
+        match self {
+            ImpactLevel::Critical => 0,
+            ImpactLevel::High => 1,
+            ImpactLevel::Medium => 2,
+            ImpactLevel::Low => 3,
+            ImpactLevel::Unknown => 4,
+            ImpactLevel::None => 5,
+        }
+    }
 }
 
 trait ScopeKey {

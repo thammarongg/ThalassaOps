@@ -396,3 +396,32 @@ fn duplicate_projection_records_are_skipped_as_ambiguous() {
         }));
     }
 }
+
+#[test]
+fn unknown_business_impact_outranks_no_impact_in_the_headline() {
+    let mut catalog = fixture_catalog();
+    catalog.metrics.clear();
+    catalog.anomaly_rules.clear();
+    catalog.health_checks.clear();
+    for environment in &mut catalog.environments {
+        environment.health = ConsoleHealthState::Healthy;
+    }
+    catalog.alerts[0]
+        .labels
+        .insert("severity".into(), "S5".into());
+    catalog.alerts[0]
+        .labels
+        .insert("impact".into(), "none".into());
+    let mut unknown_alert = catalog.alerts[0].clone();
+    unknown_alert.fingerprint = "unknown-impact-alert".into();
+    unknown_alert
+        .labels
+        .insert("impact".into(), "unknown".into());
+    catalog.alerts.push(unknown_alert);
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("mixed impact levels should aggregate");
+
+    assert_eq!(snapshot.health_summary.headline.level, ImpactLevel::Unknown);
+}
