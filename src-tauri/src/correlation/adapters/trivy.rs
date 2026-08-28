@@ -42,15 +42,8 @@ impl SignalAdapter for TrivyAdapter {
         // Retain the complete masked record before parsing typed finding facts.
         // Identity extraction is intentionally tolerant here so a malformed
         // payload still has a safe source record available for diagnostics.
-        let native_id = trivy_result(payload)
-            .and_then(|result| {
-                result
-                    .get("VulnerabilityID")
-                    .or_else(|| result.get("vulnerability_id"))
-            })
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_owned);
+        let native_id =
+            trivy_result(payload).and_then(|result| trivy_native_identity(payload, result));
         let source_record =
             retain_source(fixture, records, native_id, revision_from_payload(fixture))?;
 
@@ -94,6 +87,7 @@ impl SignalAdapter for TrivyAdapter {
             observed_at,
             state,
             &stable_identity,
+            (!package.is_empty()).then_some(stable_identity.as_str()),
         )
     }
 }
@@ -195,6 +189,63 @@ fn trivy_result(
         .get("vulnerability_id")
         .or_else(|| payload.get("VulnerabilityID"))
         .map(|_| payload)
+}
+
+/// Return the complete stable identity when all source identity fields are
+/// present.  A vulnerability ID alone is not unique in a scan: the same CVE
+/// can occur in multiple packages, paths or images.  Missing or malformed
+/// fields intentionally produce no native identity; strict typed parsing
+/// below still retains the source row before rejecting the finding.
+fn trivy_native_identity(
+    payload: &serde_json::Map<String, Value>,
+    result: &serde_json::Map<String, Value>,
+) -> Option<String> {
+    let vulnerability_id = result
+        .get("VulnerabilityID")
+        .or_else(|| result.get("vulnerability_id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())?;
+    let package = result
+        .get("PkgName")
+        .or_else(|| result.get("package"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())?;
+    let path = result
+        .get("PkgPath")
+        .or_else(|| result.get("VulnerablePath"))
+        .or_else(|| result.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let image = result
+        .get("Target")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            payload
+                .get("ArtifactName")
+                .or_else(|| payload.get("artifact_name"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            result
+                .get("target")
+                .and_then(Value::as_object)
+                .and_then(|target| target.get("id"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            payload
+                .get("target")
+                .and_then(Value::as_object)
+                .and_then(|target| target.get("id"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })?;
+    Some(format!(
+        "vulnerability_id={vulnerability_id};package={package};path={path};image={image}"
+    ))
 }
 
 fn artifact_digest(

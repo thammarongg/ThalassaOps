@@ -463,6 +463,7 @@ pub fn correlation_fixture_catalog() -> CorrelationFixtureCatalog {
                 "target": {"kind": "service", "id": "service/checkout"},
                 "observed_value": 120.0,
                 "comparison_value": 100.0,
+                "condition": {"threshold": {"operator": "gte", "threshold": "100.0"}},
                 "vendor_extension": {"capture": "synthetic"}
             }),
             "2026-08-28T08:57:00Z",

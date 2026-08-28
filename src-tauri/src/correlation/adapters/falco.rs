@@ -86,6 +86,7 @@ impl SignalAdapter for FalcoAdapter {
             observed_at,
             state,
             &stable_identity,
+            Some(&stable_identity),
         )
     }
 }
@@ -156,12 +157,14 @@ fn runtime_target(value: Option<&Value>) -> Result<SignalTarget, SignalAdapterEr
             return Err(SignalAdapterError::AmbiguousTarget);
         }
         validate_source_identity(target_name)?;
+        let target_id = match (target_prefix, namespace.as_deref()) {
+            ("host", _) => format!("{target_prefix}/{target_name}"),
+            (_, Some(namespace)) => format!("{target_prefix}/{namespace}/{target_name}"),
+            _ => return Err(SignalAdapterError::AmbiguousTarget),
+        };
         let target = SignalTarget {
             kind: SignalTargetKind::Resource,
-            // Namespace and container remain in the opaque identity tuple and
-            // source record; the canonical target follows the existing
-            // resource `kind/name` convention used by the console fixtures.
-            id: format!("{target_prefix}/{target_name}"),
+            id: target_id,
         };
         target.validate().map_err(SignalAdapterError::Signal)?;
         return Ok(target);

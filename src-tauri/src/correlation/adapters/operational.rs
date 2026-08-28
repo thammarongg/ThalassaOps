@@ -295,7 +295,7 @@ fn normalize_anomaly_fixture(
     let metric_key = required_string(payload, "metric_key")?;
     let observed_value = required_number(payload, "observed_value")?;
     let comparison_value = required_number(payload, "comparison_value")?;
-    let condition = condition_from_payload(payload, comparison_value)?;
+    let condition = condition_from_payload(payload)?;
     let target = target_from_payload(fixture)?;
     let dedup_identity = (!target.is_empty()).then(|| {
         format!("rule={rule_id};metric={metric_key};condition={condition:?};target={target:?}")
@@ -648,14 +648,14 @@ fn target_from_payload_or_alert_labels(
             candidates.push((kind, name));
         }
     }
-    if candidates.len() != 1
-        || namespace.is_none()
-        || namespace.is_some_and(|value| value.trim().is_empty())
-    {
+    let Some(namespace) = namespace.filter(|value| !value.trim().is_empty()) else {
+        return Ok(vec![]);
+    };
+    if candidates.len() != 1 {
         return Ok(vec![]);
     }
     let (kind, name) = candidates[0];
-    let id = format!("{}/{}", namespace.unwrap(), name);
+    let id = format!("{namespace}/{name}");
     Ok(vec![SignalTarget { kind, id }])
 }
 
@@ -709,7 +709,6 @@ fn targets_from_resource_reference(
 
 fn condition_from_payload(
     payload: &Map<String, Value>,
-    comparison_value: f64,
 ) -> Result<AnomalyCondition, SignalAdapterError> {
     if let Some(condition) = payload.get("condition") {
         let condition: AnomalyCondition = serde_json::from_value(condition.clone())
@@ -719,13 +718,10 @@ fn condition_from_payload(
             .map_err(|_| SignalAdapterError::MalformedPayload)?;
         return Ok(condition);
     }
-    // A few Sprint 11 grouping fixtures carry only the already-evaluated
-    // comparison.  Preserve a typed condition without inventing a target or
-    // a severity; the comparison itself is the source-provided bound.
-    Ok(AnomalyCondition::Threshold {
-        operator: thalassa_domain::ThresholdOperator::GreaterThanOrEqual,
-        threshold: comparison_value.to_string(),
-    })
+    // The condition is part of the source anomaly contract.  Do not infer an
+    // operator from an already-evaluated comparison value: that would turn an
+    // ambiguous source record into a false explanation.
+    Err(SignalAdapterError::MalformedPayload)
 }
 
 fn ensure_evidence_id(

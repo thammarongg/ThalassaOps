@@ -38,11 +38,7 @@ impl SignalAdapter for KyvernoAdapter {
     ) -> Result<Vec<Signal>, SignalAdapterError> {
         validate_fixture_for_source(EvidenceSourceKind::Kyverno, fixture)?;
         let payload = object(payload_value(fixture))?;
-        let native_id = payload
-            .get("policy")
-            .and_then(Value::as_str)
-            .zip(payload.get("rule").and_then(Value::as_str))
-            .map(|(policy, rule)| format!("{policy}:{rule}"));
+        let native_id = kyverno_native_identity(payload);
         let source_record =
             retain_source(fixture, records, native_id, revision_from_payload(fixture))?;
 
@@ -64,7 +60,7 @@ impl SignalAdapter for KyvernoAdapter {
         let violation_path = optional_string(payload, "violation_path")?
             .ok_or(SignalAdapterError::MalformedPayload)?;
         validate_source_text(&violation_path)?;
-        let target = kubernetes_target(&kind, &name)?;
+        let target = kubernetes_target(&namespace, &kind, &name)?;
         let severity = parse_finding_severity(payload, "severity")?;
         let exploitability = parse_exploitability(payload)?;
         let observed_at = validate_timestamp(fixture.observed_at.as_deref())?;
@@ -88,6 +84,7 @@ impl SignalAdapter for KyvernoAdapter {
             observed_at,
             state,
             &stable_identity,
+            Some(&stable_identity),
         )
     }
 }
@@ -128,6 +125,7 @@ pub(super) fn kubernetes_identity(
 }
 
 pub(super) fn kubernetes_target(
+    namespace: &str,
     kind: &str,
     name: &str,
 ) -> Result<SignalTarget, SignalAdapterError> {
@@ -144,10 +142,36 @@ pub(super) fn kubernetes_target(
         SignalTargetKind::Resource => "resource",
         SignalTargetKind::Topology => "topology",
     };
+    validate_source_identity(namespace)?;
     let target = SignalTarget {
         kind: target_kind,
-        id: format!("{id_prefix}/{name}"),
+        id: format!("{id_prefix}/{namespace}/{name}"),
     };
     target.validate().map_err(SignalAdapterError::Signal)?;
     Ok(target)
+}
+
+/// Policy/rule names identify a policy, not one violation.  Include the
+/// complete resource and violation path so repeated reports from one policy
+/// do not collide in the append-only source ledger.
+fn kyverno_native_identity(payload: &serde_json::Map<String, Value>) -> Option<String> {
+    let policy = payload.get("policy").and_then(Value::as_str)?.trim();
+    let rule = payload.get("rule").and_then(Value::as_str)?.trim();
+    let resource = payload.get("resource")?.as_object()?;
+    let namespace = resource.get("namespace").and_then(Value::as_str)?.trim();
+    let kind = resource.get("kind").and_then(Value::as_str)?.trim();
+    let name = resource.get("name").and_then(Value::as_str)?.trim();
+    let path = payload
+        .get("violation_path")
+        .and_then(Value::as_str)?
+        .trim();
+    if [policy, rule, namespace, kind, name, path]
+        .iter()
+        .any(|value| value.is_empty())
+    {
+        return None;
+    }
+    Some(format!(
+        "policy={policy};rule={rule};namespace={namespace};kind={kind};name={name};path={path}"
+    ))
 }

@@ -69,7 +69,9 @@ fn trivy_fixture_maps_to_a_source_preserving_container_finding() {
     assert_eq!(finding.exploitability, None);
     assert_eq!(
         signal.source_record.native_id.as_deref(),
-        Some("CVE-2024-1234")
+        Some(
+            "vulnerability_id=CVE-2024-1234;package=libcheckout;path=;image=checkout:2026.08.28.1"
+        )
     );
     assert_eq!(signal.source_record.revision.as_deref(), Some("fixture-1"));
     assert_eq!(
@@ -96,7 +98,7 @@ fn falco_fixture_maps_priority_and_exact_runtime_target() {
 
     assert_eq!(finding.asset.kind, FindingAssetKind::RuntimeResource);
     assert_eq!(finding.asset.target.kind, SignalTargetKind::Resource);
-    assert_eq!(finding.asset.target.id, "pod/checkout-7d9c");
+    assert_eq!(finding.asset.target.id, "pod/prod/checkout-7d9c");
     assert_eq!(finding.severity, Some(FindingSeverity::Critical));
     assert_eq!(signal.observed_at.as_deref(), Some("2026-08-28T08:58:30Z"));
     assert_eq!(
@@ -131,11 +133,16 @@ fn kyverno_and_gatekeeper_fixtures_map_policy_subjects() {
         finding(&kyverno).asset.target.kind,
         SignalTargetKind::Deployment
     );
-    assert_eq!(finding(&kyverno).asset.target.id, "deployment/checkout");
+    assert_eq!(
+        finding(&kyverno).asset.target.id,
+        "deployment/prod/checkout"
+    );
     assert_eq!(finding(&kyverno).severity, Some(FindingSeverity::High));
     assert_eq!(
         kyverno.source_record.native_id.as_deref(),
-        Some("disallow-host-path:host-path")
+        Some(
+            "policy=disallow-host-path;rule=host-path;namespace=prod;kind=Deployment;name=checkout;path=spec.template.spec.volumes[0].hostPath"
+        )
     );
     assert!(records
         .get(&kyverno.source_record)
@@ -152,11 +159,16 @@ fn kyverno_and_gatekeeper_fixtures_map_policy_subjects() {
         finding(&gatekeeper).asset.target.kind,
         SignalTargetKind::Deployment
     );
-    assert_eq!(finding(&gatekeeper).asset.target.id, "deployment/checkout");
+    assert_eq!(
+        finding(&gatekeeper).asset.target.id,
+        "deployment/prod/checkout"
+    );
     assert_eq!(finding(&gatekeeper).severity, Some(FindingSeverity::Medium));
     assert_eq!(
         gatekeeper.source_record.native_id.as_deref(),
-        Some("checkout-required-labels")
+        Some(
+            "template=k8srequiredlabels;constraint=checkout-required-labels;namespace=prod;kind=Deployment;name=checkout;path=metadata.labels.service-tier"
+        )
     );
     assert!(records
         .get(&gatekeeper.source_record)
@@ -164,6 +176,108 @@ fn kyverno_and_gatekeeper_fixtures_map_policy_subjects() {
         .payload()
         .get("vendor_extension")
         .is_some());
+}
+
+#[test]
+fn kubernetes_security_targets_keep_namespace_in_exact_identity() {
+    let prod = security_fixture(EvidenceSourceKind::Kyverno);
+    let mut staging = prod.clone();
+    staging.recorded_json["resource"]["namespace"] = json!("staging");
+    staging.evidence[0].id = "evidence-security-kyverno-staging".into();
+
+    let prod_signal = normalize_kyverno(&prod, &mut SourceRecordStore::default())
+        .expect("production Kyverno fixture should normalize")
+        .remove(0);
+    let staging_signal = normalize_kyverno(&staging, &mut SourceRecordStore::default())
+        .expect("staging Kyverno fixture should normalize")
+        .remove(0);
+
+    assert_eq!(
+        finding(&prod_signal).asset.target.id,
+        "deployment/prod/checkout"
+    );
+    assert_eq!(
+        finding(&staging_signal).asset.target.id,
+        "deployment/staging/checkout"
+    );
+    assert_ne!(
+        finding(&prod_signal).asset.target,
+        finding(&staging_signal).asset.target
+    );
+
+    let falco_prod = security_fixture(EvidenceSourceKind::Falco);
+    let mut falco_staging = falco_prod.clone();
+    falco_staging.recorded_json["target"]["namespace"] = json!("staging");
+    falco_staging.evidence[0].id = "evidence-security-falco-staging".into();
+    let prod_signal = normalize_falco(&falco_prod, &mut SourceRecordStore::default())
+        .expect("production Falco fixture should normalize")
+        .remove(0);
+    let staging_signal = normalize_falco(&falco_staging, &mut SourceRecordStore::default())
+        .expect("staging Falco fixture should normalize")
+        .remove(0);
+    assert_eq!(
+        finding(&prod_signal).asset.target.id,
+        "pod/prod/checkout-7d9c"
+    );
+    assert_eq!(
+        finding(&staging_signal).asset.target.id,
+        "pod/staging/checkout-7d9c"
+    );
+}
+
+#[test]
+fn repeated_policy_reports_keep_each_resource_revision() {
+    let kyverno = security_fixture(EvidenceSourceKind::Kyverno);
+    let mut kyverno_second = kyverno.clone();
+    kyverno_second.recorded_json["resource"]["name"] = json!("payments");
+    kyverno_second.evidence[0].id = "evidence-security-kyverno-payments".into();
+    let mut records = SourceRecordStore::default();
+    let first = normalize_kyverno(&kyverno, &mut records).expect("first Kyverno report");
+    let second = normalize_kyverno(&kyverno_second, &mut records)
+        .expect("second Kyverno report must not collide by policy name");
+    assert_eq!(first.len(), 1);
+    assert_eq!(second.len(), 1);
+    assert_eq!(records.len(), 2);
+    assert_ne!(
+        first[0].source_record.native_id,
+        second[0].source_record.native_id
+    );
+
+    let gatekeeper = security_fixture(EvidenceSourceKind::OpaGatekeeper);
+    let mut gatekeeper_second = gatekeeper.clone();
+    gatekeeper_second.recorded_json["resource"]["name"] = json!("payments");
+    gatekeeper_second.evidence[0].id = "evidence-security-gatekeeper-payments".into();
+    let mut records = SourceRecordStore::default();
+    let first = normalize_gatekeeper(&gatekeeper, &mut records).expect("first Gatekeeper report");
+    let second = normalize_gatekeeper(&gatekeeper_second, &mut records)
+        .expect("second Gatekeeper report must not collide by constraint name");
+    assert_eq!(first.len(), 1);
+    assert_eq!(second.len(), 1);
+    assert_eq!(records.len(), 2);
+    assert_ne!(
+        first[0].source_record.native_id,
+        second[0].source_record.native_id
+    );
+}
+
+#[test]
+fn repeated_trivy_packages_keep_each_vulnerability_source_record() {
+    let first = security_fixture(EvidenceSourceKind::Trivy);
+    let mut second = first.clone();
+    second.recorded_json["Results"][0]["PkgName"] = json!("libpayments");
+    second.evidence[0].id = "evidence-security-trivy-payments".into();
+    let mut records = SourceRecordStore::default();
+    let first_signal = normalize_trivy(&first, &mut records)
+        .expect("first Trivy result")
+        .remove(0);
+    let second_signal = normalize_trivy(&second, &mut records)
+        .expect("same CVE in another package must not collide")
+        .remove(0);
+    assert_eq!(records.len(), 2);
+    assert_ne!(
+        first_signal.source_record.native_id,
+        second_signal.source_record.native_id
+    );
 }
 
 #[test]
@@ -207,14 +321,28 @@ fn trivy_adapter_accepts_the_mixed_deployment_fixture_without_flattening_it() {
     assert_eq!(finding.asset.kind, FindingAssetKind::ContainerImage);
     assert_eq!(finding.asset.target.kind, SignalTargetKind::Deployment);
     assert_eq!(finding.asset.target.id, "deployment/checkout");
-    assert_eq!(
-        signal.source_record.native_id.as_deref(),
-        Some("CVE-2024-1234")
-    );
+    assert_eq!(signal.source_record.native_id.as_deref(), None);
     assert_eq!(
         records.get(&signal.source_record).unwrap().payload(),
         &fixture.recorded_json
     );
+}
+
+#[test]
+fn trivy_missing_package_stays_normalized_without_a_fabricated_dedup_key() {
+    let mut fixture = security_fixture(EvidenceSourceKind::Trivy);
+    fixture.recorded_json["Results"][0]
+        .as_object_mut()
+        .expect("Trivy result is an object")
+        .remove("PkgName");
+    let mut records = SourceRecordStore::default();
+    let signal = normalize_trivy(&fixture, &mut records)
+        .expect("missing optional package does not invalidate the source record")
+        .remove(0);
+
+    assert_eq!(signal.dedup_key, None);
+    assert!(records.get(&signal.source_record).is_some());
+    assert!(signal.validate().is_ok());
 }
 
 #[test]

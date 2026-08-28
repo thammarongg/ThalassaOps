@@ -36,11 +36,7 @@ impl SignalAdapter for GatekeeperAdapter {
     ) -> Result<Vec<Signal>, SignalAdapterError> {
         validate_fixture_for_source(EvidenceSourceKind::OpaGatekeeper, fixture)?;
         let payload = object(payload_value(fixture))?;
-        let native_id = payload
-            .get("constraint")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_owned);
+        let native_id = gatekeeper_native_identity(payload);
         let source_record =
             retain_source(fixture, records, native_id, revision_from_payload(fixture))?;
 
@@ -62,7 +58,7 @@ impl SignalAdapter for GatekeeperAdapter {
         let violation_path = optional_string(payload, "violation_path")?
             .ok_or(SignalAdapterError::MalformedPayload)?;
         validate_source_text(&violation_path)?;
-        let target = super::kyverno::kubernetes_target(&kind, &name)?;
+        let target = super::kyverno::kubernetes_target(&namespace, &kind, &name)?;
         let severity = parse_finding_severity(payload, "severity")?;
         let exploitability = parse_exploitability(payload)?;
         let observed_at = validate_timestamp(fixture.observed_at.as_deref())?;
@@ -86,6 +82,7 @@ impl SignalAdapter for GatekeeperAdapter {
             observed_at,
             state,
             &stable_identity,
+            Some(&stable_identity),
         )
     }
 }
@@ -96,4 +93,32 @@ pub fn normalize_gatekeeper(
     records: &mut SourceRecordStore,
 ) -> Result<Vec<Signal>, SignalAdapterError> {
     GatekeeperAdapter.normalize(fixture, records)
+}
+
+/// A Gatekeeper constraint can produce many violations. Include the complete
+/// resource and violation path so each retained source record has a distinct
+/// native identity at one revision.
+fn gatekeeper_native_identity(payload: &serde_json::Map<String, Value>) -> Option<String> {
+    let template = payload
+        .get("constraint_template")
+        .and_then(Value::as_str)?
+        .trim();
+    let constraint = payload.get("constraint").and_then(Value::as_str)?.trim();
+    let resource = payload.get("resource")?.as_object()?;
+    let namespace = resource.get("namespace").and_then(Value::as_str)?.trim();
+    let kind = resource.get("kind").and_then(Value::as_str)?.trim();
+    let name = resource.get("name").and_then(Value::as_str)?.trim();
+    let path = payload
+        .get("violation_path")
+        .and_then(Value::as_str)?
+        .trim();
+    if [template, constraint, namespace, kind, name, path]
+        .iter()
+        .any(|value| value.is_empty())
+    {
+        return None;
+    }
+    Some(format!(
+        "template={template};constraint={constraint};namespace={namespace};kind={kind};name={name};path={path}"
+    ))
 }

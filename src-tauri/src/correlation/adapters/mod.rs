@@ -186,6 +186,7 @@ pub(super) fn validate_source_identity(value: &str) -> Result<(), SignalAdapterE
         ]
         .iter()
         .any(|marker| lower.contains(marker))
+        || contains_sensitive_account_id(&lower)
     {
         return Err(SignalAdapterError::UnsafeIdentity);
     }
@@ -217,10 +218,44 @@ pub(super) fn validate_source_text(value: &str) -> Result<(), SignalAdapterError
         ]
         .iter()
         .any(|marker| value.to_ascii_lowercase().contains(marker))
+        || contains_sensitive_account_id(value)
     {
         return Err(SignalAdapterError::UnsafeIdentity);
     }
     Ok(())
+}
+
+fn contains_sensitive_account_id(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("sha256:") || lower.contains("dedup:v1:") {
+        return false;
+    }
+    if looks_like_uuid(value) {
+        return false;
+    }
+    let mut run_length = 0usize;
+    for character in value.chars() {
+        if character.is_ascii_digit() {
+            run_length = run_length.saturating_add(1);
+        } else {
+            if run_length >= 12 {
+                return true;
+            }
+            run_length = 0;
+        }
+    }
+    run_length >= 12
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(length, part)| {
+                part.len() == *length && part.chars().all(|c| c.is_ascii_hexdigit())
+            })
 }
 
 pub(super) fn validate_timestamp(
@@ -449,6 +484,7 @@ pub(super) fn build_security_signal(
     observed_at: Option<String>,
     state: SignalState,
     stable_identity: &str,
+    dedup_identity: Option<&str>,
 ) -> Result<Vec<Signal>, SignalAdapterError> {
     validate_source_identity(stable_identity)?;
     let source_query = source_query(fixture)?;
@@ -493,7 +529,7 @@ pub(super) fn build_security_signal(
         dedup_key: stable_dedup_key(
             fixture.source_kind,
             SignalKind::SecurityFinding,
-            stable_identity,
+            dedup_identity.unwrap_or(""),
         ),
         suppression: SuppressionState {
             kind: SuppressionKind::NotSuppressed,

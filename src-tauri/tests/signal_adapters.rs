@@ -19,6 +19,7 @@ use thalassaops::correlation::{
 use thalassaops::observability::alertmanager::{
     AlertSourceReference, NormalizedAlert, ResourceReference,
 };
+use uuid::Uuid;
 
 fn evidence(id: &str, source_kind: EvidenceSourceKind, scope: ResourceScope) -> EvidenceRef {
     EvidenceRef {
@@ -133,6 +134,7 @@ fn anomaly_without_a_target_has_no_grouping_identity() {
             "metric_key": "checkout_error_rate",
             "observed_value": 0.08,
             "comparison_value": 0.05,
+            "condition": {"threshold": {"operator": "gte", "threshold": "0.05"}},
             "vendor_extension": {"capture": "synthetic"}
         }),
         Some("2026-08-28T08:59:00Z"),
@@ -145,6 +147,35 @@ fn anomaly_without_a_target_has_no_grouping_identity() {
         .remove(0);
     assert!(signal.targets.is_empty());
     assert!(signal.dedup_key.is_none());
+}
+
+#[test]
+fn anomaly_without_a_condition_is_rejected_without_inventing_an_operator() {
+    let mut source = fixture(
+        "anomaly-without-condition",
+        EvidenceSourceKind::Prometheus,
+        json!({
+            "rule_id": "rule-checkout-errors",
+            "metric_key": "checkout_error_rate",
+            "observed_value": 0.08,
+            "comparison_value": 0.05,
+            "vendor_extension": {"capture": "synthetic"}
+        }),
+        Some("2026-08-28T08:59:00Z"),
+        "evidence-anomaly-without-condition",
+    );
+    source
+        .recorded_json
+        .as_object_mut()
+        .expect("test payload is an object")
+        .remove("condition");
+    let mut records = SourceRecordStore::default();
+
+    assert_eq!(
+        normalize_operational(&source, &mut records),
+        Err(SignalAdapterError::MalformedPayload)
+    );
+    assert_eq!(records.len(), 1, "the complete source remains retained");
 }
 
 #[test]
@@ -299,6 +330,42 @@ fn source_identity_conflicts_are_rejected_and_identical_replays_are_idempotent()
 }
 
 #[test]
+fn evidence_ids_cannot_alias_different_retained_evidence() {
+    let scope = fixture_scope();
+    let first_evidence = evidence(
+        "evidence-collision",
+        EvidenceSourceKind::Alertmanager,
+        scope.clone(),
+    );
+    let mut conflicting_evidence = first_evidence.clone();
+    conflicting_evidence.excerpt = "different source evidence".into();
+
+    let first = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("first-alert".into()),
+        None,
+        scope.clone(),
+        json!({"state": "firing"}),
+        vec![first_evidence],
+    );
+    let second = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("second-alert".into()),
+        None,
+        scope,
+        json!({"state": "resolved"}),
+        vec![conflicting_evidence],
+    );
+    let mut store = SourceRecordStore::default();
+    store.retain(first).unwrap();
+    assert_eq!(
+        store.retain(second),
+        Err(SourceRecordError::DuplicateEvidence)
+    );
+    assert_eq!(store.len(), 1);
+}
+
+#[test]
 fn source_record_masks_sensitive_values_but_rejects_unsafe_identity() {
     let scope = fixture_scope();
     let mut records = SourceRecordStore::default();
@@ -370,6 +437,23 @@ fn forbidden_data_never_enters_the_source_record_or_typed_error() {
     assert_eq!(error, SourceRecordError::InvalidPayload);
     assert!(!error.to_string().contains("123456789012"));
     assert!(records.is_empty());
+
+    let numeric_identity = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("123456789012".into()),
+        None,
+        fixture_scope(),
+        json!({"state": "firing"}),
+        vec![evidence(
+            "evidence-numeric-identity",
+            EvidenceSourceKind::Alertmanager,
+            fixture_scope(),
+        )],
+    );
+    assert_eq!(
+        records.retain(numeric_identity),
+        Err(SourceRecordError::UnsafeIdentity)
+    );
 }
 
 #[test]
@@ -395,6 +479,14 @@ fn app_migration_registers_the_append_only_source_record_table() {
         )
         .unwrap();
     assert_eq!(migration, 3);
+    let evidence_migration: i64 = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 4",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(evidence_migration, 4);
 }
 
 #[test]
@@ -425,6 +517,11 @@ fn sqlite_source_record_store_round_trips_the_complete_retained_record() {
     let directory = tempdir().unwrap();
     let database_path = directory.path().join("source-records.sqlite");
     let scope = fixture_scope();
+    let retained_evidence = evidence(
+        "evidence-sqlite",
+        EvidenceSourceKind::Alertmanager,
+        scope.clone(),
+    );
     let input = SourceRecordInput::new(
         EvidenceSourceKind::Alertmanager,
         Some("sqlite-alert".into()),
@@ -434,11 +531,7 @@ fn sqlite_source_record_store_round_trips_the_complete_retained_record() {
             "state": "firing",
             "vendor_extension": {"unknown": [1, 2, 3]}
         }),
-        vec![evidence(
-            "evidence-sqlite",
-            EvidenceSourceKind::Alertmanager,
-            scope,
-        )],
+        vec![retained_evidence.clone()],
     );
     let (reference, payload) = {
         let connection = Connection::open(&database_path).unwrap();
@@ -454,6 +547,181 @@ fn sqlite_source_record_store_round_trips_the_complete_retained_record() {
     assert_eq!(retained.redacted_payload, payload);
     assert_eq!(retained.native_id.as_deref(), Some("sqlite-alert"));
     assert_eq!(retained.evidence_ids, vec!["evidence-sqlite"]);
+    assert_eq!(
+        store.evidence_for_record(&reference).unwrap(),
+        vec![retained_evidence]
+    );
+}
+
+#[test]
+fn sqlite_source_record_store_rejects_tampered_evidence_on_reload() {
+    let directory = tempdir().unwrap();
+    let database_path = directory.path().join("source-records.sqlite");
+    let scope = fixture_scope();
+    let retained_evidence = evidence(
+        "evidence-reload-safety",
+        EvidenceSourceKind::Alertmanager,
+        scope.clone(),
+    );
+    let input = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("reload-safety-alert".into()),
+        None,
+        scope,
+        json!({"state": "firing"}),
+        vec![retained_evidence],
+    );
+    {
+        let connection = Connection::open(&database_path).unwrap();
+        let mut store = SourceRecordStore::with_connection(connection).unwrap();
+        store.retain(input).unwrap();
+    }
+
+    let connection = Connection::open(&database_path).unwrap();
+    let mut tampered: serde_json::Value = connection
+        .query_row(
+            "SELECT evidence_json FROM source_record_evidence WHERE evidence_id = ?1",
+            ["evidence-reload-safety"],
+            |row| row.get::<_, String>(0),
+        )
+        .map(|json| serde_json::from_str(&json).unwrap())
+        .unwrap();
+    tampered["excerpt"] = json!("token=must-not-load");
+    connection
+        .execute(
+            "UPDATE source_record_evidence SET evidence_json = ?1 WHERE evidence_id = ?2",
+            rusqlite::params![
+                serde_json::to_string(&tampered).unwrap(),
+                "evidence-reload-safety"
+            ],
+        )
+        .unwrap();
+
+    match SourceRecordStore::with_connection(connection) {
+        Err(error) => assert_eq!(error, SourceRecordError::InvalidEvidence),
+        Ok(_) => panic!("tampered evidence must not be loaded"),
+    }
+}
+
+#[test]
+fn sqlite_source_record_store_rejects_cross_scope_evidence_id_rebinding() {
+    let directory = tempdir().unwrap();
+    let database_path = directory.path().join("source-records.sqlite");
+    let first_scope = ResourceScope::workspace(
+        Uuid::from_u128(11),
+        Uuid::from_u128(12),
+        Uuid::from_u128(13),
+    );
+    let second_scope = ResourceScope::workspace(
+        Uuid::from_u128(21),
+        Uuid::from_u128(22),
+        Uuid::from_u128(23),
+    );
+    let first_input = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("first-alert".into()),
+        None,
+        first_scope.clone(),
+        json!({"state": "firing", "target": "first"}),
+        vec![evidence(
+            "evidence-rebound",
+            EvidenceSourceKind::Alertmanager,
+            first_scope,
+        )],
+    );
+    {
+        let connection = Connection::open(&database_path).unwrap();
+        let mut store =
+            SourceRecordStore::with_connection_and_scope(connection, first_input.scope.clone())
+                .unwrap();
+        store.retain(first_input).unwrap();
+    }
+
+    let second_input = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("second-alert".into()),
+        None,
+        second_scope.clone(),
+        json!({"state": "firing", "target": "second"}),
+        vec![evidence(
+            "evidence-rebound",
+            EvidenceSourceKind::Alertmanager,
+            second_scope,
+        )],
+    );
+    let connection = Connection::open(database_path).unwrap();
+    let mut store =
+        SourceRecordStore::with_connection_and_scope(connection, second_input.scope.clone())
+            .unwrap();
+    assert_eq!(
+        store.retain(second_input),
+        Err(SourceRecordError::DuplicateEvidence)
+    );
+}
+
+#[test]
+fn sqlite_source_record_store_does_not_update_an_out_of_scope_identity_row() {
+    let directory = tempdir().unwrap();
+    let database_path = directory.path().join("source-records.sqlite");
+    let first_scope = ResourceScope::workspace(
+        Uuid::from_u128(31),
+        Uuid::from_u128(32),
+        Uuid::from_u128(33),
+    );
+    let second_scope = ResourceScope::workspace(
+        Uuid::from_u128(41),
+        Uuid::from_u128(42),
+        Uuid::from_u128(43),
+    );
+    let first_input = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("first-scope-alert".into()),
+        None,
+        first_scope.clone(),
+        json!({"state": "firing", "target": "same-content"}),
+        vec![evidence(
+            "evidence-first-scope",
+            EvidenceSourceKind::Alertmanager,
+            first_scope.clone(),
+        )],
+    );
+    {
+        let connection = Connection::open(&database_path).unwrap();
+        let mut store =
+            SourceRecordStore::with_connection_and_scope(connection, first_input.scope.clone())
+                .unwrap();
+        store.retain(first_input).unwrap();
+    }
+
+    let second_input = SourceRecordInput::new(
+        EvidenceSourceKind::Alertmanager,
+        Some("second-scope-alert".into()),
+        None,
+        second_scope.clone(),
+        json!({"target": "same-content", "state": "firing"}),
+        vec![evidence(
+            "evidence-second-scope",
+            EvidenceSourceKind::Alertmanager,
+            second_scope,
+        )],
+    );
+    let connection = Connection::open(&database_path).unwrap();
+    let mut store =
+        SourceRecordStore::with_connection_and_scope(connection, second_input.scope.clone())
+            .unwrap();
+    assert_eq!(
+        store.retain(second_input),
+        Err(SourceRecordError::ScopeMismatch)
+    );
+
+    let connection = Connection::open(database_path).unwrap();
+    let stored_scope: String = connection
+        .query_row("SELECT scope FROM source_records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<ResourceScope>(&stored_scope).unwrap(),
+        first_scope
+    );
 }
 
 #[test]

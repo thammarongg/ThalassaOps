@@ -260,7 +260,7 @@ const trivySignal = securitySignal(
 const falcoSignal = securitySignal(
   "00000000-0000-0000-0000-000000000104",
   "falco",
-  { kind: "resource", id: "pod/checkout-7d9c" },
+  { kind: "resource", id: "pod/prod/checkout-7d9c" },
   "runtime_resource",
   "critical",
   "evidence-correlation-falco",
@@ -270,7 +270,7 @@ const falcoSignal = securitySignal(
 const kyvernoSignal = securitySignal(
   "00000000-0000-0000-0000-000000000105",
   "kyverno",
-  { kind: "deployment", id: "deployment/checkout" },
+  { kind: "deployment", id: "deployment/prod/checkout" },
   "policy_subject",
   "high",
   "evidence-correlation-kyverno",
@@ -280,7 +280,7 @@ const kyvernoSignal = securitySignal(
 const gatekeeperSignal = securitySignal(
   "00000000-0000-0000-0000-000000000106",
   "opa_gatekeeper",
-  { kind: "deployment", id: "deployment/checkout" },
+  { kind: "deployment", id: "deployment/prod/checkout" },
   "policy_subject",
   "medium",
   "evidence-correlation-gatekeeper",
@@ -306,26 +306,26 @@ export const correlationFixtureSnapshot: CorrelationSnapshot = {
         evidence_ids: [
           "evidence-correlation-alert",
           "evidence-correlation-anomaly",
-          "evidence-correlation-trivy",
           "evidence-correlation-falco",
+          "evidence-correlation-gatekeeper",
           "evidence-correlation-kyverno",
-          "evidence-correlation-gatekeeper"
+          "evidence-correlation-trivy"
         ],
         drill_down: drillDown([
           "evidence-correlation-alert",
           "evidence-correlation-anomaly",
-          "evidence-correlation-trivy",
           "evidence-correlation-falco",
+          "evidence-correlation-gatekeeper",
           "evidence-correlation-kyverno",
-          "evidence-correlation-gatekeeper"
+          "evidence-correlation-trivy"
         ]),
         drill_down_reference: drillDownReference([
           "evidence-correlation-alert",
           "evidence-correlation-anomaly",
-          "evidence-correlation-trivy",
           "evidence-correlation-falco",
+          "evidence-correlation-gatekeeper",
           "evidence-correlation-kyverno",
-          "evidence-correlation-gatekeeper"
+          "evidence-correlation-trivy"
         ])
       }
     ]
