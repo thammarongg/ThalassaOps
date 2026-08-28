@@ -98,6 +98,15 @@ it("rejects topology nodes without their backend-issued focus key", () => {
   expect(isTopologySnapshot(wrongFilterKey)).toBe(false);
 });
 
+it("rejects negative topology count metrics", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  const workload = snapshot.nodes.find((node) => node.name === "checkout-api");
+  expect(workload).toBeDefined();
+  if (workload?.metric) workload.metric.value = -1;
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("rejects graph references that are outside the emitted snapshot", () => {
   expect(isTopologySnapshot(topologySnapshotFixture)).toBe(true);
   const snapshot = structuredClone(topologySnapshotFixture);

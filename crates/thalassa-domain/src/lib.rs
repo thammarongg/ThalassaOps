@@ -1638,6 +1638,9 @@ impl TopologyMetric {
                 TopologyNumberField::MetricValue,
             ));
         }
+        if self.unit == NumberUnit::Count && self.value < 0.0 {
+            return Err(TopologyError::InvalidRequest);
+        }
         if self.key.trim().is_empty() {
             return Err(TopologyError::InvalidRequest);
         }

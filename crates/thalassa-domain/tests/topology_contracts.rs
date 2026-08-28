@@ -288,6 +288,12 @@ fn topology_node_drill_down_requires_its_backend_issued_node_id() {
 }
 
 #[test]
+fn topology_metrics_reject_negative_counts() {
+    let invalid = metric("ready_replicas", -1.0);
+    assert_eq!(invalid.validate(), Err(TopologyError::InvalidRequest));
+}
+
+#[test]
 fn topology_enums_use_explicit_symmetric_wire_values() {
     macro_rules! assert_wire_values {
         ($type:ty, $( $variant:expr => $wire:expr ),+ $(,)?) => {

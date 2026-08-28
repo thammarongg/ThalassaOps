@@ -165,6 +165,36 @@ fn partially_missing_environment_metric_evidence_omits_the_metric() {
 }
 
 #[test]
+fn negative_kubernetes_replica_counts_are_omitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let workload = production
+        .resources
+        .iter_mut()
+        .find(|item| item.resource.kind == "Deployment")
+        .expect("fixture should contain a workload");
+    workload.replicas.as_mut().expect("workload replicas").ready = -1;
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("negative source counts should degrade the source");
+    let workload = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "checkout-api")
+        .expect("the workload should remain visible");
+
+    assert!(workload.metric.is_none());
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "kubernetes:env-aws-prod"
+            && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn evidence_matching_does_not_mix_similar_resource_names() {
     let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())

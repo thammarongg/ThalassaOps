@@ -113,6 +113,7 @@ const isMetricFor = (
     !isSafeDisplayText(value.key) ||
     typeof value.value !== "number" ||
     !Number.isFinite(value.value) ||
+    (value.unit === "count" && value.value < 0) ||
     !isEnum(value.unit, numberUnits) ||
     !isDrillDownReference(value.drill_down_reference) ||
     !isSafeDisplayText(value.drill_down_reference.source_query)

@@ -677,7 +677,7 @@ fn derive_kubernetes_resource(
     evidence_ids.sort();
     let metric = item.replicas.as_ref().and_then(|replicas| {
         let value = f64::from(replicas.ready);
-        if !value.is_finite() {
+        if !value.is_finite() || value < 0.0 {
             graph.mark_unverified(&format!("kubernetes:{environment_id}"));
             None
         } else {
