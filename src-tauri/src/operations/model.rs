@@ -6,6 +6,7 @@
 
 pub use thalassa_domain::{
     AnomalyCondition, AnomalyEvaluation, AnomalyEvaluationStatus, AnomalyRule, AnomalySignal,
-    ConsoleEvidenceId, ConsoleSeverity, MetricFixture, MetricFixtureSample, MetricFixtureSource,
-    RateDirection, ResourceScope, ThresholdOperator,
+    ConsoleEvidenceId, ConsoleSeverity, FixtureHealthCheck, HealthCheckAudit, HealthCheckOutcome,
+    HealthCheckResult, HealthCheckSchedule, HealthCheckSource, MetricFixture, MetricFixtureSample,
+    MetricFixtureSource, RateDirection, ResourceScope, ThresholdOperator,
 };

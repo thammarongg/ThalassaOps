@@ -6,6 +6,7 @@
 
 pub mod anomaly;
 pub mod fixtures;
+pub mod health_check;
 pub mod model;
 
 pub use anomaly::{
@@ -13,3 +14,8 @@ pub use anomaly::{
     AnomalyError,
 };
 pub use fixtures::{fixture_catalog, fixture_time, FixtureCatalog};
+pub use health_check::{
+    audit_for, is_due, run_due_checks, run_due_checks_with_policy, BoundedScopePolicy, DueState,
+    FixedClock, FixtureLookup, HealthCheckClock, HealthCheckError, HealthCheckPolicy,
+    HealthCheckScheduler,
+};
