@@ -133,6 +133,55 @@ fn evidence_matching_does_not_mix_similar_resource_names() {
 }
 
 #[test]
+fn topology_does_not_apply_value_pattern_redaction_to_verified_evidence() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let evidence = input
+        .evidence
+        .iter_mut()
+        .find(|candidate| candidate.id == "evidence-topology-environment-aws")
+        .expect("fixture should contain AWS environment evidence");
+    evidence.excerpt = "resource generation 123456".into();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("verified evidence should remain admitted");
+    let admitted = snapshot
+        .evidence
+        .iter()
+        .find(|candidate| candidate.id == "evidence-topology-environment-aws")
+        .expect("the changed evidence should remain available");
+
+    assert_eq!(admitted.excerpt, "resource generation 123456");
+    assert!(!admitted.redaction.masked);
+}
+
+#[test]
+fn topology_omits_sensitive_free_text_instead_of_claiming_it_was_masked() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let evidence = input
+        .evidence
+        .iter_mut()
+        .find(|candidate| candidate.id == "evidence-topology-environment-aws")
+        .expect("fixture should contain AWS environment evidence");
+    evidence.excerpt = "password=fixture-secret".into();
+    let evidence_id = evidence.id.clone();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("sensitive evidence should degrade the source");
+
+    assert!(snapshot
+        .evidence
+        .iter()
+        .all(|candidate| candidate.id != evidence_id));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "cloud" && status.state == thalassa_domain::SourceState::Unverified
+    }));
+    let serialized = serde_json::to_string(&snapshot).expect("snapshot should serialize");
+    assert!(!serialized.contains("fixture-secret"));
+}
+
+#[test]
 fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
     let mut input = topology_fixture_input(fixture_scope());
     let mut conflicting = input.evidence[0].clone();

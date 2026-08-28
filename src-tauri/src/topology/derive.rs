@@ -5,7 +5,7 @@ use super::ownership::{resolve_ownership, validate_rules};
 use crate::cloud::{CloudHealthState, CloudResource, CloudResourceType};
 use crate::kubernetes::{KubernetesHealth, KubernetesResource};
 use crate::observability::alertmanager::{NormalizedAlert, ResourceReference};
-use crate::observability::masking::{mask_json_object, sensitive_key, REDACTED};
+use crate::observability::masking::{mask_json_object, sensitive_key};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use thalassa_domain::{
@@ -274,7 +274,7 @@ fn load_source_status(input: &TopologyInput, graph: &mut DerivedGraph) {
         if source_key != status.source_key {
             status.source_key = source_key.clone();
         }
-        status.detail = status.detail.as_deref().map(sanitize_text);
+        status.detail = sanitize_optional_text(status.detail.as_deref());
         status.observed_at = sanitize_optional_text(status.observed_at.as_deref());
         let original_evidence_count = status.evidence_ids.len();
         status.evidence_ids.retain(|evidence_id| {
@@ -327,7 +327,9 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
     let mut environments = input.environments.clone();
     environments.sort_by(|left, right| left.environment_id.cmp(&right.environment_id));
     for environment in environments {
-        if !safe_identifier(&environment.environment_id) || environment.name.trim().is_empty() {
+        if !safe_identifier(&environment.environment_id)
+            || !safe_identifier(&environment.name)
+        {
             graph.mark_unverified("cloud");
             continue;
         }
@@ -361,7 +363,10 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
             native_kind: Some("EnvironmentStatus".into()),
             native_id: Some(environment.environment_id.clone()),
             environment_id: Some(environment.environment_id.clone()),
-            provider: environment.provider.as_deref().map(sanitize_text),
+            provider: environment
+                .provider
+                .as_deref()
+                .and_then(|value| sanitize_optional_text(Some(value))),
             scope: input.scope.clone(),
             status: environment.health,
             labels: BTreeMap::new(),
@@ -536,7 +541,11 @@ fn derive_kubernetes_resource(
         native_kind: Some(item.resource.kind.clone()),
         native_id: item.resource.native_id.clone(),
         environment_id: Some(environment_id.into()),
-        provider: item.resource.provider.as_deref().map(sanitize_text),
+        provider: item
+            .resource
+            .provider
+            .as_deref()
+            .and_then(|value| sanitize_optional_text(Some(value))),
         scope: item.resource.scope.clone(),
         status,
         labels,
@@ -827,13 +836,14 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
         topology_kind_name(kind),
         resource.id
     );
-    let mut labels = BTreeMap::new();
-    labels.insert("location".into(), sanitize_text(&resource.location));
-    labels.insert(
+    let mut raw_labels = BTreeMap::new();
+    raw_labels.insert("location".into(), resource.location.clone());
+    raw_labels.insert(
         "resource_type".into(),
         cloud_resource_type_name(resource.resource_type).into(),
     );
-    labels.insert("status".into(), cloud_health_name(resource.health).into());
+    raw_labels.insert("status".into(), cloud_health_name(resource.health).into());
+    let labels = sanitize_labels(&raw_labels);
     let node = TopologyNode {
         id: node_id.clone(),
         kind,
@@ -902,7 +912,7 @@ fn derive_fixture_edges(input: &TopologyInput, graph: &mut DerivedGraph) {
         edge.metadata = sanitize_labels(&edge.metadata);
         for provenance in &mut edge.provenance {
             provenance.source_key = sanitize_text(&provenance.source_key);
-            provenance.observed_at = provenance.observed_at.as_deref().map(sanitize_text);
+            provenance.observed_at = sanitize_optional_text(provenance.observed_at.as_deref());
         }
         edge.provenance.sort_by(provenance_order);
         edge.provenance.dedup_by(|left, right| left == right);
@@ -1260,7 +1270,7 @@ fn topology_drill_down(evidence_ids: Vec<String>, filter_key: Option<&str>) -> D
     DrillDownTarget {
         destination: DrillDownDestination::Topology,
         evidence_ids,
-        filter_key: filter_key.map(sanitize_text),
+        filter_key: filter_key.and_then(|value| sanitize_optional_text(Some(value))),
     }
 }
 
@@ -1314,35 +1324,24 @@ fn source_observed_at(graph: &DerivedGraph, source_key: &str) -> Option<String> 
         .and_then(|status| status.observed_at.clone())
 }
 
-fn sanitize_evidence(mut evidence: EvidenceRef) -> Option<EvidenceRef> {
-    let mut changed = false;
-    let (endpoint, endpoint_changed) = scrub_text(&evidence.endpoint);
-    evidence.endpoint = endpoint;
-    changed |= endpoint_changed;
-    if let Some(query) = evidence.query.as_deref() {
-        let (value, value_changed) = scrub_text(query);
-        evidence.query = Some(value);
-        changed |= value_changed;
-    }
-    let (excerpt, excerpt_changed) = scrub_text(&evidence.excerpt);
-    evidence.excerpt = excerpt;
-    changed |= excerpt_changed;
-    if let Some(native_url) = evidence.native_url.as_deref() {
-        let (value, value_changed) = scrub_text(native_url);
-        evidence.native_url = Some(value);
-        changed |= value_changed;
-    }
-    if let Some(connector_id) = evidence.connector_id.as_deref() {
-        let (value, value_changed) = scrub_text(connector_id);
-        evidence.connector_id = Some(value);
-        changed |= value_changed;
-    }
-    evidence.observed_at = sanitize_text(&evidence.observed_at);
-    if changed {
-        if evidence.redaction.unparsed {
-            return None;
-        }
-        evidence.redaction.masked = true;
+fn sanitize_evidence(evidence: EvidenceRef) -> Option<EvidenceRef> {
+    if !safe_display_text(&evidence.endpoint)
+        || evidence
+            .query
+            .as_deref()
+            .is_some_and(|query| !safe_display_text(query))
+        || !safe_display_text(&evidence.excerpt)
+        || !safe_display_text(&evidence.observed_at)
+        || evidence
+            .connector_id
+            .as_deref()
+            .is_some_and(|connector_id| !safe_display_text(connector_id))
+        || evidence
+            .native_url
+            .as_deref()
+            .is_some_and(|native_url| !trusted_native_url(native_url))
+    {
+        return None;
     }
     Some(evidence)
 }
@@ -1360,42 +1359,17 @@ fn sanitize_labels(labels: &BTreeMap<String, String>) -> BTreeMap<String, String
         })
         .filter_map(|(key, value)| {
             let text = value.as_str()?;
-            Some((key, sanitize_text(text)))
+            safe_display_text(text).then(|| (key, text.to_owned()))
         })
         .collect()
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
-    value.map(sanitize_text)
+    value.filter(|value| safe_display_text(value)).map(str::to_owned)
 }
 
 fn sanitize_text(value: &str) -> String {
-    scrub_text(value).0
-}
-
-fn scrub_text(value: &str) -> (String, bool) {
-    let lower = value.to_ascii_lowercase();
-    if lower.contains("raw provider error")
-        || lower.contains("authorization")
-        || lower.contains("credential_reference")
-    {
-        return (REDACTED.into(), true);
-    }
-    let mut changed = false;
-    let sanitized = value
-        .split_whitespace()
-        .map(|token| {
-            let token_lower = token.to_ascii_lowercase();
-            if contains_sensitive_marker(&token_lower) || contains_sensitive_numeric_run(token) {
-                changed = true;
-                REDACTED
-            } else {
-                token
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    (sanitized, changed)
+    value.to_owned()
 }
 
 fn contains_sensitive_marker(value: &str) -> bool {
@@ -1427,25 +1401,47 @@ fn contains_sensitive_marker(value: &str) -> bool {
     .any(|marker| value.contains(marker))
 }
 
-fn contains_sensitive_numeric_run(value: &str) -> bool {
+fn contains_sensitive_account_id(value: &str) -> bool {
     let mut run_length = 0usize;
     for character in value.chars() {
         if character.is_ascii_digit() {
             run_length = run_length.saturating_add(1);
         } else {
-            if (6..=12).contains(&run_length) {
+            if run_length == 12 {
                 return true;
             }
             run_length = 0;
         }
     }
-    (6..=12).contains(&run_length)
+    run_length == 12
+}
+
+fn contains_sensitive_value(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    contains_sensitive_marker(&lower) || contains_sensitive_account_id(&lower)
+}
+
+fn safe_display_text(value: &str) -> bool {
+    !value.trim().is_empty()
+        && !value.chars().any(char::is_control)
+        && !contains_sensitive_value(value)
+}
+
+fn trusted_native_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some_and(|host| !host.is_empty())
+        && url.username().is_empty()
+        && url.password().is_none()
+        && safe_display_text(value)
 }
 
 fn safe_identifier(value: &str) -> bool {
     !value.trim().is_empty()
         && !value.chars().any(char::is_control)
-        && !contains_sensitive_marker(&value.to_ascii_lowercase())
+        && !contains_sensitive_value(value)
 }
 
 fn normalized_hint(value: &str) -> Option<String> {
