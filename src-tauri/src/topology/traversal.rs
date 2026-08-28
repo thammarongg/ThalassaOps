@@ -178,8 +178,7 @@ fn walk_direction(
             next.visited.insert(neighbor.node_id.clone());
             next.evidence_ids.extend(edge.evidence_ids.iter().cloned());
             if let Some(node) = nodes.get(&neighbor.node_id) {
-                next.evidence_ids
-                    .extend(node.evidence_ids.iter().cloned());
+                next.evidence_ids.extend(node.evidence_ids.iter().cloned());
             }
             next.confidence = next.confidence.min(edge.confidence);
             stack.push(next);

@@ -79,11 +79,7 @@ pub(crate) fn resolve_incident_roots(
     }
 
     let mut roots = BTreeSet::new();
-    if let Some(candidate_roots) = graph
-        .incident_fixture_root_nodes
-        .get(incident_id)
-        .cloned()
-    {
+    if let Some(candidate_roots) = graph.incident_fixture_root_nodes.get(incident_id).cloned() {
         for node_id in candidate_roots {
             if graph.nodes.contains_key(&node_id) {
                 roots.insert(node_id);
