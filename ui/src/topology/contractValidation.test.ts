@@ -40,6 +40,16 @@ it("rejects paths that omit evidence for a listed node or edge", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects empty optional topology text fields", () => {
+  const nodeSnapshot = structuredClone(topologySnapshotFixture);
+  nodeSnapshot.nodes[0].provider = "";
+  expect(isTopologySnapshot(nodeSnapshot)).toBe(false);
+
+  const evidenceSnapshot = structuredClone(topologySnapshotFixture);
+  evidenceSnapshot.evidence[0].query = "";
+  expect(isTopologySnapshot(evidenceSnapshot)).toBe(false);
+});
+
 it("rejects rendered nodes without evidence or a paired owner", () => {
   const missingEvidence = structuredClone(topologySnapshotFixture);
   missingEvidence.nodes[0].evidence_ids = [];

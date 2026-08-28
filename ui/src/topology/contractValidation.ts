@@ -22,7 +22,7 @@ import {
   isEnum,
   isEvidence,
   isNonEmptyString,
-  isNullableString,
+  isNullableNonEmptyString,
   isRecord,
   isScope,
   isSourceStatus,
@@ -70,6 +70,7 @@ const sharesEvidence = (left: string[], right: string[]) => left.some((id) => ri
 const isTopologyDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&
   value.destination === "topology" &&
+  (value.filter_key === null || isNonEmptyString(value.filter_key)) &&
   isNonEmptyStringArray(value.evidence_ids) &&
   sharesEvidence(evidenceIds, value.evidence_ids);
 
@@ -151,14 +152,16 @@ const isNode = (value: unknown): value is TopologyNode => {
     !isNonEmptyString(value.id) ||
     !isEnum(value.kind, nodeKinds) ||
     !isNonEmptyString(value.name) ||
-    !isNullableString(value.native_kind) ||
-    !isNullableString(value.native_id) ||
-    !isNullableString(value.environment_id) ||
-    !isNullableString(value.provider) ||
+    !isNullableNonEmptyString(value.native_kind) ||
+    !isNullableNonEmptyString(value.native_id) ||
+    !isNullableNonEmptyString(value.environment_id) ||
+    !isNullableNonEmptyString(value.provider) ||
     !isScope(value.scope) ||
     !isEnum(value.status, ["healthy", "degraded", "critical", "unknown"]) ||
     !isRecord(value.labels) ||
-    !Object.values(value.labels).every((label) => typeof label === "string") ||
+    !Object.entries(value.labels).every(
+      ([key, label]) => isNonEmptyString(key) && isNonEmptyString(label)
+    ) ||
     !isOwnership(value.ownership) ||
     (value.metric !== null && !isMetric(value.metric)) ||
     !isBoolean(value.affected_by_incident) ||
@@ -188,7 +191,9 @@ const isEdge = (value: unknown): value is TopologyEdge => {
     ) ||
     !isConfidence(value.confidence) ||
     !isRecord(value.metadata) ||
-    !Object.values(value.metadata).every((entry) => typeof entry === "string") ||
+    !Object.entries(value.metadata).every(
+      ([key, entry]) => isNonEmptyString(key) && isNonEmptyString(entry)
+    ) ||
     !isNonEmptyStringArray(value.evidence_ids)
   ) {
     return false;

@@ -28,6 +28,9 @@ export const isNonEmptyString = (value: unknown): value is string =>
 export const isNullableString = (value: unknown): value is string | null =>
   value === null || isString(value);
 
+export const isNullableNonEmptyString = (value: unknown): value is string | null =>
+  value === null || isNonEmptyString(value);
+
 export const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 
 export const isStringArray = (value: unknown): value is string[] =>
@@ -76,7 +79,7 @@ export const isTrustedNativeUrl = (value: unknown): value is string => {
 export const isScope = (value: unknown): value is ResourceScope => {
   if (!isRecord(value) || !isStringArray(value.resource_ids)) return false;
   return ["organization_id", "team_id", "workspace_id", "environment_id"].every(
-    (key) => value[key] === undefined || value[key] === null || isString(value[key])
+    (key) => value[key] === undefined || isNullableNonEmptyString(value[key])
   );
 };
 
@@ -101,8 +104,8 @@ export const isSourceStatus = (value: unknown): value is SourceStatus =>
   isNonEmptyString(value.source_key) &&
   isEnum(value.state, ["fresh", "stale", "unavailable", "unverified"]) &&
   (value.reason === null || isEnum(value.reason, statusReasons)) &&
-  isNullableString(value.detail) &&
-  (value.observed_at === null || isString(value.observed_at)) &&
+  isNullableNonEmptyString(value.detail) &&
+  (value.observed_at === null || isNonEmptyString(value.observed_at)) &&
   Array.isArray(value.evidence_ids) &&
   value.evidence_ids.every(isNonEmptyString);
 
@@ -113,7 +116,7 @@ export const isEvidence = (value: unknown): value is EvidenceRef =>
   (value.connector_id === null || isNonEmptyString(value.connector_id)) &&
   isScope(value.scope) &&
   isNonEmptyString(value.endpoint) &&
-  (value.query === null || isString(value.query)) &&
+  (value.query === null || isNonEmptyString(value.query)) &&
   isNonEmptyString(value.observed_at) &&
   isNonEmptyString(value.excerpt) &&
   (value.native_url === null || isTrustedNativeUrl(value.native_url)) &&
