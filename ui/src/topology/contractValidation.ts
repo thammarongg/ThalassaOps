@@ -27,8 +27,7 @@ import {
   isSafeDisplayText,
   isSafeStringArray,
   isScope,
-  isSourceStatus,
-  isStringArray
+  isSourceStatus
 } from "../../contracts/guards";
 
 const nodeKinds: TopologyNodeKind[] = [

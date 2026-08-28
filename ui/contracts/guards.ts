@@ -89,7 +89,12 @@ const containsSensitiveValue = (value: string) => {
 };
 
 export const isSafeDisplayText = (value: unknown): value is string =>
-  isNonEmptyString(value) && !/[\u0000-\u001f\u007f]/.test(value) && !containsSensitiveValue(value);
+  isNonEmptyString(value) &&
+  ![...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  }) &&
+  !containsSensitiveValue(value);
 
 export const isNullableSafeDisplayText = (value: unknown): value is string | null =>
   value === null || isSafeDisplayText(value);
