@@ -425,3 +425,27 @@ fn unknown_business_impact_outranks_no_impact_in_the_headline() {
 
     assert_eq!(snapshot.health_summary.headline.level, ImpactLevel::Unknown);
 }
+
+#[test]
+fn source_status_merge_is_stable_for_reversed_duplicate_records() {
+    let mut catalog = fixture_catalog();
+    catalog.source_status.push(thalassa_domain::SourceStatus {
+        source_key: "alertmanager".into(),
+        state: SourceState::Fresh,
+        reason: Some(StatusReason::Unknown),
+        detail: Some("duplicate source status".into()),
+        observed_at: None,
+        evidence_ids: Vec::new(),
+    });
+    let mut reversed = catalog.clone();
+    reversed.source_status.reverse();
+
+    let first = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("duplicate source statuses should merge");
+    let second = OperationsAggregator::from_fixture_catalog(reversed)
+        .snapshot_at(fixture_time())
+        .expect("duplicate source statuses should merge");
+
+    assert_eq!(first.source_status, second.source_status);
+}

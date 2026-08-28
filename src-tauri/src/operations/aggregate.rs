@@ -330,7 +330,13 @@ impl StatusBook {
             records: BTreeMap::new(),
         };
         let mut ordered = input.to_vec();
-        ordered.sort_by(|left, right| left.source_key.cmp(&right.source_key));
+        ordered.sort_by(|left, right| {
+            left.source_key.cmp(&right.source_key).then_with(|| {
+                serde_json::to_string(left)
+                    .unwrap_or_default()
+                    .cmp(&serde_json::to_string(right).unwrap_or_default())
+            })
+        });
         for status in ordered {
             if status.source_key.trim().is_empty() {
                 continue;
