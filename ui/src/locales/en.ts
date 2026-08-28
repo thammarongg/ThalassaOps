@@ -11,7 +11,8 @@ const en = {
     degraded: "Degraded",
     unavailable: "Unavailable",
     warning: "Warning",
-    critical: "Critical"
+    critical: "Critical",
+    unknown: "Unknown"
   },
   severity: {
     s1: "S1 Critical",

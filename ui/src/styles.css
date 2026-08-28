@@ -205,6 +205,9 @@ h2 {
 .indicator--critical {
   color: var(--color-coral);
 }
+.indicator--unknown {
+  color: var(--color-sea-glass);
+}
 .empty-state {
   display: grid;
   place-items: center;

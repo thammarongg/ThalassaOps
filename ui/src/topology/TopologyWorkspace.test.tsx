@@ -176,7 +176,7 @@ const topologySnapshotCalls = (invoke: TopologyInvokeMock) =>
     .map(([, args]) => args as { envelope: CommandEnvelope<TopologyRequest> });
 
 const checkoutButton = () =>
-  screen.getByRole("button", { name: "checkout, Service, Unavailable, Platform" });
+  screen.getByRole("button", { name: "checkout, Service, Unknown, Platform" });
 
 it("renders the workspace from the topology snapshot IPC command", async () => {
   const invoke = topologyInvoke();
@@ -261,7 +261,7 @@ it("shows node detail for a selected resource and re-reads traversal through IPC
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
 
   const detail = await screen.findByRole("complementary", { name: "Resource detail" });
@@ -282,7 +282,7 @@ it("renders upstream and downstream probable paths from the focused resource", a
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
 
   expect(await screen.findByRole("heading", { name: "Upstream impact" })).toBeInTheDocument();
@@ -335,7 +335,7 @@ it("shows typed edge provenance and edge sequences for probable paths", async ()
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
 
   const relationships = await screen.findByRole("region", { name: "Relationships" });
@@ -362,7 +362,7 @@ it("renders bidirectional probable paths in their own group", async () => {
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
 
   expect(
@@ -376,7 +376,7 @@ it("labels cycle-stopped paths explicitly", async () => {
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
 
   expect(await screen.findByText("stopped by a cycle")).toBeInTheDocument();
@@ -588,7 +588,7 @@ it("opens impact path evidence with only the ids the snapshot issued", async () 
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
   const expectedIds = topologySnapshotFixture.paths[0].evidence_ids;
   await user.click(
@@ -634,7 +634,7 @@ it("exposes an evidence affordance on every rendered node and impact path", asyn
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
   );
   await screen.findByRole("heading", { name: "Upstream impact" });
 

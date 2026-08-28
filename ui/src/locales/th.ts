@@ -11,7 +11,8 @@ const th = {
     degraded: "ประสิทธิภาพลดลง",
     unavailable: "ไม่พร้อมใช้งาน",
     warning: "คำเตือน",
-    critical: "วิกฤต"
+    critical: "วิกฤต",
+    unknown: "ไม่ทราบสถานะ"
   },
   severity: {
     s1: "S1 วิกฤต",

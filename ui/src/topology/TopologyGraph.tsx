@@ -11,6 +11,7 @@ const healthIndicatorState = (state: TopologyNode["status"]) => {
   if (state === "healthy") return "healthy" as const;
   if (state === "critical") return "critical" as const;
   if (state === "degraded") return "degraded" as const;
+  if (state === "unknown") return "unknown" as const;
   return "unavailable" as const;
 };
 

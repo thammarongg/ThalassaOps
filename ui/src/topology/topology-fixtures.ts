@@ -1109,7 +1109,7 @@ export const topologyEmptySnapshotFixture: TopologySnapshot = (() => {
         endpoint: "fixture://topology",
         query: emptyEvidenceId,
         observed_at: observedAt,
-        excerpt: "empty topology projection",
+        excerpt: "empty topology records",
         native_url: null,
         redaction: {
           classification_verified: true,

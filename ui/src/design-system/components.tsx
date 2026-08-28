@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode } from "react";
 import { useTranslation } from "../i18n";
 
-export type StatusState = "healthy" | "degraded" | "unavailable" | "warning" | "critical";
+export type StatusState =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "warning"
+  | "critical"
+  | "unknown";
 export type Severity = "s1" | "s2" | "s3" | "s4" | "s5";
 type TranslationKey = string;
 type IndicatorTone = StatusState | "informational";
@@ -11,7 +17,8 @@ const statusSymbol: Record<StatusState, string> = {
   degraded: "◐",
   unavailable: "■",
   warning: "▲",
-  critical: "!"
+  critical: "!",
+  unknown: "?"
 };
 
 // Severity communicates business impact, while status communicates operational health; these reuse tones only as visual priority.
