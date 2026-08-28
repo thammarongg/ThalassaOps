@@ -50,6 +50,13 @@ it("rejects empty optional topology text fields", () => {
   expect(isTopologySnapshot(evidenceSnapshot)).toBe(false);
 });
 
+it("rejects credential-bearing native evidence links", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.evidence[0].native_url = "https://evidence.example.test/item?token=opaque";
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("rejects rendered nodes without evidence or a paired owner", () => {
   const missingEvidence = structuredClone(topologySnapshotFixture);
   missingEvidence.nodes[0].evidence_ids = [];

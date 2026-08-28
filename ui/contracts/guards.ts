@@ -48,6 +48,42 @@ const evidenceSources: EvidenceSourceKind[] = [
   "fixture"
 ];
 
+const sensitiveUrlMarkers = [
+  "password",
+  "passwd",
+  "secret",
+  "token",
+  "credential",
+  "credential_reference",
+  "authorization",
+  "bearer",
+  "api_key",
+  "access_key",
+  "private_key",
+  "account",
+  "account_id",
+  "account-id",
+  "project",
+  "project_id",
+  "project-id",
+  "subscription",
+  "subscription_id",
+  "subscription-id",
+  "cursor",
+  "arn:",
+  "/subscriptions/",
+  "projects/",
+  "pagination_cursor",
+  "next_link",
+  "nextlink",
+  "sk-live-"
+] as const;
+
+const containsSensitiveUrlValue = (value: string) => {
+  const lower = value.toLowerCase();
+  return sensitiveUrlMarkers.some((marker) => lower.includes(marker)) || /\d{12}/.test(value);
+};
+
 const destinations: DrillDownDestination[] = [
   "evidence",
   "incident_queue",
@@ -68,6 +104,7 @@ export const statusReasons: StatusReason[] = [
 
 export const isTrustedNativeUrl = (value: unknown): value is string => {
   if (!isNonEmptyString(value)) return false;
+  if (containsSensitiveUrlValue(value)) return false;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname !== "" && !url.username && !url.password;
