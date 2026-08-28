@@ -31,6 +31,7 @@ import {
   persistWidgetPreferences,
   updateWidgetPreference
 } from "./operations/widgetConfig";
+import { isOperationsSnapshot } from "./operations/contractValidation";
 
 type SnapshotState = "loading" | "ready" | "error";
 type EvidenceState = "idle" | "loading" | "ready" | "error";
@@ -76,6 +77,9 @@ const statusReasonKey = (reason: StatusReason | null) =>
 
 const criticalNumberLabelKey = (number: CriticalNumber, category: "severity" | "environment") => {
   const suffix = number.key.split(".").at(-1)?.toLowerCase();
+  if (category === "severity" && suffix && /^active_s[1-5]$/.test(suffix)) {
+    return `operations.severityTotals.${suffix}`;
+  }
   const knownSuffixes = ["critical", "degraded", "healthy", "unknown"];
   if (suffix && knownSuffixes.includes(suffix)) {
     return `operations.${category}Totals.${suffix}`;
@@ -90,23 +94,6 @@ const requiredWidget = (id: WidgetId) => id === "health_summary" || id === "inci
 const uniqueIssuedEvidenceIds = (ids: string[], issuedIds: Set<string>): string[] => [
   ...new Set(ids.filter((id) => issuedIds.has(id)))
 ];
-
-const isOperationsSnapshot = (value: unknown): value is OperationsSnapshot => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<OperationsSnapshot>;
-  return (
-    typeof candidate.generated_at === "string" &&
-    Array.isArray(candidate.source_status) &&
-    !!candidate.health_summary &&
-    Array.isArray(candidate.incident_queue) &&
-    !!candidate.signal_summary &&
-    Array.isArray(candidate.changes) &&
-    !!candidate.change_stream_status &&
-    Array.isArray(candidate.environments) &&
-    Array.isArray(candidate.evidence) &&
-    Array.isArray(candidate.widget_registry)
-  );
-};
 
 const sourceKeysByWidget: Record<WidgetId, string[]> = {
   health_summary: [],

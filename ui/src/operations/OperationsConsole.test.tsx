@@ -332,6 +332,7 @@ it("puts anomalies and failing checks at the top of the attention narrative", as
   ).toBeInTheDocument();
   expect(screen.getByText("Checkout API failing")).toBeInTheDocument();
   expect(screen.getByText("S1 Critical")).toBeInTheDocument();
+  expect(screen.getByText("S1 critical")).toBeInTheDocument();
   expect(screen.getByText("P1")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /timed out/ })).toBeInTheDocument();
 });
@@ -354,6 +355,15 @@ it("keeps the rest of the console visible when a source is unavailable", async (
   expect(await screen.findAllByText("Change API is offline")).not.toHaveLength(0);
   expect(screen.getByText("Production")).toBeInTheDocument();
   expect(screen.getByText("No active business impact")).toBeInTheDocument();
+});
+
+it("rejects a malformed nested snapshot before any widget dereferences it", async () => {
+  const snapshot = healthySnapshot();
+  snapshot.health_summary = {} as OperationsSnapshot["health_summary"];
+
+  renderConsole(snapshot);
+
+  expect(await screen.findAllByText("The console snapshot is unavailable.")).toHaveLength(6);
 });
 
 it("labels a stale source as degraded with its typed reason", async () => {
