@@ -187,9 +187,16 @@ pub fn topology_edges(inventory: &KubernetesInventory) -> Vec<KubernetesTopology
     for item in &inventory.resources {
         if item.resource.kind == "Pod" {
             if let Some(owner) = &item.owner {
+                let owner_name = if owner.name.contains('/') {
+                    owner.name.clone()
+                } else if let Some((namespace, _)) = item.resource.name.split_once('/') {
+                    format!("{namespace}/{}", owner.name)
+                } else {
+                    owner.name.clone()
+                };
                 edges.push(KubernetesTopologyEdge {
                     from_kind: owner.kind.clone(),
-                    from_name: owner.name.clone(),
+                    from_name: owner_name,
                     to_kind: "Pod".into(),
                     to_name: item.resource.name.clone(),
                     relationship: "owns".into(),
@@ -782,6 +789,9 @@ mod tests {
         assert_eq!(edges.len(), 2);
         assert!(edges.iter().all(|edge| {
             edge.relationship != "selects" || edge.to_name == "prod/api"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.relationship == "owns" && edge.from_name == "prod/api-rs"
         }));
         assert_eq!(
             kubectl_command("Pod", Some("prod"), "api", "ctx"),
