@@ -186,8 +186,9 @@ async fn grafana_link(
 }
 
 // These read-only Tauri commands are intentionally synchronous because their
-// work is pure in-memory fixture aggregation with no I/O. Do not add a
-// blocking source call inside them; an I/O-backed source needs an async path.
+// work is bounded local aggregation and ledger I/O with no remote source call.
+// Do not add a blocking remote source call inside them; an I/O-backed source
+// needs an async path.
 #[tauri::command]
 fn operations_snapshot(
     envelope: CommandEnvelope<serde_json::Value>,

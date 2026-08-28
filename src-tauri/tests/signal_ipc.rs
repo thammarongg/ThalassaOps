@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -261,6 +262,46 @@ fn candidate_members_retain_operational_and_security_source_evidence() {
         saw_security,
         "no security signal was retained in a candidate"
     );
+}
+
+#[test]
+fn snapshot_retains_source_records_and_evidence_in_the_local_ledger() {
+    let (directory, state) = test_state();
+    let snapshot = match state.correlation_snapshot(envelope(
+        "snapshot",
+        Capability::WorkspaceRead,
+        serde_json::to_value(request()).unwrap(),
+    )) {
+        IpcResult::Ok { value, .. } => value,
+        IpcResult::Err { error, .. } => panic!("snapshot failed: {error:?}"),
+    };
+
+    let connection = Connection::open(directory.path().join("thalassaops.sqlite")).unwrap();
+    for signal in &snapshot.signals {
+        let record_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM source_records WHERE source_kind = ?1 AND content_digest = ?2 AND COALESCE(revision, '') = COALESCE(?3, '')",
+                rusqlite::params![
+                    serde_json::to_string(&signal.source).unwrap().trim_matches('"'),
+                    signal.source_record.content_digest,
+                    signal.source_record.revision,
+                ],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(record_count, 1, "source record was not retained");
+
+        for evidence_id in &signal.source_record.evidence_ids {
+            let evidence_count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM source_record_evidence WHERE evidence_id = ?1",
+                    [evidence_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(evidence_count, 1, "source evidence was not retained");
+        }
+    }
 }
 
 #[test]

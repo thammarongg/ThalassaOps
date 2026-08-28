@@ -43,6 +43,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS source_records_identity_idx
 CREATE UNIQUE INDEX IF NOT EXISTS source_records_native_identity_idx
     ON source_records (source_kind, native_id, COALESCE(revision, ''))
     WHERE native_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS source_record_evidence (
+    evidence_id TEXT PRIMARY KEY,
+    evidence_json TEXT NOT NULL
+);
 "#;
 
 const DEFAULT_RETAINED_AT: &str = "1970-01-01T00:00:00Z";
@@ -265,13 +270,27 @@ impl SourceRecordStore {
         Ok(store)
     }
 
+    /// Open a store over a SQLite connection while restricting loaded records
+    /// and evidence to one workspace scope.
+    pub fn with_connection_and_scope_and_policy(
+        connection: Connection,
+        scope: ResourceScope,
+        policy: PolicyRuntime,
+    ) -> Result<Self, SourceRecordError> {
+        connection
+            .execute_batch(SOURCE_RECORDS_TABLE_SQL)
+            .map_err(database_error)?;
+        let mut store = Self::scoped(scope, policy);
+        store.load_connection(&connection)?;
+        store.connection = Some(connection);
+        Ok(store)
+    }
+
     pub fn with_connection_and_scope(
         connection: Connection,
         scope: ResourceScope,
     ) -> Result<Self, SourceRecordError> {
-        let mut store = Self::with_connection(connection)?;
-        store.scope = Some(scope);
-        Ok(store)
+        Self::with_connection_and_scope_and_policy(connection, scope, PolicyRuntime::baseline())
     }
 
     pub fn len(&self) -> usize {
@@ -375,6 +394,13 @@ impl SourceRecordStore {
     {
         let input = input.into();
         let (prepared, prepared_evidence) = self.prepare(input)?;
+        if prepared_evidence.iter().any(|evidence| {
+            self.evidence
+                .get(&evidence.id)
+                .is_some_and(|existing| existing != evidence)
+        }) {
+            return Err(SourceRecordError::DuplicateEvidence);
+        }
         let key = (
             prepared.source_kind,
             prepared.content_digest.clone(),
@@ -384,6 +410,9 @@ impl SourceRecordStore {
         if let Some(existing) = self.records.get(&key) {
             if existing.native_id != prepared.native_id {
                 return Err(SourceRecordError::AmbiguousSourceIdentity);
+            }
+            if existing.scope != prepared.scope {
+                return Err(SourceRecordError::ScopeMismatch);
             }
         }
 
@@ -400,17 +429,19 @@ impl SourceRecordStore {
             }
         }
 
-        self.persist(&prepared)?;
+        let merged = self.records.get(&key).map(|existing| {
+            let mut merged = existing.clone();
+            let mut evidence_ids = merged.evidence_ids.iter().cloned().collect::<BTreeSet<_>>();
+            evidence_ids.extend(prepared.evidence_ids.iter().cloned());
+            merged.evidence_ids = evidence_ids.into_iter().collect();
+            merged
+        });
+        let persisted = merged.as_ref().unwrap_or(&prepared);
+        self.persist(persisted, &prepared_evidence)?;
         if let Some(existing) = self.records.get_mut(&key) {
             // A replay never replaces the retained JSON.  Its evidence IDs
             // are unioned so every repeated source reference remains usable.
-            let mut evidence_ids = existing
-                .evidence_ids
-                .iter()
-                .cloned()
-                .collect::<BTreeSet<_>>();
-            evidence_ids.extend(prepared.evidence_ids.iter().cloned());
-            existing.evidence_ids = evidence_ids.into_iter().collect();
+            existing.evidence_ids = persisted.evidence_ids.clone();
             for evidence in prepared_evidence {
                 self.evidence.entry(evidence.id.clone()).or_insert(evidence);
             }
@@ -508,8 +539,12 @@ impl SourceRecordStore {
         ))
     }
 
-    fn persist(&self, record: &SourceRecord) -> Result<(), SourceRecordError> {
-        let Some(connection) = &self.connection else {
+    fn persist(
+        &mut self,
+        record: &SourceRecord,
+        evidence: &[EvidenceRef],
+    ) -> Result<(), SourceRecordError> {
+        let Some(connection) = self.connection.as_mut() else {
             return Ok(());
         };
         let source_kind = source_kind_wire(record.source_kind);
@@ -533,7 +568,26 @@ impl SourceRecordStore {
         if existing_native.is_some_and(|digest| digest != record.content_digest) {
             return Err(SourceRecordError::AmbiguousSourceIdentity);
         }
-        connection
+        let existing_scope_json: Option<String> = connection
+            .query_row(
+                "SELECT scope FROM source_records WHERE source_kind = ?1 AND content_digest = ?2 AND COALESCE(revision, '') = COALESCE(?3, '')",
+                params![source_kind, record.content_digest, record.revision],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)?;
+        if let Some(existing_scope_json) = existing_scope_json {
+            let existing_scope = serde_json::from_str::<ResourceScope>(&existing_scope_json)
+                .map_err(database_serde_error)?;
+            if existing_scope != record.scope {
+                // The identity index intentionally excludes scope, so an
+                // already-retained row must never be updated from another
+                // workspace or scope when this scoped store did not load it.
+                return Err(SourceRecordError::ScopeMismatch);
+            }
+        }
+        let transaction = connection.transaction().map_err(database_error)?;
+        transaction
             .execute(
                 "INSERT OR IGNORE INTO source_records (source_kind, native_id, revision, content_digest, scope, observed_at, ingested_at, redacted_payload_json, evidence_ids, retained_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
@@ -550,10 +604,77 @@ impl SourceRecordStore {
                 ],
             )
             .map_err(database_error)?;
+        for item in evidence {
+            let evidence_json = serde_json::to_string(item).map_err(database_serde_error)?;
+            let existing_json: Option<String> = transaction
+                .query_row(
+                    "SELECT evidence_json FROM source_record_evidence WHERE evidence_id = ?1",
+                    [item.id.as_str()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            if let Some(existing_json) = existing_json {
+                let existing = serde_json::from_str::<EvidenceRef>(&existing_json)
+                    .map_err(database_serde_error)?;
+                if existing.id != item.id || existing != *item {
+                    return Err(SourceRecordError::DuplicateEvidence);
+                }
+            }
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO source_record_evidence (evidence_id, evidence_json) VALUES (?1, ?2)",
+                    params![item.id, evidence_json],
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute(
+                "UPDATE source_records SET evidence_ids = ?1 WHERE source_kind = ?2 AND content_digest = ?3 AND COALESCE(revision, '') = COALESCE(?4, '')",
+                params![evidence_ids_json, source_kind, record.content_digest, record.revision],
+            )
+            .map_err(database_error)?;
+        transaction.commit().map_err(database_error)?;
         Ok(())
     }
 
     fn load_connection(&mut self, connection: &Connection) -> Result<(), SourceRecordError> {
+        let mut evidence_statement = connection
+            .prepare(
+                "SELECT evidence_id, evidence_json FROM source_record_evidence ORDER BY evidence_id",
+            )
+            .map_err(database_error)?;
+        let evidence_rows = evidence_statement
+            .query_map([], |row| {
+                let id = row.get::<_, String>(0)?;
+                let evidence = parse_json::<EvidenceRef>(&row.get::<_, String>(1)?)?;
+                Ok((id, evidence))
+            })
+            .map_err(database_error)?;
+        for row in evidence_rows {
+            let (id, evidence) = row.map_err(database_error)?;
+            if id != evidence.id {
+                return Err(SourceRecordError::Database(
+                    "local source-record evidence identity mismatch".into(),
+                ));
+            }
+            if self
+                .scope
+                .as_ref()
+                .is_some_and(|scope| !scope.contains(&evidence.scope))
+            {
+                continue;
+            }
+            if !evidence.scope.is_bounded() {
+                return Err(SourceRecordError::InvalidScope);
+            }
+            validate_evidence(
+                std::slice::from_ref(&evidence),
+                &evidence.scope,
+                evidence.source_kind,
+            )?;
+            self.evidence.insert(id, evidence);
+        }
         let mut statement = connection
             .prepare("SELECT source_kind, native_id, revision, content_digest, scope, observed_at, ingested_at, redacted_payload_json, evidence_ids, retained_at FROM source_records ORDER BY source_kind, content_digest, COALESCE(revision, '')")
             .map_err(database_error)?;
@@ -585,6 +706,19 @@ impl SourceRecordStore {
             .map_err(database_error)?;
         for row in rows {
             let record = row.map_err(database_error)?;
+            if self
+                .scope
+                .as_ref()
+                .is_some_and(|scope| !scope.contains(&record.scope))
+            {
+                continue;
+            }
+            validate_loaded_record(&record, &self.evidence)?;
+            // Migration 0003 stored only evidence IDs.  Keep such a source
+            // row for identity/conflict checks, but leave its evidence
+            // unresolved until the source is replayed after migration 0004.
+            // Callers still receive `EvidenceMissing` rather than fabricated
+            // evidence when they try to resolve the old reference.
             let key = (
                 record.source_kind,
                 record.content_digest.clone(),
@@ -604,6 +738,55 @@ impl SourceRecordStore {
         }
         Ok(())
     }
+}
+
+/// Validate rows read from SQLite before they can participate in a new
+/// snapshot.  The local database is durable input, not a reason to bypass the
+/// same redaction, identity and evidence checks used for fresh replay data.
+/// Legacy rows from migration 0003 may refer to evidence that is no longer in
+/// the companion table; those IDs remain unresolved and surface as
+/// `EvidenceMissing` when a caller asks to resolve them.
+fn validate_loaded_record(
+    record: &SourceRecord,
+    evidence: &BTreeMap<String, EvidenceRef>,
+) -> Result<(), SourceRecordError> {
+    if !record.scope.is_bounded() {
+        return Err(SourceRecordError::InvalidScope);
+    }
+    validate_optional_timestamp(record.observed_at.as_deref())?;
+    validate_optional_timestamp(record.ingested_at.as_deref())?;
+    validate_optional_timestamp(Some(record.retained_at.as_str()))?;
+    validate_optional_identity(record.native_id.as_deref())?;
+    validate_optional_identity(record.revision.as_deref())?;
+    validate_identity(&record.content_digest)?;
+    if !record.redacted_payload.is_object() && !record.redacted_payload.is_array() {
+        return Err(SourceRecordError::InvalidPayload);
+    }
+    if contains_forbidden_payload_data(&record.redacted_payload) {
+        return Err(SourceRecordError::InvalidPayload);
+    }
+    if content_digest(&record.redacted_payload) != record.content_digest {
+        return Err(SourceRecordError::Database(
+            "local source-record content digest mismatch".into(),
+        ));
+    }
+    let mut evidence_ids = BTreeSet::new();
+    for evidence_id in &record.evidence_ids {
+        validate_identity(evidence_id)?;
+        if !evidence_ids.insert(evidence_id) {
+            return Err(SourceRecordError::DuplicateEvidence);
+        }
+        let Some(item) = evidence.get(evidence_id) else {
+            continue;
+        };
+        if item.source_kind != record.source_kind {
+            return Err(SourceRecordError::SourceMismatch);
+        }
+        if !record.scope.contains(&item.scope) {
+            return Err(SourceRecordError::ScopeMismatch);
+        }
+    }
+    Ok(())
 }
 
 fn source_record_ref(record: &SourceRecord) -> SourceRecordRef {
@@ -717,6 +900,40 @@ fn contains_forbidden_text(value: &str) -> bool {
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+        || contains_sensitive_account_id(&lower)
+}
+
+fn contains_sensitive_account_id(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("sha256:") || lower.contains("dedup:v1:") {
+        return false;
+    }
+    if looks_like_uuid(value) {
+        return false;
+    }
+    let mut run_length = 0usize;
+    for character in value.chars() {
+        if character.is_ascii_digit() {
+            run_length = run_length.saturating_add(1);
+        } else {
+            if run_length >= 12 {
+                return true;
+            }
+            run_length = 0;
+        }
+    }
+    run_length >= 12
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(length, part)| {
+                part.len() == *length && part.chars().all(|c| c.is_ascii_hexdigit())
+            })
 }
 
 fn mask_source_value(value: &mut Value) {

@@ -13,6 +13,7 @@ use crate::correlation::{
     SourceRecordStore,
 };
 use crate::topology::{topology_fixture_input, TopologyBuilder};
+use rusqlite::Connection;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use thalassa_domain::{
@@ -246,7 +247,15 @@ impl AppState {
             return Err(correlation_ipc_error(error));
         }
 
-        let mut records = SourceRecordStore::scoped(scope.clone(), self.policy.clone());
+        let connection = Connection::open(&self.database_path).map_err(|error| {
+            source_record_ipc_error(SourceRecordError::Database(error.to_string()))
+        })?;
+        let mut records = SourceRecordStore::with_connection_and_scope_and_policy(
+            connection,
+            scope.clone(),
+            self.policy.clone(),
+        )
+        .map_err(source_record_ipc_error)?;
         let mut signals = Vec::new();
         let mut source_status = Vec::new();
         for fixture in &catalog.fixtures {
@@ -262,7 +271,7 @@ impl AppState {
             };
             match normalized {
                 Ok(admitted) => signals.extend(admitted),
-                Err(error) => source_status.push(source_status_for(fixture.key.as_str(), &error)),
+                Err(error) => source_status.push(source_status_for(fixture.source_kind, &error)),
             }
         }
 
@@ -397,7 +406,7 @@ fn correlation_evidence_policy_denied() -> IpcError {
     )
 }
 
-fn source_status_for(source_key: &str, error: &SignalAdapterError) -> SourceStatus {
+fn source_status_for(source: EvidenceSourceKind, error: &SignalAdapterError) -> SourceStatus {
     // Preserve the typed adapter/source failure as a safe, non-payload detail
     // for diagnostics. The UI maps the status/reason enums to localized copy
     // and intentionally does not render this backend message.
@@ -417,12 +426,27 @@ fn source_status_for(source_key: &str, error: &SignalAdapterError) -> SourceStat
         _ => (SourceState::Unverified, StatusReason::Unknown),
     };
     SourceStatus {
-        source_key: source_key.to_owned(),
+        source_key: source_kind_wire(source).to_owned(),
         state,
         reason: Some(reason),
         detail,
         observed_at: None,
         evidence_ids: Vec::new(),
+    }
+}
+
+fn source_kind_wire(source: EvidenceSourceKind) -> &'static str {
+    match source {
+        EvidenceSourceKind::Alertmanager => "alertmanager",
+        EvidenceSourceKind::Prometheus => "prometheus",
+        EvidenceSourceKind::Kubernetes => "kubernetes",
+        EvidenceSourceKind::Cloud => "cloud",
+        EvidenceSourceKind::HealthCheck => "health_check",
+        EvidenceSourceKind::Fixture => "fixture",
+        EvidenceSourceKind::Trivy => "trivy",
+        EvidenceSourceKind::Falco => "falco",
+        EvidenceSourceKind::Kyverno => "kyverno",
+        EvidenceSourceKind::OpaGatekeeper => "opa_gatekeeper",
     }
 }
 
@@ -504,6 +528,10 @@ fn correlation_ipc_error(error: CorrelationError) -> IpcError {
         CorrelationError::CandidateReferenceMissing => (
             IpcErrorCode::InternalError,
             "correlation candidate reference is missing",
+        ),
+        CorrelationError::CandidateStatusMismatch => (
+            IpcErrorCode::InternalError,
+            "correlation candidate status is inconsistent",
         ),
         CorrelationError::ScopeMismatch => (
             IpcErrorCode::PermissionDenied,
@@ -745,6 +773,7 @@ mod tests {
             CorrelationError::InvalidReason,
             CorrelationError::CandidateTooSmall,
             CorrelationError::CandidateReferenceMissing,
+            CorrelationError::CandidateStatusMismatch,
             CorrelationError::ScopeMismatch,
             CorrelationError::WindowMismatch,
             CorrelationError::MetricUnitMismatch,
