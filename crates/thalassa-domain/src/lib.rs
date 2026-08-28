@@ -1059,15 +1059,15 @@ pub struct MetricFixtureSource {
 }
 
 /// Produced anomaly signal with its source scope and evidence reference.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct AnomalySignal {
     pub id: String,
     pub rule_id: String,
     pub metric_key: String,
     pub severity: ConsoleSeverity,
     pub observed_at: String,
-    pub observed_value: String,
-    pub comparison_value: String,
+    pub observed_value: f64,
+    pub comparison_value: f64,
     pub condition: AnomalyCondition,
     pub scope: ResourceScope,
     pub evidence_id: ConsoleEvidenceId,
@@ -1085,7 +1085,7 @@ pub enum AnomalyEvaluationStatus {
 }
 
 /// Rule evaluation result with an optional produced signal.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct AnomalyEvaluation {
     pub rule_id: String,
     pub metric_key: String,

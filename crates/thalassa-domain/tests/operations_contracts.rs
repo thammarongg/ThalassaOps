@@ -11,7 +11,7 @@ fn scope() -> ResourceScope {
 
 fn assert_round_trip<T>(value: T)
 where
-    T: DeserializeOwned + Eq + Serialize + std::fmt::Debug,
+    T: DeserializeOwned + PartialEq + Serialize + std::fmt::Debug,
 {
     let encoded = serde_json::to_value(&value).expect("contract must serialize");
     let decoded: T = serde_json::from_value(encoded).expect("contract must deserialize");
@@ -138,8 +138,8 @@ fn operations_contracts_round_trip_through_json() {
         metric_key: metric.key.clone(),
         severity: ConsoleSeverity::S2,
         observed_at: "2026-08-28T09:00:00Z".into(),
-        observed_value: "0.08".into(),
-        comparison_value: "0.05".into(),
+        observed_value: 0.08,
+        comparison_value: 0.05,
         condition,
         scope: scope(),
         evidence_id: evidence_id.clone(),
