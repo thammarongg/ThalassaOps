@@ -822,6 +822,12 @@ fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
         .position(|item| item.resource.kind == "Service")
         .expect("fixture should contain a service");
     production.resources[service_index].resource.native_id = None;
+    input
+        .evidence
+        .iter_mut()
+        .find(|evidence| evidence.id == "evidence-topology-k8s-service-checkout")
+        .expect("fixture should contain service evidence")
+        .query = Some("service-checkout-prod".into());
     let mut staging_service = production.resources[service_index].clone();
     staging_service.resource.id = Uuid::from_u128(0x00000000000000000000000000000999);
     staging_service.resource.name = "staging/checkout".into();
@@ -839,7 +845,7 @@ fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
         .expect("fixture should contain service evidence")
         .clone();
     staging_evidence.id = "evidence-topology-k8s-service-checkout-staging".into();
-    staging_evidence.query = Some("staging/checkout".into());
+    staging_evidence.query = Some("service-checkout-staging".into());
     staging_evidence.excerpt = "staging checkout service".into();
     input.evidence.push(staging_evidence);
 
@@ -857,6 +863,34 @@ fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
             .count(),
         2
     );
+    let services = snapshot
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.kind == thalassa_domain::TopologyNodeKind::Service
+                && node.environment_id.as_deref() == Some("env-aws-prod")
+        })
+        .collect::<Vec<_>>();
+    let production = services
+        .iter()
+        .find(|node| node.name == "checkout")
+        .expect("the production service should be present");
+    let staging = services
+        .iter()
+        .find(|node| node.name == "checkout" && node.id.contains("staging"))
+        .expect("the namespace-qualified service should be present");
+    assert!(production
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout".to_string()));
+    assert!(!production
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout-staging".to_string()));
+    assert!(staging
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout-staging".to_string()));
+    assert!(!staging
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout".to_string()));
 }
 
 #[test]
