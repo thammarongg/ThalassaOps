@@ -138,6 +138,68 @@ fn evidence_matching_does_not_mix_similar_resource_names() {
 }
 
 #[test]
+fn evidence_matching_prefers_typed_resource_identity() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let service = production
+        .resources
+        .iter()
+        .find(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service")
+        .clone();
+    let mut same_name_service = service;
+    same_name_service.resource.id = Uuid::from_u128(0x00000000000000000000000000000998);
+    same_name_service.resource.native_id = Some("uid-service-checkout-api".into());
+    same_name_service.resource.name = "prod/checkout-api".into();
+    production.resources.push(same_name_service);
+
+    let mut service_evidence = input
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-topology-k8s-service-checkout")
+        .expect("fixture should contain service evidence")
+        .clone();
+    service_evidence.id = "evidence-topology-k8s-service-checkout-api".into();
+    service_evidence.query = Some("service-checkout-api".into());
+    service_evidence.excerpt = "checkout API service".into();
+    input.evidence.push(service_evidence);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("same-name resources should remain valid");
+    let service = snapshot
+        .nodes
+        .iter()
+        .find(|node| {
+            node.kind == thalassa_domain::TopologyNodeKind::Service && node.name == "checkout-api"
+        })
+        .expect("the same-name service should be present");
+    let workload = snapshot
+        .nodes
+        .iter()
+        .find(|node| {
+            node.kind == thalassa_domain::TopologyNodeKind::Workload && node.name == "checkout-api"
+        })
+        .expect("the workload should be present");
+
+    assert!(service
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout-api".to_string()));
+    assert!(!service
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-workload-checkout-api".to_string()));
+    assert!(workload
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-workload-checkout-api".to_string()));
+    assert!(!workload
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout-api".to_string()));
+}
+
+#[test]
 fn topology_does_not_apply_value_pattern_redaction_to_verified_evidence() {
     let mut input = topology_fixture_input(fixture_scope());
     let evidence = input
