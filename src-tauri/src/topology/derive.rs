@@ -1544,6 +1544,8 @@ fn contains_sensitive_marker(value: &str) -> bool {
         "/subscriptions/",
         "projects/",
         "pagination_cursor",
+        "next_link",
+        "nextlink",
         "sk-live-",
     ]
     .iter()

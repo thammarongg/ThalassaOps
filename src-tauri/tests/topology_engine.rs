@@ -186,6 +186,23 @@ fn topology_omits_sensitive_free_text_instead_of_claiming_it_was_masked() {
 }
 
 #[test]
+fn topology_omits_pagination_cursor_evidence() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let evidence_id = input.evidence[0].id.clone();
+    input.evidence[0].query = Some("nextLink=opaque-page-value".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("cursor-bearing evidence should degrade the source");
+    let serialized = serde_json::to_string(&snapshot).expect("snapshot should serialize");
+    assert!(!serialized.contains("opaque-page-value"));
+    assert!(!snapshot
+        .evidence
+        .iter()
+        .any(|evidence| evidence.id == evidence_id));
+}
+
+#[test]
 fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
     let mut input = topology_fixture_input(fixture_scope());
     let mut conflicting = input.evidence[0].clone();
