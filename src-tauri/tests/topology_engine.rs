@@ -646,3 +646,46 @@ fn duplicate_resource_ids_do_not_select_an_arbitrary_incident_root() {
         status.source_key == "incidents" && status.state == SourceState::Unverified
     }));
 }
+
+#[test]
+fn conflicting_cloud_node_identities_are_omitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut conflicting = input.cloud_resources[0].clone();
+    conflicting.name = "checkout-rds-alias".into();
+    input.cloud_resources.push(conflicting);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting cloud identity should not prevent projection");
+    assert!(!snapshot
+        .nodes
+        .iter()
+        .any(|node| { node.id == "node:cloud:env-aws-prod:cloud_resource:checkout-rds" }));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "cloud" && status.state == SourceState::Unverified));
+}
+
+#[test]
+fn exact_cloud_node_duplicates_are_collapsed() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.cloud_resources.push(input.cloud_resources[0].clone());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("exact cloud duplicate should be collapsed");
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .filter(|node| { node.id == "node:cloud:env-aws-prod:cloud_resource:checkout-rds" })
+            .count(),
+        1
+    );
+    assert!(snapshot
+        .source_status
+        .iter()
+        .find(|status| status.source_key == "cloud")
+        .is_some_and(|status| status.state == SourceState::Fresh));
+}

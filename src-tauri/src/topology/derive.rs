@@ -24,6 +24,7 @@ pub(crate) struct DerivedGraph {
     pub(crate) source_status: BTreeMap<String, SourceStatus>,
     pub(crate) evidence: BTreeMap<String, EvidenceRef>,
     ambiguous_edge_ids: BTreeSet<String>,
+    ambiguous_node_ids: BTreeSet<String>,
     pub(crate) incident_ids: BTreeSet<String>,
     pub(crate) incident_root_nodes: BTreeMap<String, Vec<String>>,
     pub(crate) incident_fixture_root_nodes: BTreeMap<String, Vec<String>>,
@@ -97,8 +98,21 @@ impl DerivedGraph {
             .collect()
     }
 
-    fn add_node(&mut self, node: TopologyNode) {
+    fn add_node(&mut self, node: TopologyNode) -> bool {
         let node_id = node.id.clone();
+        if self.ambiguous_node_ids.contains(&node_id) {
+            return false;
+        }
+        if self
+            .nodes
+            .get(&node_id)
+            .is_some_and(|existing| !node_identity_matches(existing, &node))
+        {
+            self.nodes.remove(&node_id);
+            self.remove_node_references(&node_id);
+            self.ambiguous_node_ids.insert(node_id);
+            return false;
+        }
         if let Some(existing) = self.nodes.get_mut(&node_id) {
             existing.evidence_ids.extend(node.evidence_ids);
             existing.evidence_ids.sort();
@@ -113,9 +127,23 @@ impl DerivedGraph {
                 existing.status = node.status;
             }
             existing.drill_down.evidence_ids = existing.evidence_ids.clone();
+            true
         } else {
             self.nodes.insert(node_id, node);
+            true
         }
+    }
+
+    fn remove_node_references(&mut self, node_id: &str) {
+        self.node_lookup.retain(|_, node_ids| {
+            node_ids.retain(|candidate| candidate != node_id);
+            !node_ids.is_empty()
+        });
+        self.k8s_resources.remove(node_id);
+        self.resource_id_nodes
+            .retain(|_, candidate| candidate != node_id);
+        self.edges
+            .retain(|edge| edge.upstream_node_id != node_id && edge.downstream_node_id != node_id);
     }
 
     fn add_lookup(&mut self, environment_id: &str, kind: TopologyNodeKind, name: &str, id: &str) {
@@ -167,6 +195,20 @@ impl DerivedGraph {
     }
 }
 
+fn node_identity_matches(left: &TopologyNode, right: &TopologyNode) -> bool {
+    left.id == right.id
+        && left.kind == right.kind
+        && left.name == right.name
+        && left.native_kind == right.native_kind
+        && left.native_id == right.native_id
+        && left.environment_id == right.environment_id
+        && left.provider == right.provider
+        && left.scope == right.scope
+        && left.status == right.status
+        && left.labels == right.labels
+        && left.metric == right.metric
+}
+
 fn edge_identity_matches(left: &TopologyEdge, right: &TopologyEdge) -> bool {
     left.upstream_node_id == right.upstream_node_id
         && left.downstream_node_id == right.downstream_node_id
@@ -197,6 +239,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         source_status: BTreeMap::new(),
         evidence: BTreeMap::new(),
         ambiguous_edge_ids: BTreeSet::new(),
+        ambiguous_node_ids: BTreeSet::new(),
         incident_ids: BTreeSet::new(),
         incident_root_nodes: BTreeMap::new(),
         incident_fixture_root_nodes: BTreeMap::new(),
@@ -445,7 +488,10 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
             evidence_ids: evidence_ids.clone(),
             drill_down: topology_drill_down(evidence_ids, Some(&node_id)),
         };
-        graph.add_node(node);
+        if !graph.add_node(node) {
+            graph.mark_unverified("cloud");
+            continue;
+        }
         graph.add_lookup(
             &environment.environment_id,
             TopologyNodeKind::Environment,
@@ -501,7 +547,7 @@ fn ensure_environment_node(
         graph.mark_unverified(&format!("kubernetes:{environment_id}"));
         return node_id;
     }
-    graph.add_node(TopologyNode {
+    if !graph.add_node(TopologyNode {
         id: node_id.clone(),
         kind: TopologyNodeKind::Environment,
         name: sanitize_text(environment_id),
@@ -517,7 +563,10 @@ fn ensure_environment_node(
         affected_by_incident: false,
         evidence_ids: evidence_ids.clone(),
         drill_down: topology_drill_down(evidence_ids, Some(&node_id)),
-    });
+    }) {
+        graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+        return node_id;
+    }
     graph.add_lookup(
         environment_id,
         TopologyNodeKind::Environment,
@@ -621,7 +670,10 @@ fn derive_kubernetes_resource(
         evidence_ids: evidence_ids.clone(),
         drill_down: topology_drill_down(evidence_ids, Some(&node_id)),
     };
-    graph.add_node(node);
+    if !graph.add_node(node) {
+        graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+        return;
+    }
     graph.add_lookup(
         environment_id,
         kind,
@@ -944,7 +996,10 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
         evidence_ids: evidence_ids.clone(),
         drill_down: topology_drill_down(evidence_ids, Some(&node_id)),
     };
-    graph.add_node(node);
+    if !graph.add_node(node) {
+        graph.mark_unverified("cloud");
+        return;
+    }
     graph.add_lookup(&resource.environment_id, kind, &resource.name, &node_id);
     if let Some(environment_node) = graph.nodes.values().find(|node| {
         node.kind == TopologyNodeKind::Environment
