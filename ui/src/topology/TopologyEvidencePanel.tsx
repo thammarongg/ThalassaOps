@@ -1,36 +1,42 @@
-import type { ConsoleEvidenceId, EvidenceRef } from "../../contracts/ipc";
+import type { EvidenceRef } from "../../contracts/ipc";
+import { EmptyState } from "../design-system/components";
 import { useTranslation } from "../i18n";
 
+export type TopologyEvidenceState = "idle" | "loading" | "ready" | "error";
+
 /**
- * Resolves requested evidence IDs against the snapshot's admitted evidence
- * set. Resolution is all-or-nothing, mirroring the backend contract: an
- * unknown ID yields the unavailable state instead of a partial result.
+ * Renders evidence resolved through the `topology.evidence` IPC command.
+ * The workspace only requests ids the backend snapshot issued, and the
+ * backend admits or rejects the request as a whole, so a ready panel always
+ * shows the complete evidence set for the selection.
  */
 export function TopologyEvidencePanel({
   subject,
-  requestedIds,
-  evidence
+  evidenceState,
+  evidence,
+  errorMessage
 }: {
   subject: string;
-  requestedIds: ConsoleEvidenceId[];
+  evidenceState: TopologyEvidenceState;
   evidence: EvidenceRef[];
+  errorMessage: string;
 }) {
   const { t } = useTranslation();
-  const uniqueIds = [...new Set(requestedIds)];
-  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-  const resolved = uniqueIds.length > 0 ? uniqueIds.map((id) => evidenceById.get(id)) : [];
-  const complete = resolved.length > 0 && resolved.every((item) => item !== undefined);
-
   return (
     <div className="topology-evidence">
       <p className="topology-evidence__context">{t("topology.evidence.context", { subject })}</p>
-      {!complete ? (
+      {evidenceState === "loading" && <p role="status">{t("topology.evidence.loading")}</p>}
+      {evidenceState === "error" && (
         <p role="alert" className="topology-evidence__error">
-          {t("topology.evidence.unavailable")}
+          {errorMessage}
         </p>
-      ) : (
+      )}
+      {evidenceState === "ready" && evidence.length === 0 && (
+        <EmptyState titleKey="topology.evidence.empty" />
+      )}
+      {evidence.length > 0 && (
         <div className="topology-evidence__list">
-          {(resolved as EvidenceRef[]).map((item) => (
+          {evidence.map((item) => (
             <article key={item.id} className="topology-evidence__entry">
               <div className="topology-evidence__entry-header">
                 <h3>{t(`topology.sources.${item.source_kind}`)}</h3>

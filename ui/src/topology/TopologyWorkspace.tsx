@@ -1,23 +1,62 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  CommandEnvelope,
   ConsoleEvidenceId,
   ConsoleHealthState,
+  EvidenceRef,
   IncidentQueueItem,
+  Invoke,
+  OperationsSnapshot,
   SourceStatus,
   StatusReason,
   TopologyNode,
+  TopologyRequest,
   TopologySnapshot
 } from "../../contracts/ipc";
+import { command } from "../../contracts/ipc";
+import { isEvidenceResponse } from "../../contracts/guards";
+import { isOperationsSnapshot } from "../operations/contractValidation";
 import { Drawer, EmptyState, StatusIndicator } from "../design-system/components";
 import { useTranslation } from "../i18n";
-import { TopologyFilters } from "./TopologyFilters";
+import { TopologyFilters, type EnvironmentOption, type TeamOption } from "./TopologyFilters";
 import { TopologyGraph } from "./TopologyGraph";
 import { TopologyPathList } from "./TopologyPathList";
-import { TopologyEvidencePanel } from "./TopologyEvidencePanel";
+import { TopologyEvidencePanel, type TopologyEvidenceState } from "./TopologyEvidencePanel";
+import { isTopologySnapshot } from "./contractValidation";
 import "./topology.css";
 
 const ALL = "all";
 const NO_SELECTION = "";
+const DEFAULT_MAX_DEPTH = 3;
+
+type SnapshotState = "loading" | "ready" | "error";
+
+const operationsSnapshotEnvelope = (): CommandEnvelope<null> => ({
+  request_id: crypto.randomUUID(),
+  command: command("operations", "snapshot"),
+  capability: "WorkspaceRead",
+  scope: { resource_ids: [] },
+  payload: null
+});
+
+/** The unfiltered workspace graph is the source for filter dropdown options. */
+const UNFILTERED_TOPOLOGY_REQUEST: TopologyRequest = {
+  filter: { environment_ids: [], team_ids: [], incident_id: null },
+  focus_node_id: null,
+  traversal: { direction: "both", max_depth: DEFAULT_MAX_DEPTH }
+};
+
+const topologyEnvelope = <T,>(
+  verb: "snapshot" | "evidence",
+  capability: "WorkspaceRead" | "ResourceRead",
+  payload: T
+): CommandEnvelope<T> => ({
+  request_id: crypto.randomUUID(),
+  command: command("topology", verb),
+  capability,
+  scope: { resource_ids: [] },
+  payload
+});
 
 const healthIndicatorState = (state: ConsoleHealthState) => {
   if (state === "healthy") return "healthy" as const;
@@ -135,22 +174,59 @@ function NodeDetail({
   );
 }
 
+const environmentOptionsFrom = (snapshot: TopologySnapshot): EnvironmentOption[] => {
+  const byId = new Map<string, string>();
+  for (const node of snapshot.nodes) {
+    if (node.kind === "environment" && node.environment_id) {
+      byId.set(node.environment_id, node.name);
+    }
+  }
+  return [...byId.entries()].map(([id, name]) => ({ id, name }));
+};
+
+const teamOptionsFrom = (snapshot: TopologySnapshot): TeamOption[] => {
+  const byId = new Map<string, string>();
+  for (const node of snapshot.nodes) {
+    if (node.ownership.team_id && node.ownership.team_name) {
+      byId.set(node.ownership.team_id, node.ownership.team_name);
+    }
+  }
+  return [...byId.entries()].map(([id, name]) => ({ id, name }));
+};
+
 export function TopologyWorkspace({
-  snapshot,
-  incidents = []
+  invoke,
+  initialIncidentId = null
 }: {
-  snapshot: TopologySnapshot | null;
-  incidents?: IncidentQueueItem[];
+  invoke: Invoke;
+  initialIncidentId?: string | null;
 }) {
   const { t } = useTranslation();
+  const [snapshot, setSnapshot] = useState<TopologySnapshot>();
+  const [snapshotState, setSnapshotState] = useState<SnapshotState>("loading");
+  const [snapshotError, setSnapshotError] = useState("");
+  const [incidents, setIncidents] = useState<IncidentQueueItem[]>([]);
+  const [incidentsError, setIncidentsError] = useState(false);
+  const [environmentOptions, setEnvironmentOptions] = useState<EnvironmentOption[]>([]);
+  const [teamOptions, setTeamOptions] = useState<TeamOption[]>([]);
   const [environment, setEnvironment] = useState(ALL);
   const [team, setTeam] = useState(ALL);
-  const [incident, setIncident] = useState(snapshot?.filter.incident_id ?? NO_SELECTION);
+  const [incident, setIncident] = useState(initialIncidentId ?? NO_SELECTION);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [evidenceRequest, setEvidenceRequest] = useState<{
     subject: string;
     ids: ConsoleEvidenceId[];
   } | null>(null);
+  const [evidenceState, setEvidenceState] = useState<TopologyEvidenceState>("idle");
+  const [evidence, setEvidence] = useState<EvidenceRef[]>([]);
+  const [evidenceError, setEvidenceError] = useState("");
+  const snapshotRequestRef = useRef(0);
+  const evidenceRequestRef = useRef(0);
+
+  const issuedEvidenceIds = useMemo(
+    () => new Set(snapshot?.evidence.map((item) => item.id) ?? []),
+    [snapshot]
+  );
 
   const nodesById = useMemo(
     () => new Map((snapshot?.nodes ?? []).map((node) => [node.id, node])),
@@ -161,96 +237,97 @@ export function TopologyWorkspace({
     [snapshot]
   );
 
-  const environmentOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const node of snapshot?.nodes ?? []) {
-      if (node.kind === "environment" && node.environment_id) {
-        byId.set(node.environment_id, node.name);
-      }
-    }
-    return [...byId.entries()].map(([id, name]) => ({ id, name }));
-  }, [snapshot]);
-
-  const teamOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const node of snapshot?.nodes ?? []) {
-      if (node.ownership.team_id && node.ownership.team_name) {
-        byId.set(node.ownership.team_id, node.ownership.team_name);
-      }
-    }
-    return [...byId.entries()].map(([id, name]) => ({ id, name }));
-  }, [snapshot]);
-
-  const visibleNodes = useMemo(() => {
-    if (!snapshot) return [];
-    const affectedRoots = snapshot.nodes.filter((node) => node.affected_by_incident);
-    const contextIds = new Set<string>();
-    if (incident !== NO_SELECTION) {
-      const rootIds = new Set(affectedRoots.map((node) => node.id));
-      for (const path of snapshot.paths) {
-        if (rootIds.has(path.root_node_id)) {
-          for (const id of path.node_ids) contextIds.add(id);
+  // The Incident filter lists the workspace queue, the same projection the
+  // Operations Console renders.  A failure here degrades only the dropdown.
+  useEffect(() => {
+    let active = true;
+    void invoke<null, OperationsSnapshot>("operations_snapshot", {
+      envelope: operationsSnapshotEnvelope()
+    })
+      .then((result) => {
+        if (!active) return;
+        if (result.ok && isOperationsSnapshot(result.value)) {
+          setIncidents(result.value.incident_queue);
+          setIncidentsError(false);
+        } else {
+          setIncidents([]);
+          setIncidentsError(true);
         }
-      }
-    }
-    return snapshot.nodes.filter((node) => {
-      if (incident !== NO_SELECTION) {
-        const inBlastRadius = node.affected_by_incident || contextIds.has(node.id);
-        if (!inBlastRadius) return false;
-      }
-      if (environment !== ALL && node.environment_id !== environment) return false;
-      if (team !== ALL) {
-        if (!node.ownership.team_id || node.ownership.team_id !== team) return false;
-      }
-      return true;
-    });
-  }, [snapshot, incident, environment, team]);
+      })
+      .catch(() => {
+        if (!active) return;
+        setIncidents([]);
+        setIncidentsError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [invoke]);
 
-  const visibleNodeIds = useMemo(
-    () => new Set(visibleNodes.map((node) => node.id)),
-    [visibleNodes]
+  // Filter options describe the whole workspace graph, not the currently
+  // filtered view, so filtering can be widened again after it is narrowed.
+  useEffect(() => {
+    let active = true;
+    void invoke<TopologyRequest, TopologySnapshot>("topology_snapshot", {
+      envelope: topologyEnvelope("snapshot", "WorkspaceRead", UNFILTERED_TOPOLOGY_REQUEST)
+    })
+      .then((result) => {
+        if (!active || !result.ok || !isTopologySnapshot(result.value)) return;
+        setEnvironmentOptions(environmentOptionsFrom(result.value));
+        setTeamOptions(teamOptionsFrom(result.value));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [invoke]);
+
+  // The backend owns filtering and traversal: every Environment, Team,
+  // Incident or focus change re-reads the projection through IPC.
+  useEffect(() => {
+    const requestId = ++snapshotRequestRef.current;
+    const request: TopologyRequest = {
+      filter: {
+        environment_ids: environment === ALL ? [] : [environment],
+        team_ids: team === ALL ? [] : [team],
+        incident_id: incident === NO_SELECTION ? null : incident
+      },
+      focus_node_id: selectedNodeId,
+      traversal: { direction: "both", max_depth: DEFAULT_MAX_DEPTH }
+    };
+    void invoke<TopologyRequest, TopologySnapshot>("topology_snapshot", {
+      envelope: topologyEnvelope("snapshot", "WorkspaceRead", request)
+    })
+      .then((result) => {
+        if (requestId !== snapshotRequestRef.current) return;
+        if (result.ok && isTopologySnapshot(result.value)) {
+          setSnapshot(result.value);
+          setSnapshotState("ready");
+        } else {
+          setSnapshotState("error");
+          setSnapshotError(t("topology.snapshotError"));
+        }
+      })
+      .catch(() => {
+        if (requestId !== snapshotRequestRef.current) return;
+        setSnapshotState("error");
+        setSnapshotError(t("topology.snapshotError"));
+      });
+  }, [invoke, t, environment, team, incident, selectedNodeId]);
+
+  const selectedNode = useMemo(
+    () =>
+      snapshot && selectedNodeId
+        ? snapshot.nodes.find((node) => node.id === selectedNodeId)
+        : undefined,
+    [snapshot, selectedNodeId]
   );
-  const visibleEdges = useMemo(() => {
-    if (!snapshot) return [];
-    return snapshot.edges.filter(
-      (edge) =>
-        visibleNodeIds.has(edge.upstream_node_id) && visibleNodeIds.has(edge.downstream_node_id)
-    );
-  }, [snapshot, visibleNodeIds]);
-
-  const selectedNode =
-    selectedNodeId && visibleNodeIds.has(selectedNodeId)
-      ? nodesById.get(selectedNodeId)
-      : undefined;
-
-  const pathRoots = useMemo(() => {
-    if (!snapshot) return new Set<string>();
-    if (incident !== NO_SELECTION) {
-      return new Set(
-        snapshot.nodes.filter((node) => node.affected_by_incident).map((node) => node.id)
-      );
-    }
-    if (selectedNodeId && visibleNodeIds.has(selectedNodeId)) return new Set([selectedNodeId]);
-    if (snapshot.focus_node_id && visibleNodeIds.has(snapshot.focus_node_id)) {
-      return new Set([snapshot.focus_node_id]);
-    }
-    return new Set<string>();
-  }, [snapshot, incident, selectedNodeId, visibleNodeIds]);
-
-  const visiblePaths = useMemo(() => {
-    if (!snapshot) return [];
-    return snapshot.paths.filter((path) => pathRoots.has(path.root_node_id));
-  }, [snapshot, pathRoots]);
 
   const pathFocusName = useMemo(() => {
     if (!snapshot || incident !== NO_SELECTION) return null;
-    const focusId =
-      selectedNodeId && visibleNodeIds.has(selectedNodeId)
-        ? selectedNodeId
-        : snapshot.focus_node_id;
-    const focusNode = focusId ? nodesById.get(focusId) : undefined;
+    const focusNode = snapshot.focus_node_id ? nodesById.get(snapshot.focus_node_id) : undefined;
     return focusNode?.name ?? null;
-  }, [snapshot, incident, selectedNodeId, visibleNodeIds, nodesById]);
+  }, [snapshot, incident, nodesById]);
 
   const environmentNameById = useMemo(() => {
     const byId = new Map<string, string>();
@@ -262,13 +339,53 @@ export function TopologyWorkspace({
     return byId;
   }, [snapshot]);
 
-  const openEvidence = (ids: ConsoleEvidenceId[], subject: string) => {
-    setEvidenceRequest({ subject, ids });
-  };
+  const openEvidence = useCallback(
+    (ids: ConsoleEvidenceId[], subject: string) => {
+      const requestId = ++evidenceRequestRef.current;
+      const admitted = [...new Set(ids.filter((id) => issuedEvidenceIds.has(id)))];
+      setEvidenceRequest({ subject, ids: admitted });
+      setEvidence([]);
+      setEvidenceError("");
+      if (!admitted.length) {
+        setEvidenceState("error");
+        setEvidenceError(t("topology.evidence.unavailable"));
+        return;
+      }
+      setEvidenceState("loading");
+      void invoke<{ evidence_ids: ConsoleEvidenceId[] }, EvidenceRef[]>("topology_evidence", {
+        envelope: topologyEnvelope("evidence", "ResourceRead", { evidence_ids: admitted })
+      })
+        .then((result) => {
+          if (requestId !== evidenceRequestRef.current) return;
+          if (result.ok && isEvidenceResponse(result.value, admitted)) {
+            setEvidence(result.value);
+            setEvidenceState("ready");
+          } else {
+            setEvidenceState("error");
+            setEvidenceError(t("topology.evidence.error"));
+          }
+        })
+        .catch(() => {
+          if (requestId !== evidenceRequestRef.current) return;
+          setEvidenceState("error");
+          setEvidenceError(t("topology.evidence.error"));
+        });
+    },
+    [invoke, issuedEvidenceIds, t]
+  );
 
   const sourceNotices = (snapshot?.source_status ?? []).filter(
     (source) => source.state !== "fresh"
   );
+
+  const snapshotPlaceholder =
+    snapshotState === "error" ? (
+      <p className="topology-workspace__error" role="alert">
+        {snapshotError}
+      </p>
+    ) : (
+      <p role="status">{t("topology.loading")}</p>
+    );
 
   return (
     <div className="topology-workspace">
@@ -284,6 +401,11 @@ export function TopologyWorkspace({
           </p>
         )}
       </header>
+      {snapshotState === "error" && snapshot && (
+        <p className="topology-workspace__error" role="alert">
+          {snapshotError}
+        </p>
+      )}
       {sourceNotices.length > 0 && (
         <div className="topology-workspace__notices">
           {sourceNotices.map((source) => (
@@ -302,16 +424,21 @@ export function TopologyWorkspace({
         onTeamChange={setTeam}
         onIncidentChange={setIncident}
       />
+      {incidentsError && (
+        <p className="topology-workspace__incidents-note" role="status">
+          {t("topology.incidentsUnavailable")}
+        </p>
+      )}
       <div className="topology-workspace__main">
         <div className="topology-workspace__graph">
           {!snapshot ? (
-            <p role="status">{t("topology.loading")}</p>
+            snapshotPlaceholder
           ) : snapshot.nodes.length === 0 ? (
             <EmptyState titleKey="topology.empty" />
           ) : (
             <TopologyGraph
-              nodes={visibleNodes}
-              edges={visibleEdges}
+              nodes={snapshot.nodes}
+              edges={snapshot.edges}
               selectedNodeId={selectedNodeId ?? null}
               onSelectNode={(nodeId) =>
                 setSelectedNodeId((current) => (current === nodeId ? null : nodeId))
@@ -334,10 +461,10 @@ export function TopologyWorkspace({
         )}
       </div>
       {!snapshot ? (
-        <p role="status">{t("topology.loading")}</p>
+        snapshotPlaceholder
       ) : (
         <TopologyPathList
-          paths={visiblePaths}
+          paths={snapshot.paths}
           nodesById={nodesById}
           edgesById={edgesById}
           focusName={pathFocusName}
@@ -353,8 +480,9 @@ export function TopologyWorkspace({
         {evidenceRequest && (
           <TopologyEvidencePanel
             subject={evidenceRequest.subject}
-            requestedIds={evidenceRequest.ids}
-            evidence={snapshot?.evidence ?? []}
+            evidenceState={evidenceState}
+            evidence={evidence}
+            errorMessage={evidenceError}
           />
         )}
       </Drawer>

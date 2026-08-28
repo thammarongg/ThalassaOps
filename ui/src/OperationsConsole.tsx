@@ -31,11 +31,8 @@ import {
   persistWidgetPreferences,
   updateWidgetPreference
 } from "./operations/widgetConfig";
-import {
-  isEvidenceResponse,
-  isOperationsSnapshot,
-  isTrustedNativeUrl
-} from "./operations/contractValidation";
+import { isOperationsSnapshot } from "./operations/contractValidation";
+import { isEvidenceResponse, isTrustedNativeUrl } from "../contracts/guards";
 import { open } from "@tauri-apps/plugin-shell";
 
 type SnapshotState = "loading" | "ready" | "error";
@@ -382,11 +379,13 @@ function HealthSummaryWidget({
 function IncidentQueueWidget({
   snapshot,
   issuedEvidenceIds,
-  onOpen
+  onOpen,
+  onOpenTopology
 }: {
   snapshot: OperationsSnapshot;
   issuedEvidenceIds: Set<string>;
   onOpen: (target: DrillDownTarget, reference: DrillDownReference, ids: string[]) => void;
+  onOpenTopology?: (incidentId: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -402,6 +401,7 @@ function IncidentQueueWidget({
               item={item}
               issuedEvidenceIds={issuedEvidenceIds}
               onOpen={onOpen}
+              onOpenTopology={onOpenTopology}
             />
           ))}
         </div>
@@ -410,15 +410,16 @@ function IncidentQueueWidget({
     </div>
   );
 }
-
 function IncidentQueueEntry({
   item,
   issuedEvidenceIds,
-  onOpen
+  onOpen,
+  onOpenTopology
 }: {
   item: IncidentQueueItem;
   issuedEvidenceIds: Set<string>;
   onOpen: (target: DrillDownTarget, reference: DrillDownReference, ids: string[]) => void;
+  onOpenTopology?: (incidentId: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -435,13 +436,25 @@ function IncidentQueueEntry({
       <p className="operations-incident-entry__meta">
         {t("operations.customerImpact")}: {item.business_impact.customer_scope}
       </p>
-      <ItemDrillDownButton
-        label={item.title}
-        target={item.drill_down}
-        reference={item.drill_down_reference}
-        issuedEvidenceIds={issuedEvidenceIds}
-        onOpen={onOpen}
-      />
+      <div className="operations-incident-entry__actions">
+        <ItemDrillDownButton
+          label={item.title}
+          target={item.drill_down}
+          reference={item.drill_down_reference}
+          issuedEvidenceIds={issuedEvidenceIds}
+          onOpen={onOpen}
+        />
+        {onOpenTopology && (
+          <button
+            type="button"
+            className="operations-incident-entry__topology"
+            aria-label={t("operations.openIncidentTopology", { title: item.title })}
+            onClick={() => onOpenTopology(item.id)}
+          >
+            {t("operations.viewInTopology")}
+          </button>
+        )}
+      </div>
     </article>
   );
 }
@@ -804,7 +817,13 @@ function EvidencePanel({
   );
 }
 
-export function OperationsConsole({ invoke }: { invoke: Invoke }) {
+export function OperationsConsole({
+  invoke,
+  onOpenIncidentTopology
+}: {
+  invoke: Invoke;
+  onOpenIncidentTopology?: (incidentId: string) => void;
+}) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<OperationsSnapshot>();
   const [snapshotState, setSnapshotState] = useState<SnapshotState>("loading");
@@ -956,7 +975,8 @@ export function OperationsConsole({ invoke }: { invoke: Invoke }) {
     if (!snapshot) return null;
     const props = { snapshot, issuedEvidenceIds, onOpen: openDrillDown };
     if (id === "health_summary") return <HealthSummaryWidget {...props} />;
-    if (id === "incident_queue") return <IncidentQueueWidget {...props} />;
+    if (id === "incident_queue")
+      return <IncidentQueueWidget {...props} onOpenTopology={onOpenIncidentTopology} />;
     if (id === "signal_summary") return <SignalSummaryWidget {...props} />;
     if (id === "change_stream") return <ChangeStreamWidget {...props} />;
     return <EnvironmentStatusWidget {...props} />;

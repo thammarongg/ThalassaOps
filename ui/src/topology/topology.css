@@ -35,6 +35,20 @@
   gap: var(--space-1);
 }
 
+.topology-workspace__error {
+  margin: 0;
+  border-inline-start: 3px solid var(--color-coral);
+  padding: 0.7rem 0.85rem;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-coral) 11%, var(--color-abyss));
+}
+
+.topology-workspace__incidents-note {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  font-size: 0.85rem;
+}
+
 .topology-source-notice {
   display: flex;
   align-items: center;
