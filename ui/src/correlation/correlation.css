@@ -245,6 +245,19 @@
   gap: 0.6rem;
 }
 
+.correlation-signal__summary {
+  cursor: pointer;
+}
+
+.correlation-signal__body {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.correlation-signal__evidence {
+  justify-self: start;
+}
+
 .correlation-signal dl,
 .correlation-evidence dl {
   display: grid;

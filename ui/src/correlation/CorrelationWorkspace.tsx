@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CommandEnvelope,
-  CorrelationCandidate,
   CorrelationMetric,
   CorrelationMetricKey,
   CorrelationRequest,
@@ -291,13 +290,6 @@ export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
     [invoke, issuedEvidenceIds, t]
   );
 
-  const openCandidateEvidence = useCallback(
-    (candidate: CorrelationCandidate) => {
-      openEvidence(candidate.id, candidate.evidence_ids);
-    },
-    [openEvidence]
-  );
-
   const openMetricEvidence = useCallback(
     (metric: CorrelationMetric, evidenceIds: string[]) => {
       openEvidence(t(metricLabelKey(metric)), evidenceIds);
@@ -380,7 +372,7 @@ export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
               <CandidateDetails
                 candidate={selectedCandidate}
                 signals={snapshot.signals}
-                onOpenEvidence={openCandidateEvidence}
+                onOpenEvidence={openEvidence}
               />
             ) : (
               <EmptyState titleKey="correlation.details.selectCandidate" />

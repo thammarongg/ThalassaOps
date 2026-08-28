@@ -22,7 +22,13 @@ const businessSeverityKey = (severity: NonNullable<Signal["business_severity"]>)
 const signalValue = (value: number | null, fallback: string) =>
   value === null ? fallback : String(value);
 
-function SignalDetails({ signal }: { signal: Signal }) {
+function SignalDetails({
+  signal,
+  onOpenEvidence
+}: {
+  signal: Signal;
+  onOpenEvidence: (subject: string, evidenceIds: string[]) => void;
+}) {
   const { t } = useTranslation();
   const securityFinding =
     typeof signal.payload === "object" && "security_finding" in signal.payload
@@ -38,118 +44,141 @@ function SignalDetails({ signal }: { signal: Signal }) {
       : null;
   return (
     <li className="correlation-signal">
-      <div className="correlation-signal__heading">
-        <strong>{t(sourceKey(signal.source))}</strong>
-        <span>{t(kindKey(signal.kind))}</span>
-        <span className="correlation-signal__state">
-          <StatusIndicator state={signal.state === "active" ? "healthy" : "unknown"} />{" "}
-          {t("correlation.signalStates." + signal.state)}
-        </span>
-      </div>
-      <dl>
-        {signal.source_record.native_id && (
-          <div>
-            <dt>{t("correlation.details.nativeId")}</dt>
-            <dd>{signal.source_record.native_id}</dd>
+      <details open>
+        <summary className="correlation-signal__summary">
+          <div className="correlation-signal__heading">
+            <strong>{t(sourceKey(signal.source))}</strong>
+            <span>{t(kindKey(signal.kind))}</span>
+            <span className="correlation-signal__state">
+              <StatusIndicator state={signal.state === "active" ? "healthy" : "unknown"} />{" "}
+              {t("correlation.signalStates." + signal.state)}
+            </span>
           </div>
-        )}
-        {signal.source_record.revision && (
-          <div>
-            <dt>{t("correlation.details.revision")}</dt>
-            <dd>{signal.source_record.revision}</dd>
-          </div>
-        )}
-        <div>
-          <dt>{t("correlation.details.target")}</dt>
-          <dd>
-            {signal.targets.length > 0
-              ? signal.targets.map((target) => t(targetKey(target)) + ": " + target.id).join(" · ")
-              : t("correlation.details.noTarget")}
-          </dd>
+        </summary>
+        <div className="correlation-signal__body">
+          <dl>
+            {signal.source_record.native_id && (
+              <div>
+                <dt>{t("correlation.details.nativeId")}</dt>
+                <dd>{signal.source_record.native_id}</dd>
+              </div>
+            )}
+            {signal.source_record.revision && (
+              <div>
+                <dt>{t("correlation.details.revision")}</dt>
+                <dd>{signal.source_record.revision}</dd>
+              </div>
+            )}
+            <div>
+              <dt>{t("correlation.details.target")}</dt>
+              <dd>
+                {signal.targets.length > 0
+                  ? signal.targets
+                      .map((target) => t(targetKey(target)) + ": " + target.id)
+                      .join(" · ")
+                  : t("correlation.details.noTarget")}
+              </dd>
+            </div>
+            {signal.business_severity && (
+              <div>
+                <dt>{t("correlation.details.businessSeverity")}</dt>
+                <dd>{t(businessSeverityKey(signal.business_severity))}</dd>
+              </div>
+            )}
+            {securityFinding && (
+              <>
+                <div>
+                  <dt>{t("correlation.details.assetKind")}</dt>
+                  <dd>{t("correlation.assetKinds." + securityFinding.asset.kind)}</dd>
+                </div>
+                {securityFinding.severity !== null && (
+                  <div>
+                    <dt>{t("correlation.details.findingSeverity")}</dt>
+                    <dd>{t("correlation.findingSeverities." + securityFinding.severity)}</dd>
+                  </div>
+                )}
+                {securityFinding.exploitability !== null && (
+                  <div>
+                    <dt>{t("correlation.details.exploitability")}</dt>
+                    <dd>{t("correlation.exploitability." + securityFinding.exploitability)}</dd>
+                  </div>
+                )}
+                {securityFinding.cvss_score !== null && (
+                  <div>
+                    <dt>{t("correlation.details.cvssScore")}</dt>
+                    <dd>
+                      {signalValue(
+                        securityFinding.cvss_score,
+                        t("correlation.details.notProvided")
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {securityFinding.asset.display_name !== null && (
+                  <div>
+                    <dt>{t("correlation.details.assetName")}</dt>
+                    <dd>{securityFinding.asset.display_name}</dd>
+                  </div>
+                )}
+                {securityFinding.asset.artifact_digest !== null && (
+                  <div>
+                    <dt>{t("correlation.details.artifactDigest")}</dt>
+                    <dd>{securityFinding.asset.artifact_digest}</dd>
+                  </div>
+                )}
+              </>
+            )}
+            {anomaly && (
+              <>
+                <div>
+                  <dt>{t("correlation.details.observedValue")}</dt>
+                  <dd>
+                    {signalValue(anomaly.observed_value, t("correlation.details.notProvided"))}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("correlation.details.comparisonValue")}</dt>
+                  <dd>
+                    {signalValue(anomaly.comparison_value, t("correlation.details.notProvided"))}
+                  </dd>
+                </div>
+              </>
+            )}
+            {healthCheck && (
+              <div>
+                <dt>{t("correlation.details.outcome")}</dt>
+                <dd>{t("correlation.healthOutcomes." + healthCheck.outcome)}</dd>
+              </div>
+            )}
+            <div>
+              <dt>{t("correlation.details.signalId")}</dt>
+              <dd>{signal.id}</dd>
+            </div>
+          </dl>
+          <p className="correlation-signal__suppression" role="status">
+            {signal.suppression.kind === "not_suppressed"
+              ? t("correlation.suppression.notSuppressed")
+              : t("correlation.suppression." + signal.suppression.kind)}{" "}
+            {t("correlation.details.suppressionIds", {
+              ids:
+                signal.suppression.rule_ids
+                  .concat(signal.suppression.maintenance_window_ids)
+                  .join(", ") || t("correlation.details.notProvided")
+            })}{" "}
+            {t("correlation.details.policyVersion", {
+              version: signal.suppression.policy_version
+            })}
+          </p>
+          <button
+            type="button"
+            className="correlation-signal__evidence"
+            aria-label={t("correlation.details.openSignalEvidence", { id: signal.id })}
+            onClick={() => onOpenEvidence(signal.id, signal.evidence_ids)}
+          >
+            {t("correlation.details.openSignalEvidence", { id: signal.id })}
+          </button>
         </div>
-        {signal.business_severity && (
-          <div>
-            <dt>{t("correlation.details.businessSeverity")}</dt>
-            <dd>{t(businessSeverityKey(signal.business_severity))}</dd>
-          </div>
-        )}
-        {securityFinding && (
-          <>
-            <div>
-              <dt>{t("correlation.details.assetKind")}</dt>
-              <dd>{t("correlation.assetKinds." + securityFinding.asset.kind)}</dd>
-            </div>
-            {securityFinding.severity !== null && (
-              <div>
-                <dt>{t("correlation.details.findingSeverity")}</dt>
-                <dd>{t("correlation.findingSeverities." + securityFinding.severity)}</dd>
-              </div>
-            )}
-            {securityFinding.exploitability !== null && (
-              <div>
-                <dt>{t("correlation.details.exploitability")}</dt>
-                <dd>{t("correlation.exploitability." + securityFinding.exploitability)}</dd>
-              </div>
-            )}
-            {securityFinding.cvss_score !== null && (
-              <div>
-                <dt>{t("correlation.details.cvssScore")}</dt>
-                <dd>
-                  {signalValue(securityFinding.cvss_score, t("correlation.details.notProvided"))}
-                </dd>
-              </div>
-            )}
-            {securityFinding.asset.display_name !== null && (
-              <div>
-                <dt>{t("correlation.details.assetName")}</dt>
-                <dd>{securityFinding.asset.display_name}</dd>
-              </div>
-            )}
-            {securityFinding.asset.artifact_digest !== null && (
-              <div>
-                <dt>{t("correlation.details.artifactDigest")}</dt>
-                <dd>{securityFinding.asset.artifact_digest}</dd>
-              </div>
-            )}
-          </>
-        )}
-        {anomaly && (
-          <>
-            <div>
-              <dt>{t("correlation.details.observedValue")}</dt>
-              <dd>{signalValue(anomaly.observed_value, t("correlation.details.notProvided"))}</dd>
-            </div>
-            <div>
-              <dt>{t("correlation.details.comparisonValue")}</dt>
-              <dd>{signalValue(anomaly.comparison_value, t("correlation.details.notProvided"))}</dd>
-            </div>
-          </>
-        )}
-        {healthCheck && (
-          <div>
-            <dt>{t("correlation.details.outcome")}</dt>
-            <dd>{t("correlation.healthOutcomes." + healthCheck.outcome)}</dd>
-          </div>
-        )}
-        <div>
-          <dt>{t("correlation.details.signalId")}</dt>
-          <dd>{signal.id}</dd>
-        </div>
-      </dl>
-      <p className="correlation-signal__suppression" role="status">
-        {signal.suppression.kind === "not_suppressed"
-          ? t("correlation.suppression.notSuppressed")
-          : t("correlation.suppression." + signal.suppression.kind)}{" "}
-        {t("correlation.details.suppressionIds", {
-          ids:
-            signal.suppression.rule_ids
-              .concat(signal.suppression.maintenance_window_ids)
-              .join(", ") || t("correlation.details.notProvided")
-        })}{" "}
-        {t("correlation.details.policyVersion", {
-          version: signal.suppression.policy_version
-        })}
-      </p>
+      </details>
     </li>
   );
 }
@@ -181,7 +210,7 @@ export function CandidateDetails({
 }: {
   candidate: CorrelationCandidate;
   signals: Signal[];
-  onOpenEvidence: (candidate: CorrelationCandidate) => void;
+  onOpenEvidence: (subject: string, evidenceIds: string[]) => void;
 }) {
   const { t } = useTranslation();
   const signalById = new Map(signals.map((signal) => [signal.id, signal]));
@@ -217,7 +246,7 @@ export function CandidateDetails({
         {memberSignals.length > 0 ? (
           <ul className="correlation-signal-list">
             {memberSignals.map((signal) => (
-              <SignalDetails key={signal.id} signal={signal} />
+              <SignalDetails key={signal.id} signal={signal} onOpenEvidence={onOpenEvidence} />
             ))}
           </ul>
         ) : (
@@ -236,7 +265,7 @@ export function CandidateDetails({
         <button
           type="button"
           aria-label={t("correlation.details.openEvidence")}
-          onClick={() => onOpenEvidence(candidate)}
+          onClick={() => onOpenEvidence(candidate.id, candidate.evidence_ids)}
         >
           {t("correlation.details.openEvidence")}
         </button>

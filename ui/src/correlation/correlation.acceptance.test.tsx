@@ -44,7 +44,7 @@ it("keeps mixed operational and security signals evidence reachable without an I
   expect(screen.queryByText(/root cause|caused by|confirmed dependency/i)).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /candidate-checkout/i }));
-  await user.click(screen.getByRole("button", { name: /open evidence/i }));
+  await user.click(screen.getByRole("button", { name: "Open evidence" }));
   expect(await screen.findByText("evidence-correlation-alert")).toBeInTheDocument();
   expect(invoke).not.toHaveBeenCalledWith("incident.write", expect.anything());
 });

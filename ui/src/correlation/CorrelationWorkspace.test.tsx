@@ -90,7 +90,7 @@ it("expands a candidate to every contributing Signal and opens issued evidence o
   const details = await screen.findByRole("region", { name: "Candidate details" });
   expect(within(details).getByText(/alertmanager/i)).toBeInTheDocument();
   expect(within(details).getByText(/prometheus/i)).toBeInTheDocument();
-  const evidenceButton = within(details).getByRole("button", { name: /evidence/i });
+  const evidenceButton = within(details).getByRole("button", { name: "Open evidence" });
   await user.click(evidenceButton);
 
   await waitFor(() =>

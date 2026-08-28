@@ -378,7 +378,6 @@ const correlationWindowStates: CorrelationWindowState[] = [
   "reopened"
 ];
 const candidateStatuses: CandidateStatus[] = ["active", "provisional", "suppressed"];
-const numberUnits = ["count", "percentage", "milliseconds", "seconds"] as const;
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);

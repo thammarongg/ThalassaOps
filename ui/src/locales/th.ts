@@ -579,6 +579,7 @@ const th = {
       notProvided: "ไม่ได้ระบุ",
       selectCandidate: "เลือกกลุ่มเพื่อดูสัญญาณสมาชิก",
       openEvidence: "เปิดหลักฐาน",
+      openSignalEvidence: "เปิดหลักฐานของสัญญาณ {{id}}",
       openEvidenceFor: "เปิดหลักฐานของกลุ่ม {{id}}"
     },
     evidence: {

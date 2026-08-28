@@ -579,6 +579,7 @@ const en = {
       notProvided: "Not provided",
       selectCandidate: "Select a candidate to inspect its member signals.",
       openEvidence: "Open evidence",
+      openSignalEvidence: "Open evidence for signal {{id}}",
       openEvidenceFor: "Open evidence for candidate {{id}}"
     },
     evidence: {
