@@ -203,7 +203,8 @@ export type DrillDownDestination =
   | "incident_queue"
   | "signal_summary"
   | "change_stream"
-  | "environment_status";
+  | "environment_status"
+  | "topology";
 export type DrillDownTarget = {
   destination: DrillDownDestination;
   evidence_ids: ConsoleEvidenceId[];
@@ -483,6 +484,146 @@ export type OperationsSnapshotRequest = null;
 export type OperationsEvidenceRequest = { evidence_ids: ConsoleEvidenceId[] };
 export type OperationsSnapshotResponse = OperationsSnapshot;
 export type OperationsEvidenceResponse = EvidenceRef[];
+
+export type TopologyNodeKind =
+  | "environment"
+  | "cluster"
+  | "namespace"
+  | "workload"
+  | "service"
+  | "pod"
+  | "node"
+  | "cloud_resource"
+  | "observability_target";
+
+export type TopologyOwnershipSource =
+  | "explicit_label"
+  | "resource_scope"
+  | "environment_default"
+  | "fixture"
+  | "unassigned";
+
+export type TopologyOwnership = {
+  team_id: UUID | null;
+  team_name: string | null;
+  source: TopologyOwnershipSource;
+  evidence_ids: ConsoleEvidenceId[];
+};
+
+export type TopologyMetric = {
+  key: string;
+  value: number;
+  unit: NumberUnit;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+
+export type TopologyNode = {
+  id: string;
+  kind: TopologyNodeKind;
+  name: string;
+  native_kind: string | null;
+  native_id: string | null;
+  environment_id: string | null;
+  provider: string | null;
+  scope: ResourceScope;
+  status: ConsoleHealthState;
+  labels: Record<string, string>;
+  ownership: TopologyOwnership;
+  metric: TopologyMetric | null;
+  affected_by_incident: boolean;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+};
+
+export type TopologyEdgeKind =
+  | "contains"
+  | "owns"
+  | "selects"
+  | "routes_to"
+  | "runs_on"
+  | "depends_on";
+
+export type TopologySourceKind = "kubernetes" | "cloud" | "observability" | "fixture";
+
+export type TopologyEdgeProvenance = {
+  source: TopologySourceKind;
+  source_key: string;
+  observed_at: string | null;
+};
+
+export type TopologyEdge = {
+  id: string;
+  upstream_node_id: string;
+  downstream_node_id: string;
+  kind: TopologyEdgeKind;
+  provenance: TopologyEdgeProvenance[];
+  confidence: number;
+  metadata: Record<string, string>;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+};
+
+export type TopologyDirection = "upstream" | "downstream" | "both";
+export type TopologyPathKind = "probable_structural";
+export type TopologyPathTermination = "leaf" | "cycle_detected" | "depth_limit";
+
+export type TopologyPath = {
+  id: string;
+  root_node_id: string;
+  terminal_node_id: string;
+  node_ids: string[];
+  edge_ids: string[];
+  direction: TopologyDirection;
+  depth: number;
+  confidence: number;
+  kind: TopologyPathKind;
+  termination: TopologyPathTermination;
+  cycle_edge_id: string | null;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+};
+
+export type TopologyTraversal = {
+  direction: TopologyDirection;
+  max_depth: number;
+};
+
+export type TopologyFilter = {
+  environment_ids: string[];
+  team_ids: UUID[];
+  incident_id: string | null;
+};
+
+export type TopologyRequest = {
+  filter: TopologyFilter;
+  focus_node_id: string | null;
+  traversal: TopologyTraversal;
+};
+
+export type TopologySummary = {
+  visible_nodes: TopologyMetric;
+  visible_edges: TopologyMetric;
+  affected_nodes: TopologyMetric;
+  probable_paths: TopologyMetric;
+};
+
+export type TopologySnapshot = {
+  generated_at: string;
+  scope: ResourceScope;
+  filter: TopologyFilter;
+  focus_node_id: string | null;
+  traversal: TopologyTraversal;
+  summary: TopologySummary;
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  paths: TopologyPath[];
+  source_status: SourceStatus[];
+  evidence: EvidenceRef[];
+};
+
+export type TopologyEvidenceRequest = { evidence_ids: ConsoleEvidenceId[] };
 
 export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;
 
