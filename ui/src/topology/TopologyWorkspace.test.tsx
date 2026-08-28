@@ -269,6 +269,23 @@ it("renders upstream and downstream probable paths from the focused resource", a
   ).toBeInTheDocument();
 });
 
+it("shows typed edge provenance and edge sequences for probable paths", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(topologyInvoke());
+
+  await user.click(
+    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+  );
+
+  const relationships = await screen.findByRole("region", { name: "Relationships" });
+  expect(within(relationships).getAllByText("fixture:dependencies").length).toBeGreaterThan(0);
+
+  const paths = screen.getByRole("region", { name: "Probable dependency paths" });
+  expect(within(paths).getAllByText("Edge sequence").length).toBeGreaterThan(0);
+  expect(within(paths).getAllByText("Provenance").length).toBeGreaterThan(0);
+  expect(within(paths).getAllByText("fixture:dependencies").length).toBeGreaterThan(0);
+});
+
 it("labels cycle-stopped and depth-truncated paths explicitly", async () => {
   const user = userEvent.setup();
   renderWorkspace(topologyInvoke());

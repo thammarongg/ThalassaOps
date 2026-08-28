@@ -108,6 +108,7 @@ export function TopologyGraph({
               { key: "relation", headerKey: "topology.graph.relation" },
               { key: "downstream", headerKey: "topology.graph.downstream" },
               { key: "confidence", headerKey: "topology.graph.confidence" },
+              { key: "provenance", headerKey: "topology.graph.provenance" },
               { key: "evidence", headerKey: "topology.graph.evidenceColumn" }
             ]}
             rows={edges.map((edge) => ({
@@ -123,6 +124,10 @@ export function TopologyGraph({
               confidence: t("topology.graph.confidenceValue", {
                 value: Math.round(edge.confidence * 100)
               }),
+              provenance:
+                edge.provenance.length > 0
+                  ? edge.provenance.map((item) => item.source_key).join(", ")
+                  : t("topology.graph.provenanceUnavailable"),
               evidence: (
                 <button
                   type="button"

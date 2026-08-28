@@ -45,6 +45,31 @@ export function TopologyPathList({
     path.edge_ids.every((id) => edgesById.has(id)) &&
     (path.cycle_edge_id === null || edgesById.has(path.cycle_edge_id));
 
+  const directionLabel = (path: TopologyPath) =>
+    t(`topology.paths.direction_${path.direction}`);
+
+  const edgeSequence = (path: TopologyPath) =>
+    path.edge_ids
+      .map((edgeId) => {
+        const edge = edgesById.get(edgeId);
+        if (!edge) return edgeId;
+        return `${nodesById.get(edge.upstream_node_id)?.name ?? edge.upstream_node_id} ${t(
+          `topology.relations.${edge.kind}`
+        )} ${nodesById.get(edge.downstream_node_id)?.name ?? edge.downstream_node_id}`;
+      })
+      .join(" · ");
+
+  const provenance = (path: TopologyPath) => {
+    const sourceKeys = [
+      ...new Set(
+        path.edge_ids.flatMap(
+          (edgeId) => edgesById.get(edgeId)?.provenance.map((item) => item.source_key) ?? []
+        )
+      )
+    ].sort();
+    return sourceKeys.length > 0 ? sourceKeys.join(", ") : t("topology.paths.provenanceUnavailable");
+  };
+
   const renderPath = (path: TopologyPath) => {
     const names = path.node_ids.map((id) => nodesById.get(id)?.name ?? id);
     const subject = names.join(" → ");
@@ -76,6 +101,10 @@ export function TopologyPathList({
         </div>
         <dl className="topology-path__facts">
           <div>
+            <dt>{t("topology.paths.direction")}</dt>
+            <dd>{directionLabel(path)}</dd>
+          </div>
+          <div>
             <dt>{t("topology.paths.depth")}</dt>
             <dd>{path.depth}</dd>
           </div>
@@ -84,6 +113,14 @@ export function TopologyPathList({
             <dd>
               {t("topology.graph.confidenceValue", { value: Math.round(path.confidence * 100) })}
             </dd>
+          </div>
+          <div>
+            <dt>{t("topology.paths.edgeSequence")}</dt>
+            <dd>{edgeSequence(path) || t("topology.detail.none")}</dd>
+          </div>
+          <div>
+            <dt>{t("topology.paths.provenance")}</dt>
+            <dd>{provenance(path)}</dd>
           </div>
         </dl>
         {path.termination === "depth_limit" && (
