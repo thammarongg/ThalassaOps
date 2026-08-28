@@ -231,9 +231,11 @@ fn path_from_state(
     edges: &[TopologyEdge],
 ) -> TopologyPath {
     let mut evidence_ids = state.evidence_ids;
+    let mut confidence = state.confidence;
     if let Some(cycle_edge_id) = cycle_edge_id.as_ref() {
         if let Some(edge) = edges.iter().find(|edge| &edge.id == cycle_edge_id) {
             evidence_ids.extend(edge.evidence_ids.iter().cloned());
+            confidence = confidence.min(edge.confidence);
         }
     }
     let evidence_ids = evidence_ids.into_iter().collect::<Vec<_>>();
@@ -260,7 +262,7 @@ fn path_from_state(
         edge_ids: state.edge_ids,
         direction: state.direction,
         depth,
-        confidence: state.confidence,
+        confidence,
         kind: TopologyPathKind::ProbableStructural,
         termination,
         cycle_edge_id,

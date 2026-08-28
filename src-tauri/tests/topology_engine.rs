@@ -375,6 +375,39 @@ fn cycle_traversal_terminates_and_reports_the_closing_edge() {
 }
 
 #[test]
+fn cycle_closing_edge_contributes_to_path_confidence() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let closing_edge = input
+        .fixture_edges
+        .iter_mut()
+        .find(|edge| edge.id == "edge:fixture:replica-depends-on-rds")
+        .expect("fixture should contain the cycle closing edge");
+    closing_edge.confidence = 0.2;
+
+    let base = TopologyBuilder::from_input(input.clone())
+        .snapshot_at(&default_topology_request())
+        .expect("healthy fixture should build");
+    let database_id = node_id_by_name(&base, "checkout-rds");
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request_for(
+            Some(database_id),
+            TopologyDirection::Downstream,
+            8,
+        ))
+        .expect("cycle traversal should build");
+
+    let cycle = snapshot
+        .paths
+        .iter()
+        .find(|path| {
+            path.termination == TopologyPathTermination::CycleDetected
+                && path.cycle_edge_id.as_deref() == Some("edge:fixture:replica-depends-on-rds")
+        })
+        .expect("the modified cycle should be reported explicitly");
+    assert_eq!(cycle.confidence, 0.2);
+}
+
+#[test]
 fn depth_limit_is_reported_when_another_edge_is_eligible() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())
