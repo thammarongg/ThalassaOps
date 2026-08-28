@@ -326,6 +326,8 @@ export const isTopologySnapshot = (value: unknown): value is TopologySnapshot =>
   }
   const evidenceIds = new Set(snapshot.evidence.map((item: EvidenceRef) => item.id));
   if (evidenceIds.size !== snapshot.evidence.length) return false;
+  const sourceStatusKeys = new Set(snapshot.source_status.map((status) => status.source_key));
+  if (sourceStatusKeys.size !== snapshot.source_status.length) return false;
   if (
     new Set(snapshot.nodes.map((node) => node.id)).size !== snapshot.nodes.length ||
     new Set(snapshot.edges.map((edge) => edge.id)).size !== snapshot.edges.length ||

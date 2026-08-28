@@ -2287,6 +2287,19 @@ impl TopologySnapshot {
             validate_evidence_ids(&metric.drill_down.evidence_ids, &evidence_ids)?;
             validate_evidence_ids(&metric.drill_down_reference.evidence_ids, &evidence_ids)?;
         }
+        let source_status_keys: BTreeSet<_> = self
+            .source_status
+            .iter()
+            .map(|status| status.source_key.clone())
+            .collect();
+        if source_status_keys.len() != self.source_status.len()
+            || self
+                .source_status
+                .iter()
+                .any(|status| status.source_key.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
         for status in &self.source_status {
             validate_evidence_ids(&status.evidence_ids, &evidence_ids)?;
         }

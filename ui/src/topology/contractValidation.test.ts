@@ -85,6 +85,13 @@ it("rejects summary counts that disagree with the graph", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects duplicate topology source status keys", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.source_status.push({ ...snapshot.source_status[0] });
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("keeps the UI fixture identity catalog aligned with the Rust topology fixture", () => {
   const expectedNodeIds = [
     "node:cloud:env-aws-prod:cloud_resource:checkout-rds",

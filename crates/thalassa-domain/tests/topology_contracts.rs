@@ -247,6 +247,22 @@ fn topology_contracts_round_trip_through_json() {
 }
 
 #[test]
+fn topology_snapshot_rejects_duplicate_source_status_keys() {
+    let mut invalid = snapshot();
+    let status = SourceStatus {
+        source_key: "fixture".into(),
+        state: SourceState::Fresh,
+        reason: None,
+        detail: None,
+        observed_at: None,
+        evidence_ids: vec![],
+    };
+    invalid.source_status = vec![status.clone(), status];
+
+    assert_eq!(invalid.validate(), Err(TopologyError::InvalidRequest));
+}
+
+#[test]
 fn topology_enums_use_explicit_symmetric_wire_values() {
     macro_rules! assert_wire_values {
         ($type:ty, $( $variant:expr => $wire:expr ),+ $(,)?) => {
