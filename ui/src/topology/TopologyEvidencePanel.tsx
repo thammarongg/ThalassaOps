@@ -1,4 +1,6 @@
 import type { EvidenceRef } from "../../contracts/ipc";
+import { isTrustedNativeUrl } from "../../contracts/guards";
+import { open } from "@tauri-apps/plugin-shell";
 import { EmptyState } from "../design-system/components";
 import { useTranslation } from "../i18n";
 
@@ -42,6 +44,15 @@ export function TopologyEvidencePanel({
                 <h3>{t(`topology.sources.${item.source_kind}`)}</h3>
                 <span className="topology-evidence__entry-id">{item.id}</span>
               </div>
+              {isTrustedNativeUrl(item.native_url) && (
+                <button
+                  type="button"
+                  className="topology-evidence__native-link"
+                  onClick={() => void Promise.resolve(open(item.native_url)).catch(() => undefined)}
+                >
+                  {t("topology.evidence.openNative")}
+                </button>
+              )}
               <dl>
                 {item.connector_id && (
                   <div>

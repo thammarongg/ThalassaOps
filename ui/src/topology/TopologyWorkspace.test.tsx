@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { open } from "@tauri-apps/plugin-shell";
 import type {
   CommandEnvelope,
   ConsoleEvidenceId,
@@ -26,6 +27,8 @@ import {
   topologySnapshotFixture
 } from "./topology-fixtures";
 import { operationsSnapshotFor } from "./operations-queue-fixtures";
+
+vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn().mockResolvedValue(undefined) }));
 
 afterEach(() => {
   cleanup();
@@ -443,6 +446,21 @@ it("opens node evidence through the topology evidence command with backend-issue
   expect(within(drawer).getByText("Fixture")).toBeInTheDocument();
   expect(within(drawer).getByRole("status")).toHaveTextContent("No fields masked");
   expect(within(drawer).getByRole("status")).toHaveTextContent("parsed");
+});
+
+it("opens only the backend-issued trusted native evidence URL", async () => {
+  const user = userEvent.setup();
+  const invoke = topologyInvoke({
+    evidenceFor: (ids) =>
+      ok(ids.map((id) => ({ ...evidenceFor(id), native_url: "https://evidence.example.test/item" })))
+  });
+  renderWorkspace(invoke);
+
+  await user.click(await screen.findByRole("button", { name: "View evidence for checkout" }));
+  const drawer = await screen.findByRole("dialog", { name: "Evidence" });
+  await user.click(within(drawer).getByRole("button", { name: "Open trusted source" }));
+
+  expect(open).toHaveBeenCalledWith("https://evidence.example.test/item");
 });
 
 it("opens impact path evidence with only the ids the snapshot issued", async () => {
