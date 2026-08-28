@@ -404,6 +404,146 @@ const en = {
       unavailable: "unavailable",
       unverified: "unverified"
     }
+  },
+  topology: {
+    eyebrow: "Resource topology / read model",
+    title: "Resource topology",
+    subtitle: "See services and resources, their owners, and probable dependency paths.",
+    lastSync: "Last sync: {{timestamp}}",
+    loading: "Loading topology…",
+    empty: "No topology data is available for this workspace.",
+    sourceNotice: "{{source}} is {{state}} ({{reason}}).",
+    sourceStates: {
+      fresh: "fresh",
+      stale: "degraded",
+      unavailable: "unavailable",
+      unverified: "unverified"
+    },
+    reasons: {
+      not_configured: "not configured",
+      unreachable: "unreachable",
+      timed_out: "timed out",
+      policy_denied: "blocked by policy",
+      no_data_in_window: "empty in this window",
+      unknown: "unavailable"
+    },
+    filters: {
+      title: "Topology filters",
+      environment: "Environment",
+      environmentAll: "All environments",
+      team: "Team",
+      teamAll: "All teams",
+      incident: "Incident",
+      incidentNone: "No incident selected"
+    },
+    graph: {
+      nodesTitle: "Resources",
+      edgesTitle: "Relationships",
+      edgesCaption: "Typed upstream-to-downstream relationships",
+      emptyNodes: "No resources match the current filters.",
+      emptyEdges: "No relationships match the current filters.",
+      upstream: "Upstream",
+      downstream: "Downstream",
+      relation: "Relation",
+      confidence: "Confidence",
+      confidenceValue: "{{value}}%",
+      evidence: "Evidence",
+      evidenceColumn: "Evidence",
+      affected: "affected by incident",
+      unassigned: "unassigned owner",
+      viewEvidence: "View evidence for {{name}}",
+      viewEdgeEvidence: "View evidence for the relationship between {{upstream}} and {{downstream}}"
+    },
+    kinds: {
+      environment: "Environment",
+      cluster: "Cluster",
+      namespace: "Namespace",
+      workload: "Workload",
+      service: "Service",
+      pod: "Pod",
+      node: "Node",
+      cloud_resource: "Cloud resource",
+      observability_target: "Observability target"
+    },
+    relations: {
+      contains: "contains",
+      owns: "owns",
+      selects: "selects",
+      routes_to: "routes to",
+      runs_on: "runs on",
+      depends_on: "depends on"
+    },
+    paths: {
+      title: "Probable dependency paths",
+      fromIncident: "Impact from the selected incident",
+      fromSelection: "Impact from {{name}}",
+      probable: "probable structural path",
+      empty: "No probable paths start from this selection.",
+      error: "This path references resources that are not in the snapshot and cannot be shown.",
+      viewEvidence: "View evidence for this path",
+      viewEvidenceFor: "View evidence for the path {{subject}}",
+      upstream: "Upstream impact",
+      downstream: "Downstream impact",
+      depth: "Depth",
+      confidence: "Confidence",
+      termination_leaf: "ends here",
+      termination_cycle_detected: "stopped by a cycle",
+      termination_depth_limit: "truncated by depth limit",
+      depthLimitNote: "More dependencies may exist beyond the requested depth."
+    },
+    detail: {
+      title: "Resource detail",
+      kind: "Kind",
+      environment: "Environment",
+      provider: "Provider",
+      none: "none",
+      nativeId: "Native ID",
+      health: "Health",
+      owner: "Owning team",
+      ownershipUnassigned: "Unassigned",
+      labels: "Labels",
+      noLabels: "No labels",
+      metric: "Metric",
+      noMetric: "No metric for this resource",
+      affected: "Incident impact",
+      affectedYes: "Affected by the selected incident",
+      affectedNo: "Not marked as affected"
+    },
+    ownershipSources: {
+      explicit_label: "explicit label",
+      resource_scope: "resource scope",
+      environment_default: "environment default",
+      fixture: "fixture",
+      unassigned: "unassigned"
+    },
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " ms",
+      seconds: " s"
+    },
+    evidence: {
+      title: "Evidence",
+      context: "Evidence for {{subject}}",
+      unavailable: "Evidence is unavailable for this selection.",
+      connector: "Connector",
+      endpoint: "Endpoint",
+      query: "Query",
+      observedAt: "Observed",
+      excerpt: "Excerpt",
+      masked: "Sensitive fields masked",
+      notMasked: "No fields masked",
+      parsed: "parsed",
+      unparsed: "unparsed"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "Cloud",
+      health_check: "Health check",
+      fixture: "Fixture"
+    }
   }
 } as const;
 

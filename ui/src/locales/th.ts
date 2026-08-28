@@ -404,6 +404,146 @@ const th = {
       unavailable: "ไม่พร้อมใช้งาน",
       unverified: "ยังไม่ยืนยัน"
     }
+  },
+  topology: {
+    eyebrow: "โทโพโลยีทรัพยากร / โมเดลอ่านอย่างเดียว",
+    title: "โทโพโลยีทรัพยากร",
+    subtitle: "ดูบริการและทรัพยากร เจ้าของ และเส้นทางการพึ่งพาที่คาดว่าน่าจะเป็น",
+    lastSync: "ซิงก์ล่าสุด: {{timestamp}}",
+    loading: "กำลังโหลดโทโพโลยี…",
+    empty: "ไม่มีข้อมูลโทโพโลยีสำหรับพื้นที่ทำงานนี้",
+    sourceNotice: "{{source}} อยู่ในสถานะ{{state}} ({{reason}})",
+    sourceStates: {
+      fresh: "เป็นข้อมูลใหม่",
+      stale: "ประสิทธิภาพลดลง",
+      unavailable: "ไม่พร้อมใช้งาน",
+      unverified: "ยังไม่ยืนยัน"
+    },
+    reasons: {
+      not_configured: "ยังไม่ได้กำหนดค่า",
+      unreachable: "เข้าถึงไม่ได้",
+      timed_out: "หมดเวลา",
+      policy_denied: "ถูกนโยบายบล็อก",
+      no_data_in_window: "ไม่มีข้อมูลในช่วงเวลานี้",
+      unknown: "ไม่พร้อมใช้งาน"
+    },
+    filters: {
+      title: "ตัวกรองโทโพโลยี",
+      environment: "สภาพแวดล้อม",
+      environmentAll: "ทุกสภาพแวดล้อม",
+      team: "ทีม",
+      teamAll: "ทุกทีม",
+      incident: "เหตุการณ์",
+      incidentNone: "ไม่ได้เลือกเหตุการณ์"
+    },
+    graph: {
+      nodesTitle: "ทรัพยากร",
+      edgesTitle: "ความสัมพันธ์",
+      edgesCaption: "ความสัมพันธ์แบบมีชนิดจากต้นทางไปปลายทาง",
+      emptyNodes: "ไม่มีทรัพยากรที่ตรงกับตัวกรองปัจจุบัน",
+      emptyEdges: "ไม่มีความสัมพันธ์ที่ตรงกับตัวกรองปัจจุบัน",
+      upstream: "ต้นทาง",
+      downstream: "ปลายทาง",
+      relation: "ความสัมพันธ์",
+      confidence: "ความมั่นใจ",
+      confidenceValue: "{{value}}%",
+      evidence: "หลักฐาน",
+      evidenceColumn: "หลักฐาน",
+      affected: "ได้รับผลกระทบจากเหตุการณ์",
+      unassigned: "ไม่มีเจ้าของที่รับผิดชอบ",
+      viewEvidence: "ดูหลักฐานของ {{name}}",
+      viewEdgeEvidence: "ดูหลักฐานของความสัมพันธ์ระหว่าง {{upstream}} กับ {{downstream}}"
+    },
+    kinds: {
+      environment: "สภาพแวดล้อม",
+      cluster: "คลัสเตอร์",
+      namespace: "เนมสเปซ",
+      workload: "เวิร์กโหลด",
+      service: "บริการ",
+      pod: "พอด",
+      node: "โหนด",
+      cloud_resource: "ทรัพยากรคลาวด์",
+      observability_target: "เป้าหมายการเฝ้าสังเกต"
+    },
+    relations: {
+      contains: "มีภายใน",
+      owns: "เป็นเจ้าของ",
+      selects: "เลือก",
+      routes_to: "ส่งต่อไปยัง",
+      runs_on: "ทำงานบน",
+      depends_on: "พึ่งพา"
+    },
+    paths: {
+      title: "เส้นทางการพึ่งพาที่คาดว่าน่าจะเป็น",
+      fromIncident: "ผลกระทบจากเหตุการณ์ที่เลือก",
+      fromSelection: "ผลกระทบจาก {{name}}",
+      probable: "เส้นทางโครงสร้างที่คาดว่าน่าจะเป็น",
+      empty: "ไม่มีเส้นทางที่คาดว่าน่าจะเป็นที่เริ่มจากรายการที่เลือก",
+      error: "เส้นทางนี้อ้างอิงทรัพยากรที่ไม่อยู่ในสแนปช็อต จึงแสดงไม่ได้",
+      viewEvidence: "ดูหลักฐานของเส้นทางนี้",
+      viewEvidenceFor: "ดูหลักฐานของเส้นทาง {{subject}}",
+      upstream: "ผลกระทบต้นทาง",
+      downstream: "ผลกระทบปลายทาง",
+      depth: "ความลึก",
+      confidence: "ความมั่นใจ",
+      termination_leaf: "จบที่นี่",
+      termination_cycle_detected: "หยุดเพราะพบวงจร",
+      termination_depth_limit: "ถูกตัดขาดตามขีดจำกัดความลึก",
+      depthLimitNote: "อาจมีการพึ่งพาเพิ่มเติมที่อยู่เกินขีดจำกัดความลึกที่ร้องขอ"
+    },
+    detail: {
+      title: "รายละเอียดทรัพยากร",
+      kind: "ชนิด",
+      environment: "สภาพแวดล้อม",
+      provider: "ผู้ให้บริการ",
+      none: "ไม่มี",
+      nativeId: "รหัสดั้งเดิม",
+      health: "สุขภาพ",
+      owner: "ทีมที่รับผิดชอบ",
+      ownershipUnassigned: "ไม่ได้กำหนด",
+      labels: "ป้ายกำกับ",
+      noLabels: "ไม่มีป้ายกำกับ",
+      metric: "เมตริก",
+      noMetric: "ไม่มีเมตริกสำหรับทรัพยากรนี้",
+      affected: "ผลกระทบจากเหตุการณ์",
+      affectedYes: "ได้รับผลกระทบจากเหตุการณ์ที่เลือก",
+      affectedNo: "ไม่ได้ถูกทำเครื่องหมายว่าได้รับผลกระทบ"
+    },
+    ownershipSources: {
+      explicit_label: "ป้ายกำกับโดยตรง",
+      resource_scope: "ขอบเขตทรัพยากร",
+      environment_default: "ค่าเริ่มต้นของสภาพแวดล้อม",
+      fixture: "ข้อมูลตัวอย่าง",
+      unassigned: "ไม่ได้กำหนด"
+    },
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " ms",
+      seconds: " s"
+    },
+    evidence: {
+      title: "หลักฐาน",
+      context: "หลักฐานของ {{subject}}",
+      unavailable: "หลักฐานไม่พร้อมใช้งานสำหรับรายการที่เลือก",
+      connector: "ตัวเชื่อมต่อ",
+      endpoint: "ปลายทาง",
+      query: "คำค้น",
+      observedAt: "เวลาที่สังเกต",
+      excerpt: "ข้อความตัดตอน",
+      masked: "ปิดบังข้อมูลที่อ่อนไหวแล้ว",
+      notMasked: "ไม่มีข้อมูลที่ถูกปิดบัง",
+      parsed: "แยกวิเคราะห์แล้ว",
+      unparsed: "ยังไม่ได้แยกวิเคราะห์"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "คลาวด์",
+      health_check: "การตรวจสอบสุขภาพ",
+      fixture: "ข้อมูลตัวอย่าง"
+    }
   }
 } as const;
 
