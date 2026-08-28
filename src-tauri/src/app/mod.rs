@@ -22,6 +22,7 @@ use thalassa_policy::{DataClass, EgressDestination, EgressRequest, PolicyDocumen
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_local_workspace.sql");
 const CONNECTOR_MIGRATION: &str = include_str!("../../migrations/0002_connector_registry.sql");
+const SIGNAL_RECORDS_MIGRATION: &str = include_str!("../../migrations/0003_signal_records.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -274,6 +275,20 @@ pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateEr
     if connector_migration.is_none() {
         connection.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
+    connection.execute_batch(SIGNAL_RECORDS_MIGRATION)?;
+    let signal_records_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 3",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if signal_records_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?1)",
             [Utc::now().to_rfc3339()],
         )?;
     }

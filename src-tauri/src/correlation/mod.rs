@@ -2,14 +2,22 @@
 //!
 //! The wire model lives in `thalassa-domain`; this module owns only the
 //! internal fixture catalog and re-exports the domain types for backend
-//! callers.  Adapter, retention and aggregation implementations are added by
-//! later Sprint 13 tasks.
+//! callers.  This module owns replay fixtures, source retention and the
+//! operational adapter seam; later Sprint 13 tasks build correlation on top.
 
+pub mod adapters;
 pub mod fixtures;
+pub mod source_records;
+
+pub use adapters::{SignalAdapter, SignalAdapterError};
 
 pub use fixtures::{
     correlation_fixture_catalog, fixture_scope, fixture_time, CorrelationFixtureCatalog,
     ReplayableSignalFixture, FIXTURE_CLOCK,
+};
+
+pub use source_records::{
+    RetainedSourceRecord, SourceRecord, SourceRecordError, SourceRecordInput, SourceRecordStore,
 };
 
 pub use thalassa_domain::{
