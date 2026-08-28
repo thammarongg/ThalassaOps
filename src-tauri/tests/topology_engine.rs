@@ -100,6 +100,51 @@ fn cloud_records_without_matching_evidence_are_not_admitted() {
 }
 
 #[test]
+fn partially_missing_environment_evidence_omits_the_environment_node() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.environments[0]
+        .evidence_ids
+        .push("evidence-topology-missing".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("missing evidence should degrade the source");
+
+    assert!(snapshot
+        .nodes
+        .iter()
+        .all(|node| node.name != "AWS production"));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "cloud" && status.state == SourceState::Unverified));
+}
+
+#[test]
+fn partially_missing_environment_metric_evidence_omits_the_metric() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.environments[0]
+        .resource_count
+        .evidence_ids
+        .push("evidence-topology-missing".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("missing metric evidence should degrade the source");
+    let environment = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "AWS production")
+        .expect("the environment record should remain visible");
+
+    assert!(environment.metric.is_none());
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "cloud" && status.state == SourceState::Unverified));
+}
+
+#[test]
 fn evidence_matching_does_not_mix_similar_resource_names() {
     let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())

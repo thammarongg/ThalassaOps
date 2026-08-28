@@ -472,6 +472,10 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
             graph.mark_unverified("cloud");
             continue;
         }
+        if has_unadmitted_ids(&environment.evidence_ids, graph) {
+            graph.mark_unverified("cloud");
+            continue;
+        }
         let mut evidence_ids = admitted_ids(&environment.evidence_ids, graph);
         if evidence_ids.is_empty() {
             evidence_ids = graph.source_evidence_ids_preferred(
@@ -1454,6 +1458,10 @@ fn topology_metric_from_critical_number(
             return None;
         }
     };
+    if has_unadmitted_ids(&number.evidence_ids, graph) {
+        graph.mark_unverified(source_key);
+        return None;
+    }
     let evidence_ids = admitted_ids(&number.evidence_ids, graph);
     let evidence_ids = if evidence_ids.is_empty() {
         fallback_evidence_ids.to_vec()
@@ -1550,6 +1558,11 @@ fn union_evidence(left: &[String], right: &[String]) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn has_unadmitted_ids(ids: &[String], graph: &DerivedGraph) -> bool {
+    ids.iter()
+        .any(|id| !safe_identifier(id) || !graph.evidence.contains_key(id))
 }
 
 fn source_observed_at(graph: &DerivedGraph, source_key: &str) -> Option<String> {
