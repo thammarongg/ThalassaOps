@@ -30,6 +30,7 @@ pub(crate) struct DerivedGraph {
     pub(crate) incident_fixture_root_nodes: BTreeMap<String, Vec<String>>,
     pub(crate) incident_affected_resources: BTreeMap<String, Vec<ResourceId>>,
     incident_source_ids: BTreeMap<String, String>,
+    pub(crate) incident_source_binding_attempts: BTreeSet<String>,
     pub(crate) resource_id_nodes: BTreeMap<ResourceId, String>,
     ambiguous_resource_ids: BTreeSet<ResourceId>,
     node_lookup: BTreeMap<(String, String, String), Vec<String>>,
@@ -259,6 +260,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         incident_fixture_root_nodes: BTreeMap::new(),
         incident_affected_resources: BTreeMap::new(),
         incident_source_ids: BTreeMap::new(),
+        incident_source_binding_attempts: BTreeSet::new(),
         resource_id_nodes: BTreeMap::new(),
         ambiguous_resource_ids: BTreeSet::new(),
         node_lookup: BTreeMap::new(),
@@ -1006,10 +1008,8 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
         CloudResourceType::KubernetesCluster => TopologyNodeKind::Cluster,
         CloudResourceType::ComputeInstance => TopologyNodeKind::CloudResource,
     };
-    let mut evidence_ids = graph.source_evidence_ids_preferred(
-        EvidenceSourceKind::Cloud,
-        &[&resource.id],
-    );
+    let mut evidence_ids =
+        graph.source_evidence_ids_preferred(EvidenceSourceKind::Cloud, &[&resource.id]);
     if evidence_ids.is_empty() {
         graph.mark_unverified("cloud");
         return;
@@ -1124,6 +1124,7 @@ fn derive_observability(input: &TopologyInput, graph: &mut DerivedGraph) {
     let mut alerts = BTreeMap::new();
     let mut conflicting_alerts = BTreeSet::new();
     for alert in input.alerts.iter().cloned() {
+        mark_incident_source_binding_attempt(graph, &alert.fingerprint);
         if !safe_identifier(&alert.fingerprint) {
             graph.mark_unverified("observability");
             continue;
@@ -1147,6 +1148,7 @@ fn derive_observability(input: &TopologyInput, graph: &mut DerivedGraph) {
     let mut metrics = BTreeMap::new();
     let mut conflicting_metrics = BTreeSet::new();
     for metric in input.metrics.iter().cloned() {
+        mark_incident_source_binding_attempt(graph, &metric.key);
         if !input.scope.contains(&metric.scope) {
             graph.mark_unverified("observability");
             continue;
@@ -1235,6 +1237,16 @@ fn attach_metric(graph: &mut DerivedGraph, metric: &MetricFixture) {
     let node_id = candidates[0].clone();
     attach_evidence_to_node(graph, &node_id, evidence_ids);
     bind_incident_source(graph, &metric.key, &node_id);
+}
+
+fn mark_incident_source_binding_attempt(graph: &mut DerivedGraph, source_id: &str) {
+    let incident_ids = graph
+        .incident_source_ids
+        .iter()
+        .filter(|(_, candidate_source_id)| candidate_source_id.as_str() == source_id)
+        .map(|(incident_id, _)| incident_id.clone())
+        .collect::<Vec<_>>();
+    graph.incident_source_binding_attempts.extend(incident_ids);
 }
 
 fn bind_incident_source(graph: &mut DerivedGraph, source_id: &str, node_id: &str) {

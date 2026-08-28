@@ -64,7 +64,12 @@ pub(crate) fn resolve_incident_roots(
         return Ok(roots);
     }
 
-    if let Some(candidate_roots) = graph.incident_root_nodes.get(incident_id).cloned() {
+    if graph.incident_source_binding_attempts.contains(incident_id) {
+        let candidate_roots = graph
+            .incident_root_nodes
+            .get(incident_id)
+            .cloned()
+            .unwrap_or_default();
         let mut roots = BTreeSet::new();
         for node_id in candidate_roots {
             if graph.nodes.contains_key(&node_id) {
@@ -73,9 +78,13 @@ pub(crate) fn resolve_incident_roots(
                 graph.mark_unverified("incidents");
             }
         }
-        if !roots.is_empty() {
-            return Ok(roots);
+        if roots.is_empty() {
+            graph.mark_unverified("incidents");
         }
+        // An adapter source record takes precedence even when it could not
+        // resolve an exact node; never replace an ambiguous source identity
+        // with a lower-precedence fixture guess.
+        return Ok(roots);
     }
 
     let mut roots = BTreeSet::new();

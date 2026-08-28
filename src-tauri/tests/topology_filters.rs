@@ -134,6 +134,39 @@ fn incident_root_resolution_prefers_exact_source_binding_over_fixture_binding() 
 }
 
 #[test]
+fn invalid_source_binding_does_not_fall_back_to_fixture_binding() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input
+        .incident_queue
+        .first_mut()
+        .expect("fixture incident")
+        .affected_scope
+        .resource_ids
+        .clear();
+    input.alerts[0].resource_reference =
+        thalassaops::observability::alertmanager::ResourceReference::Resolved {
+            namespace: "prod".into(),
+            kind: "Service".into(),
+            name: "missing".into(),
+        };
+    let filter = TopologyFilter {
+        environment_ids: vec![],
+        team_ids: vec![],
+        incident_id: Some("alert-checkout-s1".into()),
+    };
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request(filter, 0))
+        .expect("invalid incident roots should degrade the projection");
+
+    assert!(snapshot.nodes.is_empty());
+    assert_eq!(snapshot.summary.affected_nodes.value, 0.0);
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "incidents" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn environment_team_and_incident_filters_intersect_without_widening() {
     let filter = TopologyFilter {
         environment_ids: vec!["env-aws-prod".into()],
