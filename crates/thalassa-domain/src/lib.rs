@@ -1633,6 +1633,30 @@ impl OperationsSnapshot {
                 "evidence IDs must be unique and non-empty".into(),
             ));
         }
+        let mut evidence_content = BTreeSet::new();
+        for evidence in &self.evidence {
+            let content = serde_json::to_string(&(
+                evidence.source_kind,
+                &evidence.connector_id,
+                &evidence.scope,
+                &evidence.endpoint,
+                &evidence.query,
+                &evidence.observed_at,
+                &evidence.excerpt,
+                &evidence.native_url,
+                &evidence.redaction,
+            ))
+            .map_err(|_| {
+                OperationsSnapshotError::Validation(
+                    "evidence content could not be validated".into(),
+                )
+            })?;
+            if !evidence_content.insert(content) {
+                return Err(OperationsSnapshotError::Validation(
+                    "evidence content must be unique".into(),
+                ));
+            }
+        }
 
         for number in self.critical_numbers() {
             number.validate()?;
@@ -1654,15 +1678,71 @@ impl OperationsSnapshot {
             .source_status
             .iter()
             .map(|status| &status.evidence_ids)
-            .chain(self.incident_queue.iter().map(|item| &item.evidence_ids))
-            .chain(self.changes.iter().map(|change| &change.evidence_ids))
+            .chain(self.incident_queue.iter().flat_map(|item| {
+                [
+                    &item.evidence_ids,
+                    &item.drill_down.evidence_ids,
+                    &item.drill_down_reference.evidence_ids,
+                ]
+            }))
             .chain(
-                self.environments
+                self.changes
                     .iter()
-                    .map(|environment| &environment.evidence_ids),
+                    .flat_map(|change| [&change.evidence_ids, &change.drill_down.evidence_ids]),
             )
+            .chain(self.environments.iter().flat_map(|environment| {
+                [
+                    &environment.evidence_ids,
+                    &environment.drill_down.evidence_ids,
+                ]
+            }))
         {
             if ids.iter().any(|id| !evidence_ids.contains(id.as_str())) {
+                return Err(OperationsSnapshotError::Validation(
+                    "projection references unknown evidence".into(),
+                ));
+            }
+        }
+
+        for item in &self.incident_queue {
+            for ids in [
+                &item.evidence_ids,
+                &item.drill_down.evidence_ids,
+                &item.drill_down_reference.evidence_ids,
+            ] {
+                if ids.is_empty() {
+                    return Err(OperationsSnapshotError::Validation(
+                        "queue items require evidence".into(),
+                    ));
+                }
+            }
+        }
+        for change in &self.changes {
+            if change.evidence_ids.is_empty() || change.drill_down.evidence_ids.is_empty() {
+                return Err(OperationsSnapshotError::Validation(
+                    "changes require evidence".into(),
+                ));
+            }
+        }
+        for environment in &self.environments {
+            if environment.evidence_ids.is_empty() || environment.drill_down.evidence_ids.is_empty()
+            {
+                return Err(OperationsSnapshotError::Validation(
+                    "environments require evidence".into(),
+                ));
+            }
+        }
+        for contributing_scope in &self.health_summary.contributing_scopes {
+            if contributing_scope.evidence_ids.is_empty() {
+                return Err(OperationsSnapshotError::Validation(
+                    "contributing scopes require evidence".into(),
+                ));
+            }
+            if contributing_scope
+                .evidence_ids
+                .iter()
+                .any(|id| !evidence_ids.contains(id.as_str()))
+            {
                 return Err(OperationsSnapshotError::Validation(
                     "projection references unknown evidence".into(),
                 ));

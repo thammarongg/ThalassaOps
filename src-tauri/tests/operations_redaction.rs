@@ -12,9 +12,8 @@ fn sensitive_cloud_identifiers_are_not_serialized_in_console_evidence() {
     evidence.endpoint = "https://cloud.example/subscriptions/subscription-identifier-123".into();
     evidence.query = Some("account_id=account-identifier-456&cursor=cursor-identifier-789".into());
     evidence.excerpt = "cursor-identifier-789 was returned by account-identifier-456".into();
-    evidence.native_url = Some(
-        "https://cloud.example/subscriptions/subscription-identifier-123".into(),
-    );
+    evidence.native_url =
+        Some("https://cloud.example/subscriptions/subscription-identifier-123".into());
 
     let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
         .snapshot_at(fixture_time())

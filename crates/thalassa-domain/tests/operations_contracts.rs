@@ -265,7 +265,7 @@ fn operations_contracts_round_trip_through_json() {
         widget_registry: widgets,
     };
 
-    assert_round_trip(snapshot);
+    assert_round_trip(snapshot.clone());
     assert_round_trip(metric);
     assert_round_trip(rule);
     assert_round_trip(signal);
@@ -274,6 +274,18 @@ fn operations_contracts_round_trip_through_json() {
     assert_round_trip(OperationsEvidenceRequest {
         evidence_ids: vec![evidence_id],
     });
+
+    let mut invalid_queue_reference = snapshot.clone();
+    invalid_queue_reference.incident_queue[0]
+        .drill_down
+        .evidence_ids = vec!["evidence-does-not-exist".into()];
+    assert!(invalid_queue_reference.validate().is_err());
+
+    let mut duplicate_evidence = snapshot;
+    let mut duplicate = duplicate_evidence.evidence[0].clone();
+    duplicate.id = "evidence-duplicate-content".into();
+    duplicate_evidence.evidence.push(duplicate);
+    assert!(duplicate_evidence.validate().is_err());
 }
 
 #[test]
