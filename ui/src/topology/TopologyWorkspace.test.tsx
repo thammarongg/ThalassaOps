@@ -372,6 +372,23 @@ it("re-reads the graph through IPC when traversal direction and depth change", a
   );
 });
 
+it("allows a zero traversal depth to show the selected graph without paths", async () => {
+  const user = userEvent.setup();
+  const invoke = topologyInvoke();
+  renderWorkspace(invoke);
+
+  await user.selectOptions(
+    await screen.findByRole("combobox", { name: "Maximum depth" }),
+    "0"
+  );
+
+  await waitFor(() =>
+    expect(topologySnapshotCalls(invoke).at(-1)?.envelope.payload).toMatchObject({
+      traversal: { max_depth: 0 }
+    })
+  );
+});
+
 it("narrows to the incident blast radius when an incident is selected", async () => {
   const user = userEvent.setup();
   const invoke = topologyInvoke();
