@@ -403,6 +403,27 @@ fn topology_omits_credential_marker_evidence() {
 }
 
 #[test]
+fn topology_omits_evidence_marked_both_unparsed_and_masked() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let evidence_id = input.evidence[0].id.clone();
+    input.evidence[0].redaction.unparsed = true;
+    input.evidence[0].redaction.masked = true;
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("contradictory masking metadata should degrade one source");
+
+    assert!(snapshot
+        .evidence
+        .iter()
+        .all(|evidence| evidence.id != evidence_id));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "observability"
+            && status.state == thalassa_domain::SourceState::Unverified
+    }));
+}
+
+#[test]
 fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
     let mut input = topology_fixture_input(fixture_scope());
     let mut conflicting = input.evidence[0].clone();

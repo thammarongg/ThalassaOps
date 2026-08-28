@@ -346,6 +346,7 @@ fn admit_evidence(input: &TopologyInput, graph: &mut DerivedGraph) {
             || !safe_identifier(&evidence.id)
             || !evidence.redaction.classification_verified
             || !evidence.redaction.redaction_verified
+            || (evidence.redaction.unparsed && evidence.redaction.masked)
             || !input.scope.contains(&evidence.scope)
         {
             graph.mark_unverified(source_key);
