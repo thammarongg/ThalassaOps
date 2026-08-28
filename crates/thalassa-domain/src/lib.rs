@@ -1994,17 +1994,17 @@ impl TopologyPath {
             let closes_cycle = match self.direction {
                 TopologyDirection::Upstream => {
                     cycle_edge.downstream_node_id == self.terminal_node_id
-                        && node_ids.contains(&cycle_edge.upstream_node_id)
+                        && self.node_ids.contains(&cycle_edge.upstream_node_id)
                 }
                 TopologyDirection::Downstream => {
                     cycle_edge.upstream_node_id == self.terminal_node_id
-                        && node_ids.contains(&cycle_edge.downstream_node_id)
+                        && self.node_ids.contains(&cycle_edge.downstream_node_id)
                 }
                 TopologyDirection::Both => {
                     (cycle_edge.downstream_node_id == self.terminal_node_id
-                        && node_ids.contains(&cycle_edge.upstream_node_id))
+                        && self.node_ids.contains(&cycle_edge.upstream_node_id))
                         || (cycle_edge.upstream_node_id == self.terminal_node_id
-                            && node_ids.contains(&cycle_edge.downstream_node_id))
+                            && self.node_ids.contains(&cycle_edge.downstream_node_id))
                 }
             };
             if !closes_cycle {

@@ -460,6 +460,21 @@ fn topology_snapshot_requires_cycle_edges_to_close_at_the_terminal_node() {
         invalid.validate().unwrap_err(),
         TopologyError::InvalidRequest
     );
+
+    let mut invalid = snapshot();
+    invalid.nodes.push(node("node-c"));
+    let mut non_closing_edge = edge("node-b", "node-c");
+    non_closing_edge.id = "edge-cycle".into();
+    invalid.edges.push(non_closing_edge);
+    invalid.summary.visible_nodes.value = 3.0;
+    invalid.summary.affected_nodes.value = 3.0;
+    invalid.summary.visible_edges.value = 2.0;
+    invalid.paths[0].termination = TopologyPathTermination::CycleDetected;
+    invalid.paths[0].cycle_edge_id = Some("edge-cycle".into());
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        TopologyError::InvalidRequest
+    );
 }
 
 #[test]
