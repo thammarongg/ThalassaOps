@@ -54,6 +54,17 @@ fn metric(key: &str, value: f64) -> TopologyMetric {
     }
 }
 
+fn summary_metric(key: &str, value: f64) -> TopologyMetric {
+    TopologyMetric {
+        key: key.into(),
+        value,
+        unit: NumberUnit::Count,
+        evidence_ids: vec!["evidence-node".into()],
+        drill_down: evidence_drill_down(),
+        drill_down_reference: drill_down_reference(),
+    }
+}
+
 fn ownership() -> TopologyOwnership {
     TopologyOwnership {
         team_id: Some(uuid::Uuid::nil()),
@@ -120,7 +131,7 @@ fn path() -> TopologyPath {
 }
 
 fn snapshot() -> TopologySnapshot {
-    let number = metric("visible", 2.0);
+    let number = summary_metric("visible", 2.0);
     TopologySnapshot {
         generated_at: "2026-08-28T09:00:00Z".into(),
         scope: scope(),

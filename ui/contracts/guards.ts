@@ -76,7 +76,7 @@ export const isTrustedNativeUrl = (value: unknown): value is string => {
 export const isScope = (value: unknown): value is ResourceScope => {
   if (!isRecord(value) || !isStringArray(value.resource_ids)) return false;
   return ["organization_id", "team_id", "workspace_id", "environment_id"].every(
-    (key) => value[key] === undefined || isString(value[key])
+    (key) => value[key] === undefined || value[key] === null || isString(value[key])
   );
 };
 

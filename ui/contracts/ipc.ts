@@ -5,10 +5,10 @@
 export type UUID = string;
 
 export type ResourceScope = {
-  organization_id?: UUID;
-  team_id?: UUID;
-  workspace_id?: UUID;
-  environment_id?: UUID;
+  organization_id?: UUID | null;
+  team_id?: UUID | null;
+  workspace_id?: UUID | null;
+  environment_id?: UUID | null;
   resource_ids: UUID[];
 };
 

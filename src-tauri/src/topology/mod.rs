@@ -233,21 +233,16 @@ where
     I: IntoIterator<Item = T>,
     T: EvidenceIds,
 {
-    let mut evidence_ids = records
+    let evidence_ids = records
         .into_iter()
         .flat_map(|record| record.evidence_ids().to_vec())
         .filter(|id| evidence.contains_key(id))
         .collect::<BTreeSet<_>>();
-    if evidence_ids.is_empty() {
-        if let Some(first) = evidence.keys().next() {
-            evidence_ids.insert(first.clone());
-        }
-    }
     let evidence_ids = evidence_ids.into_iter().collect::<Vec<_>>();
     let drill_down = DrillDownTarget {
-        destination: DrillDownDestination::Topology,
+        destination: DrillDownDestination::Evidence,
         evidence_ids: evidence_ids.clone(),
-        filter_key: Some(format!("summary:{key}")),
+        filter_key: None,
     };
     TopologyMetric {
         key: key.into(),

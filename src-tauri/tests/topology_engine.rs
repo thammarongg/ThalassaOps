@@ -59,6 +59,20 @@ fn healthy_fixture_builds_a_valid_evidence_backed_graph() {
 }
 
 #[test]
+fn zero_summary_counts_do_not_borrow_unrelated_evidence() {
+    let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&default_topology_request())
+        .expect("healthy fixture should build");
+
+    for metric in [&snapshot.summary.affected_nodes, &snapshot.summary.probable_paths] {
+        assert_eq!(metric.value, 0.0);
+        assert!(metric.evidence_ids.is_empty());
+        assert!(metric.drill_down.evidence_ids.is_empty());
+        assert!(metric.drill_down_reference.evidence_ids.is_empty());
+    }
+}
+
+#[test]
 fn downstream_impact_traverses_structural_paths_from_a_node() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())

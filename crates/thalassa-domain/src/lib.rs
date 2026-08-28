@@ -1621,6 +1621,18 @@ pub struct TopologyMetric {
 impl TopologyMetric {
     /// Validates finite values and the evidence navigation behind the metric.
     pub fn validate(&self) -> Result<(), TopologyError> {
+        self.validate_with_destination(DrillDownDestination::Topology)
+    }
+
+    /// Validates a summary metric whose drill-down opens its evidence set.
+    pub fn validate_summary(&self) -> Result<(), TopologyError> {
+        self.validate_with_destination(DrillDownDestination::Evidence)
+    }
+
+    fn validate_with_destination(
+        &self,
+        destination: DrillDownDestination,
+    ) -> Result<(), TopologyError> {
         if !self.value.is_finite() {
             return Err(TopologyError::NonFiniteNumber(
                 TopologyNumberField::MetricValue,
@@ -1628,6 +1640,22 @@ impl TopologyMetric {
         }
         if self.key.trim().is_empty() {
             return Err(TopologyError::InvalidRequest);
+        }
+        if self.drill_down_reference.source_query.trim().is_empty() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if destination == DrillDownDestination::Evidence
+            && self.value == 0.0
+            && self.evidence_ids.is_empty()
+        {
+            if self.drill_down.destination != DrillDownDestination::Evidence
+                || !self.drill_down.evidence_ids.is_empty()
+                || self.drill_down.filter_key.is_some()
+                || !self.drill_down_reference.evidence_ids.is_empty()
+            {
+                return Err(TopologyError::InvalidRequest);
+            }
+            return Ok(());
         }
         if self.evidence_ids.is_empty()
             || self
@@ -1637,9 +1665,8 @@ impl TopologyMetric {
         {
             return Err(TopologyError::EvidenceMissing);
         }
-        validate_topology_drill_down(&self.drill_down, &self.evidence_ids)?;
-        if self.drill_down_reference.source_query.trim().is_empty()
-            || self.drill_down_reference.evidence_ids.is_empty()
+        validate_drill_down(&self.drill_down, &self.evidence_ids, destination)?;
+        if self.drill_down_reference.evidence_ids.is_empty()
             || !shares_evidence(&self.evidence_ids, &self.drill_down_reference.evidence_ids)
         {
             return Err(TopologyError::InvalidRequest);
@@ -2075,10 +2102,10 @@ pub struct TopologySummary {
 
 impl TopologySummary {
     pub fn validate(&self) -> Result<(), TopologyError> {
-        self.visible_nodes.validate()?;
-        self.visible_edges.validate()?;
-        self.affected_nodes.validate()?;
-        self.probable_paths.validate()
+        self.visible_nodes.validate_summary()?;
+        self.visible_edges.validate_summary()?;
+        self.affected_nodes.validate_summary()?;
+        self.probable_paths.validate_summary()
     }
 }
 
