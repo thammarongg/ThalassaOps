@@ -53,6 +53,12 @@ impl AppState {
         }
 
         let input = self.topology_input();
+        if !self.topology_workspace_scope().contains(&input.scope) {
+            return IpcResult::Err {
+                ok: false,
+                error: topology_ipc_error(TopologyError::ScopeDenied),
+            };
+        }
         if let Err(error) = validate_topology_request(&request, &input) {
             return IpcResult::Err {
                 ok: false,
@@ -102,6 +108,12 @@ impl AppState {
         }
 
         let input = self.topology_input();
+        if !self.topology_workspace_scope().contains(&input.scope) {
+            return IpcResult::Err {
+                ok: false,
+                error: topology_ipc_error(TopologyError::ScopeDenied),
+            };
+        }
         let snapshot =
             match TopologyBuilder::from_input(input).snapshot_at(&default_topology_request()) {
                 Ok(snapshot) => snapshot,
@@ -389,6 +401,28 @@ mod tests {
             )
         );
         assert!(value.validate().is_ok());
+    }
+
+    #[test]
+    fn snapshot_command_rejects_a_foreign_topology_input_scope() {
+        let (_directory, state) = test_state();
+        let foreign_scope =
+            ResourceScope::workspace(Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let input = topology_fixture_input(foreign_scope);
+        let result = with_topology_input_for_test(input, || {
+            state.topology_snapshot(envelope(
+                "snapshot",
+                Capability::WorkspaceRead,
+                request_value(),
+            ))
+        });
+
+        assert!(matches!(
+            result,
+            IpcResult::Err { error, .. }
+                if error.code == IpcErrorCode::PermissionDenied
+                    && error.message == "topology scope denied"
+        ));
     }
 
     #[test]
