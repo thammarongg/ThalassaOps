@@ -95,6 +95,44 @@ fn cloud_records_without_matching_evidence_are_not_admitted() {
 }
 
 #[test]
+fn evidence_matching_does_not_mix_similar_resource_names() {
+    let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
+        .snapshot_at(&default_topology_request())
+        .expect("healthy fixture should build");
+    let checkout = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "checkout")
+        .expect("checkout service should be present");
+    let checkout_api = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "checkout-api")
+        .expect("checkout workload should be present");
+
+    assert!(checkout
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-service-checkout".to_string()));
+    assert!(
+        !checkout
+            .evidence_ids
+            .contains(&"evidence-topology-k8s-workload-checkout-api".to_string()),
+        "checkout evidence: {:?}",
+        checkout.evidence_ids
+    );
+    assert!(checkout_api
+        .evidence_ids
+        .contains(&"evidence-topology-k8s-workload-checkout-api".to_string()));
+    assert!(
+        !checkout_api
+            .evidence_ids
+            .contains(&"evidence-topology-k8s-pod-checkout-api-0".to_string()),
+        "checkout api evidence: {:?}",
+        checkout_api.evidence_ids
+    );
+}
+
+#[test]
 fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
     let mut input = topology_fixture_input(fixture_scope());
     let mut conflicting = input.evidence[0].clone();

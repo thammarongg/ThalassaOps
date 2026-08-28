@@ -64,24 +64,39 @@ impl DerivedGraph {
             .iter()
             .filter_map(|hint| normalized_hint(hint))
             .collect::<Vec<_>>();
-        let matched = self
+        let structural_matches = self
             .evidence
             .values()
             .filter(|evidence| evidence.source_kind == source_kind)
             .filter(|evidence| {
                 !normalized_hints.is_empty()
                     && normalized_hints.iter().any(|hint| {
-                        evidence.id.to_ascii_lowercase().contains(hint)
-                            || evidence.excerpt.to_ascii_lowercase().contains(hint)
+                        contains_exact_hint(&evidence.id, hint)
                             || evidence
                                 .query
                                 .as_deref()
-                                .is_some_and(|query| query.to_ascii_lowercase().contains(hint))
+                                .is_some_and(|query| contains_exact_hint(query, hint))
                     })
             })
             .map(|evidence| evidence.id.clone())
             .collect::<BTreeSet<_>>();
-        matched.into_iter().collect()
+        if !structural_matches.is_empty() {
+            return structural_matches.into_iter().collect();
+        }
+
+        self.evidence
+            .values()
+            .filter(|evidence| evidence.source_kind == source_kind)
+            .filter(|evidence| {
+                !normalized_hints.is_empty()
+                    && normalized_hints
+                        .iter()
+                        .any(|hint| contains_exact_hint(&evidence.excerpt, hint))
+            })
+            .map(|evidence| evidence.id.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     fn add_node(&mut self, node: TopologyNode) {
@@ -986,7 +1001,6 @@ fn bind_incident_source(graph: &mut DerivedGraph, source_id: &str, node_id: &str
         .filter(|(_, candidate_source_id)| candidate_source_id.as_str() == source_id)
         .map(|(incident_id, _)| incident_id.clone())
         .collect::<Vec<_>>();
-    eprintln!("bind source={source_id} node={node_id} incidents={incident_ids:?}");
     for incident_id in incident_ids {
         let roots = graph.incident_root_nodes.entry(incident_id).or_default();
         if !roots.iter().any(|candidate| candidate == node_id) {
@@ -1441,6 +1455,48 @@ fn normalized_hint(value: &str) -> Option<String> {
     } else {
         Some(value)
     }
+}
+
+fn contains_exact_hint(value: &str, hint: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    let hint = hint.trim().to_ascii_lowercase();
+    if value.is_empty() || hint.is_empty() {
+        return false;
+    }
+    if value == hint {
+        return true;
+    }
+
+    // Evidence identifiers commonly prefix a resource identity with a
+    // provider/type segment.  Treat a delimited suffix as an exact identity,
+    // while refusing `checkout` to match `checkout-api` or `checkout-rds`.
+    if value.ends_with(&hint) {
+        let prefix = &value[..value.len() - hint.len()];
+        if prefix
+            .chars()
+            .next_back()
+            .is_some_and(|character| matches!(character, '-' | ':' | '/'))
+        {
+            return true;
+        }
+    }
+
+    let is_identifier_character = |character: char| {
+        character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
+    };
+    let mut search_start = 0;
+    while let Some(relative_index) = value[search_start..].find(&hint) {
+        let index = search_start + relative_index;
+        let before = value[..index].chars().next_back();
+        let after = value[index + hint.len()..].chars().next();
+        if before.is_none_or(|character| !is_identifier_character(character))
+            && after.is_none_or(|character| !is_identifier_character(character))
+        {
+            return true;
+        }
+        search_start = index + hint.len();
+    }
+    false
 }
 
 fn safe_source_key(value: &str) -> String {
