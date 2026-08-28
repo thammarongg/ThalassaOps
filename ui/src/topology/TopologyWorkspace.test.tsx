@@ -347,6 +347,30 @@ it("shows typed edge provenance and edge sequences for probable paths", async ()
   expect(within(paths).getAllByText("fixture:topology").length).toBeGreaterThan(0);
 });
 
+it("renders bidirectional probable paths in their own group", async () => {
+  const user = userEvent.setup();
+  const bothDirectionSnapshot = withGraphCounts(
+    { ...topologySnapshotFixture, focus_node_id: null },
+    topologySnapshotFixture.nodes,
+    topologySnapshotFixture.edges,
+    [{ ...topologySnapshotFixture.paths[0], direction: "both" }]
+  );
+  const invoke = topologyInvoke({
+    snapshotFor: (request) =>
+      request.focus_node_id ? bothDirectionSnapshot : unfocusedSnapshot()
+  });
+  renderWorkspace(invoke);
+
+  await user.click(
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "Upstream and downstream" })
+  ).toBeInTheDocument();
+  expect(screen.getByText("checkout → prod → AWS production")).toBeInTheDocument();
+});
+
 it("labels cycle-stopped paths explicitly", async () => {
   const user = userEvent.setup();
   renderWorkspace(topologyInvoke());

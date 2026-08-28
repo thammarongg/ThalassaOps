@@ -33,6 +33,7 @@ export function TopologyPathList({
   const { t } = useTranslation();
   const upstream = paths.filter((path) => path.direction === "upstream");
   const downstream = paths.filter((path) => path.direction === "downstream");
+  const both = paths.filter((path) => path.direction === "both");
 
   const title = incidentMode
     ? t("topology.paths.fromIncident")
@@ -154,6 +155,12 @@ export function TopologyPathList({
             <div className="topology-pathlist__group">
               <h3>{t("topology.paths.downstream")}</h3>
               <ul>{downstream.map(renderPath)}</ul>
+            </div>
+          )}
+          {both.length > 0 && (
+            <div className="topology-pathlist__group">
+              <h3>{t("topology.paths.direction_both")}</h3>
+              <ul>{both.map(renderPath)}</ul>
             </div>
           )}
         </>
