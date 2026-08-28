@@ -44,11 +44,15 @@ export function TopologyEvidencePanel({
                 <h3>{t(`topology.sources.${item.source_kind}`)}</h3>
                 <span className="topology-evidence__entry-id">{item.id}</span>
               </div>
-              {isTrustedNativeUrl(item.native_url) && (
+              {item.native_url !== null && isTrustedNativeUrl(item.native_url) && (
                 <button
                   type="button"
                   className="topology-evidence__native-link"
-                  onClick={() => void Promise.resolve(open(item.native_url)).catch(() => undefined)}
+                  onClick={() => {
+                    if (item.native_url) {
+                      void Promise.resolve(open(item.native_url)).catch(() => undefined);
+                    }
+                  }}
                 >
                   {t("topology.evidence.openNative")}
                 </button>

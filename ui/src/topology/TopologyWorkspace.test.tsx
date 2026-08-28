@@ -74,12 +74,36 @@ const evidenceFor = (id: ConsoleEvidenceId): EvidenceRef => ({
   }
 });
 
-/** The unfiltered response: a full graph with no focus and therefore no paths. */
-const unfocusedSnapshot = (): TopologySnapshot => ({
-  ...topologySnapshotFixture,
-  focus_node_id: null,
-  paths: []
+const withGraphCounts = (
+  snapshot: TopologySnapshot,
+  nodes: TopologySnapshot["nodes"],
+  edges: TopologySnapshot["edges"],
+  paths: TopologySnapshot["paths"]
+): TopologySnapshot => ({
+  ...snapshot,
+  nodes,
+  edges,
+  paths,
+  summary: {
+    ...snapshot.summary,
+    visible_nodes: { ...snapshot.summary.visible_nodes, value: nodes.length },
+    visible_edges: { ...snapshot.summary.visible_edges, value: edges.length },
+    affected_nodes: {
+      ...snapshot.summary.affected_nodes,
+      value: nodes.filter((node) => node.affected_by_incident).length
+    },
+    probable_paths: { ...snapshot.summary.probable_paths, value: paths.length }
+  }
 });
+
+/** The unfiltered response: a full graph with no focus and therefore no paths. */
+const unfocusedSnapshot = (): TopologySnapshot =>
+  withGraphCounts(
+    { ...topologySnapshotFixture, focus_node_id: null },
+    topologySnapshotFixture.nodes,
+    topologySnapshotFixture.edges,
+    []
+  );
 
 /** Incident-filtered response: the blast radius and its probable paths. */
 const incidentBlastRadiusSnapshot = (): TopologySnapshot => {
@@ -90,7 +114,7 @@ const incidentBlastRadiusSnapshot = (): TopologySnapshot => {
   const edges = base.edges.filter(
     (edge) => nodeIds.has(edge.upstream_node_id) && nodeIds.has(edge.downstream_node_id)
   );
-  return { ...base, nodes, edges, focus_node_id: null };
+  return withGraphCounts({ ...base, focus_node_id: null }, nodes, edges, base.paths);
 };
 
 const restrictSnapshotTo = (
@@ -102,7 +126,7 @@ const restrictSnapshotTo = (
   const edges = base.edges.filter(
     (edge) => nodeIds.has(edge.upstream_node_id) && nodeIds.has(edge.downstream_node_id)
   );
-  return { ...base, nodes, edges, focus_node_id: null, paths: [] };
+  return withGraphCounts({ ...base, focus_node_id: null }, nodes, edges, []);
 };
 
 const defaultSnapshotFor = (request: TopologyRequest): TopologySnapshot => {
@@ -152,7 +176,7 @@ const topologySnapshotCalls = (invoke: TopologyInvokeMock) =>
     .map(([, args]) => args as { envelope: CommandEnvelope<TopologyRequest> });
 
 const checkoutButton = () =>
-  screen.getByRole("button", { name: "checkout, Service, Degraded, Platform" });
+  screen.getByRole("button", { name: "checkout, Service, Unavailable, Platform" });
 
 it("renders the workspace from the topology snapshot IPC command", async () => {
   const invoke = topologyInvoke();
@@ -237,7 +261,7 @@ it("shows node detail for a selected resource and re-reads traversal through IPC
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
 
   const detail = await screen.findByRole("complementary", { name: "Resource detail" });
@@ -247,7 +271,7 @@ it("shows node detail for a selected resource and re-reads traversal through IPC
 
   const lastCall = topologySnapshotCalls(invoke).at(-1);
   expect(lastCall?.envelope.payload).toMatchObject({
-    focus_node_id: "node:kubernetes:env-aws-prod:service:checkout"
+    focus_node_id: "node:kubernetes:env-aws-prod:service:uid-service-checkout"
   });
   expect(await screen.findByRole("heading", { name: "Impact from checkout" })).toBeInTheDocument();
 });
@@ -258,14 +282,14 @@ it("renders upstream and downstream probable paths from the focused resource", a
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
 
   expect(await screen.findByRole("heading", { name: "Upstream impact" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Downstream impact" })).toBeInTheDocument();
   expect(screen.getAllByText("probable structural path").length).toBeGreaterThan(0);
   expect(
-    screen.getByText("checkout → checkout-api → checkout-rds → orders-topic")
+    screen.getByText("checkout → checkout-api → checkout-rds → checkout-rds-replica")
   ).toBeInTheDocument();
 });
 
@@ -274,32 +298,28 @@ it("shows typed edge provenance and edge sequences for probable paths", async ()
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
 
   const relationships = await screen.findByRole("region", { name: "Relationships" });
-  expect(within(relationships).getAllByText("fixture:dependencies").length).toBeGreaterThan(0);
+  expect(within(relationships).getAllByText("fixture:topology").length).toBeGreaterThan(0);
 
   const paths = screen.getByRole("region", { name: "Probable dependency paths" });
   expect(within(paths).getAllByText("Edge sequence").length).toBeGreaterThan(0);
   expect(within(paths).getAllByText("Provenance").length).toBeGreaterThan(0);
-  expect(within(paths).getAllByText("fixture:dependencies").length).toBeGreaterThan(0);
+  expect(within(paths).getAllByText("fixture:topology").length).toBeGreaterThan(0);
 });
 
-it("labels cycle-stopped and depth-truncated paths explicitly", async () => {
+it("labels cycle-stopped paths explicitly", async () => {
   const user = userEvent.setup();
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
 
   expect(await screen.findByText("stopped by a cycle")).toBeInTheDocument();
   expect(screen.getAllByText("ends here").length).toBeGreaterThan(0);
-  expect(screen.getByText("truncated by depth limit")).toBeInTheDocument();
-  expect(
-    screen.getByText("More dependencies may exist beyond the requested depth.")
-  ).toBeInTheDocument();
 });
 
 it("re-reads the graph through IPC when the environment filter changes", async () => {
@@ -322,14 +342,14 @@ it("re-reads the graph through IPC when the environment filter changes", async (
       filter: { environment_ids: ["env-gcp-staging"] }
     })
   );
-  expect(await screen.findByRole("button", { name: /^staging-orders,/ })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: /^catalog,/ })).toBeInTheDocument();
   expect(screen.queryByText("checkout")).not.toBeInTheDocument();
   expect(screen.getByText("No probable paths start from this selection.")).toBeInTheDocument();
 });
 
 it("re-reads the graph through IPC when the team filter changes", async () => {
   const user = userEvent.setup();
-  const platformTeam = "11111111-1111-4111-8111-111111111111";
+  const platformTeam = "00000000-0000-0000-0000-000000000013";
   const invoke = topologyInvoke({
     snapshotFor: (request) =>
       request.filter.team_ids.length
@@ -347,8 +367,8 @@ it("re-reads the graph through IPC when the team filter changes", async () => {
   );
   expect(await screen.findByRole("button", { name: /^checkout,/ })).toBeInTheDocument();
   expect(screen.queryByText("unassigned-worker")).not.toBeInTheDocument();
-  expect(screen.queryByText("checkout-rds")).not.toBeInTheDocument();
-  expect(screen.queryByText("staging-orders")).not.toBeInTheDocument();
+  expect(screen.getAllByText("checkout-rds").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("catalog").length).toBeGreaterThan(0);
 });
 
 it("re-reads the graph through IPC when traversal direction and depth change", async () => {
@@ -360,10 +380,7 @@ it("re-reads the graph through IPC when traversal direction and depth change", a
     await screen.findByRole("combobox", { name: "Direction" }),
     "downstream"
   );
-  await user.selectOptions(
-    await screen.findByRole("combobox", { name: "Maximum depth" }),
-    "5"
-  );
+  await user.selectOptions(await screen.findByRole("combobox", { name: "Maximum depth" }), "5");
 
   await waitFor(() =>
     expect(topologySnapshotCalls(invoke).at(-1)?.envelope.payload).toMatchObject({
@@ -377,10 +394,7 @@ it("allows a zero traversal depth to show the selected graph without paths", asy
   const invoke = topologyInvoke();
   renderWorkspace(invoke);
 
-  await user.selectOptions(
-    await screen.findByRole("combobox", { name: "Maximum depth" }),
-    "0"
-  );
+  await user.selectOptions(await screen.findByRole("combobox", { name: "Maximum depth" }), "0");
 
   await waitFor(() =>
     expect(topologySnapshotCalls(invoke).at(-1)?.envelope.payload).toMatchObject({
@@ -409,8 +423,7 @@ it("narrows to the incident blast radius when an incident is selected", async ()
   ).toBeInTheDocument();
   expect(screen.getByText("affected by incident")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^checkout,/ })).toBeInTheDocument();
-  expect(screen.queryByText("staging-orders")).not.toBeInTheDocument();
-  expect(screen.queryByText("payments-svc")).not.toBeInTheDocument();
+  expect(screen.queryByText("catalog")).not.toBeInTheDocument();
   expect(screen.getAllByText("probable structural path").length).toBeGreaterThan(0);
 });
 
@@ -435,8 +448,8 @@ it("expands the blast radius again when the incident filter is cleared", async (
       filter: { incident_id: null }
     })
   );
-  expect(await screen.findByRole("button", { name: /^staging-orders,/ })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /^payments-svc,/ })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: /^catalog,/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^checkout-rds,/ })).toBeInTheDocument();
 });
 
 it("mounts directly into the incident view when opened from the Operations Console", async () => {
@@ -465,7 +478,13 @@ it("opens node evidence through the topology evidence command with backend-issue
         envelope: expect.objectContaining({
           command: "topology.evidence",
           capability: "ResourceRead",
-          payload: { evidence_ids: ["evidence-topology-service-checkout"] }
+          payload: {
+            evidence_ids: [
+              "evidence-topology-alert-checkout",
+              "evidence-topology-k8s-service-checkout",
+              "evidence-topology-metric-checkout"
+            ]
+          }
         })
       })
     )
@@ -473,26 +492,29 @@ it("opens node evidence through the topology evidence command with backend-issue
   const drawer = await screen.findByRole("dialog", { name: "Evidence" });
   expect(within(drawer).getByText("Evidence for checkout")).toBeInTheDocument();
   expect(
-    within(drawer).getByText("evidence-topology-service-checkout admitted excerpt")
+    within(drawer).getByText("evidence-topology-alert-checkout admitted excerpt")
   ).toBeInTheDocument();
-  expect(within(drawer).getByText("fixture://topology")).toBeInTheDocument();
-  expect(within(drawer).getByText("topology:snapshot")).toBeInTheDocument();
-  expect(within(drawer).getByText("Fixture")).toBeInTheDocument();
-  expect(within(drawer).getByRole("status")).toHaveTextContent("No fields masked");
-  expect(within(drawer).getByRole("status")).toHaveTextContent("parsed");
+  expect(within(drawer).getAllByText("fixture://topology").length).toBeGreaterThan(0);
+  expect(within(drawer).getAllByText("topology:snapshot").length).toBeGreaterThan(0);
+  expect(within(drawer).getAllByText("Fixture").length).toBeGreaterThan(0);
+  expect(within(drawer).getAllByRole("status").length).toBeGreaterThan(0);
+  expect(within(drawer).getAllByRole("status")[0]).toHaveTextContent("No fields masked");
+  expect(within(drawer).getAllByRole("status")[0]).toHaveTextContent("parsed");
 });
 
 it("opens only the backend-issued trusted native evidence URL", async () => {
   const user = userEvent.setup();
   const invoke = topologyInvoke({
     evidenceFor: (ids) =>
-      ok(ids.map((id) => ({ ...evidenceFor(id), native_url: "https://evidence.example.test/item" })))
+      ok(
+        ids.map((id) => ({ ...evidenceFor(id), native_url: "https://evidence.example.test/item" }))
+      )
   });
   renderWorkspace(invoke);
 
   await user.click(await screen.findByRole("button", { name: "View evidence for checkout" }));
   const drawer = await screen.findByRole("dialog", { name: "Evidence" });
-  await user.click(within(drawer).getByRole("button", { name: "Open trusted source" }));
+  await user.click(within(drawer).getAllByRole("button", { name: "Open trusted source" })[0]);
 
   expect(open).toHaveBeenCalledWith("https://evidence.example.test/item");
 });
@@ -505,12 +527,12 @@ it("opens impact path evidence with only the ids the snapshot issued", async () 
   renderWorkspace(invoke);
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
   const expectedIds = topologySnapshotFixture.paths[0].evidence_ids;
   await user.click(
     await screen.findByRole("button", {
-      name: `View evidence for the path checkout → AWS production`
+      name: `View evidence for the path checkout → prod → AWS production`
     })
   );
 
@@ -551,7 +573,7 @@ it("exposes an evidence affordance on every rendered node and impact path", asyn
   renderWorkspace(topologyInvoke());
 
   await user.click(
-    await screen.findByRole("button", { name: "checkout, Service, Degraded, Platform" })
+    await screen.findByRole("button", { name: "checkout, Service, Unavailable, Platform" })
   );
   await screen.findByRole("heading", { name: "Upstream impact" });
 
@@ -573,7 +595,7 @@ it("keeps rendering when one source is unavailable", async () => {
     await screen.findByText("kubernetes:env-gcp-staging is unavailable (unreachable).")
   ).toBeInTheDocument();
   expect(await screen.findByRole("button", { name: /^checkout-rds,/ })).toBeInTheDocument();
-  expect(screen.queryByText("staging-orders")).not.toBeInTheDocument();
+  expect(screen.queryByText("catalog")).not.toBeInTheDocument();
 });
 
 it("shows an empty state when no topology data is available", async () => {

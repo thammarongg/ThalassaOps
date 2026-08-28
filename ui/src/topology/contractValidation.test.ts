@@ -52,3 +52,36 @@ it("rejects graph references that are outside the emitted snapshot", () => {
   invalidFocus.focus_node_id = "node:missing";
   expect(isTopologySnapshot(invalidFocus)).toBe(false);
 });
+
+it("rejects summary counts that disagree with the graph", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.summary.visible_nodes.value += 1;
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
+it("keeps the UI fixture identity catalog aligned with the Rust topology fixture", () => {
+  const expectedNodeIds = [
+    "node:cloud:env-aws-prod:cloud_resource:checkout-rds",
+    "node:cloud:env-aws-prod:cloud_resource:checkout-rds-replica",
+    "node:cloud:env-gcp-staging:cluster:catalog-cluster",
+    "node:fixture:env-aws-prod:environment:env-aws-prod",
+    "node:fixture:env-gcp-staging:environment:env-gcp-staging",
+    "node:kubernetes:env-aws-prod:namespace:uid-namespace-prod",
+    "node:kubernetes:env-aws-prod:node:uid-node-worker-a",
+    "node:kubernetes:env-aws-prod:pod:uid-pod-checkout-api-0",
+    "node:kubernetes:env-aws-prod:service:uid-service-checkout",
+    "node:kubernetes:env-aws-prod:workload:uid-workload-checkout-api",
+    "node:kubernetes:env-aws-prod:workload:uid-workload-unassigned-worker",
+    "node:kubernetes:env-gcp-staging:namespace:uid-namespace-staging",
+    "node:kubernetes:env-gcp-staging:pod:uid-pod-catalog-api-0",
+    "node:kubernetes:env-gcp-staging:service:uid-service-catalog",
+    "node:kubernetes:env-gcp-staging:workload:uid-workload-catalog-api"
+  ];
+
+  expect(topologySnapshotFixture.nodes.map((node) => node.id).sort()).toEqual(expectedNodeIds);
+  expect(topologySnapshotFixture.edges).toHaveLength(20);
+  expect(topologySnapshotFixture.evidence).toHaveLength(26);
+  expect(topologySnapshotFixture.paths).toHaveLength(4);
+  expect(topologySnapshotFixture.nodes.map((node) => node.name)).not.toContain("orders-topic");
+});

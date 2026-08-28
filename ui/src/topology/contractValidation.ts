@@ -65,8 +65,7 @@ const isConfidence = (value: unknown) =>
 const isNonEmptyStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
 
-const sharesEvidence = (left: string[], right: string[]) =>
-  left.some((id) => right.includes(id));
+const sharesEvidence = (left: string[], right: string[]) => left.some((id) => right.includes(id));
 
 const isTopologyDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&
@@ -142,11 +141,9 @@ const isMetricFor = (
   );
 };
 
-const isMetric = (value: unknown): value is TopologyMetric =>
-  isMetricFor(value, "topology");
+const isMetric = (value: unknown): value is TopologyMetric => isMetricFor(value, "topology");
 
-const isSummaryMetric = (value: unknown): value is TopologyMetric =>
-  isMetricFor(value, "evidence");
+const isSummaryMetric = (value: unknown): value is TopologyMetric => isMetricFor(value, "evidence");
 
 const isNode = (value: unknown): value is TopologyNode => {
   if (
@@ -313,6 +310,15 @@ export const isTopologySnapshot = (value: unknown): value is TopologySnapshot =>
   }
 
   const snapshot = value as TopologySnapshot;
+  if (
+    snapshot.summary.visible_nodes.value !== snapshot.nodes.length ||
+    snapshot.summary.visible_edges.value !== snapshot.edges.length ||
+    snapshot.summary.affected_nodes.value !==
+      snapshot.nodes.filter((node) => node.affected_by_incident).length ||
+    snapshot.summary.probable_paths.value !== snapshot.paths.length
+  ) {
+    return false;
+  }
   const evidenceIds = new Set(snapshot.evidence.map((item: EvidenceRef) => item.id));
   if (evidenceIds.size !== snapshot.evidence.length) return false;
   if (

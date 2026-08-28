@@ -31,14 +31,38 @@ const context = {
   policy_version: 1
 };
 
+const withGraphCounts = (
+  snapshot: TopologySnapshot,
+  nodes: TopologySnapshot["nodes"],
+  edges: TopologySnapshot["edges"],
+  paths: TopologySnapshot["paths"]
+): TopologySnapshot => ({
+  ...snapshot,
+  nodes,
+  edges,
+  paths,
+  summary: {
+    ...snapshot.summary,
+    visible_nodes: { ...snapshot.summary.visible_nodes, value: nodes.length },
+    visible_edges: { ...snapshot.summary.visible_edges, value: edges.length },
+    affected_nodes: {
+      ...snapshot.summary.affected_nodes,
+      value: nodes.filter((node) => node.affected_by_incident).length
+    },
+    probable_paths: { ...snapshot.summary.probable_paths, value: paths.length }
+  }
+});
+
 const checkoutIncidentId = topologyIncidentsFixture[0].id;
 
 /** The unfiltered response: a full graph with no focus and therefore no paths. */
-const unfocusedSnapshot = (): TopologySnapshot => ({
-  ...topologySnapshotFixture,
-  focus_node_id: null,
-  paths: []
-});
+const unfocusedSnapshot = (): TopologySnapshot =>
+  withGraphCounts(
+    { ...topologySnapshotFixture, focus_node_id: null },
+    topologySnapshotFixture.nodes,
+    topologySnapshotFixture.edges,
+    []
+  );
 
 /** Incident-filtered response: the blast radius and its probable paths. */
 const incidentBlastRadiusSnapshot = (): TopologySnapshot => {
@@ -49,7 +73,7 @@ const incidentBlastRadiusSnapshot = (): TopologySnapshot => {
   const edges = base.edges.filter(
     (edge) => nodeIds.has(edge.upstream_node_id) && nodeIds.has(edge.downstream_node_id)
   );
-  return { ...base, nodes, edges, focus_node_id: null };
+  return withGraphCounts({ ...base, focus_node_id: null }, nodes, edges, base.paths);
 };
 
 type ShellInvokeMock = Invoke & {
@@ -91,10 +115,10 @@ it("opens an incident from the Operations Console into the filtered topology vie
     </I18nProvider>
   );
 
-  expect(await screen.findByText("Checkout latency breach")).toBeInTheDocument();
+  expect(await screen.findByText("Checkout unavailable")).toBeInTheDocument();
   await user.click(
     screen.getByRole("button", {
-      name: /dependency paths for Checkout latency breach in topology/
+      name: /dependency paths for Checkout unavailable in topology/
     })
   );
 
@@ -113,7 +137,7 @@ it("opens an incident from the Operations Console into the filtered topology vie
     await screen.findByRole("heading", { name: "Impact from the selected incident" })
   ).toBeInTheDocument();
   expect(screen.getByText("affected by incident")).toBeInTheDocument();
-  expect(screen.queryByText("staging-orders")).not.toBeInTheDocument();
+  expect(screen.queryByText("catalog")).not.toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Incident" })).toHaveValue(checkoutIncidentId);
   expect(screen.getAllByText("probable structural path").length).toBeGreaterThan(0);
 });
