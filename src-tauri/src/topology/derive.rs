@@ -30,6 +30,7 @@ pub(crate) struct DerivedGraph {
     pub(crate) incident_affected_resources: BTreeMap<String, Vec<ResourceId>>,
     incident_source_ids: BTreeMap<String, String>,
     pub(crate) resource_id_nodes: BTreeMap<ResourceId, String>,
+    ambiguous_resource_ids: BTreeSet<ResourceId>,
     node_lookup: BTreeMap<(String, String, String), Vec<String>>,
     k8s_resources: BTreeMap<String, KubernetesResource>,
 }
@@ -202,6 +203,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         incident_affected_resources: BTreeMap::new(),
         incident_source_ids: BTreeMap::new(),
         resource_id_nodes: BTreeMap::new(),
+        ambiguous_resource_ids: BTreeSet::new(),
         node_lookup: BTreeMap::new(),
         k8s_resources: BTreeMap::new(),
     };
@@ -627,9 +629,20 @@ fn derive_kubernetes_resource(
         &node_id,
     );
     graph.add_lookup(environment_id, kind, canonical_name, &node_id);
-    graph
-        .resource_id_nodes
-        .insert(item.resource.id, node_id.clone());
+    let resource_id = item.resource.id;
+    if !graph.ambiguous_resource_ids.contains(&resource_id) {
+        match graph.resource_id_nodes.get(&resource_id) {
+            Some(existing_node_id) if existing_node_id != &node_id => {
+                graph.resource_id_nodes.remove(&resource_id);
+                graph.ambiguous_resource_ids.insert(resource_id);
+                graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+            }
+            Some(_) => {}
+            None => {
+                graph.resource_id_nodes.insert(resource_id, node_id.clone());
+            }
+        }
+    }
     graph.k8s_resources.insert(node_id, item);
 }
 

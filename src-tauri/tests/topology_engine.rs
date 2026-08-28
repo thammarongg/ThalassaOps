@@ -605,3 +605,44 @@ fn unsafe_fixture_edge_ids_are_not_emitted() {
         .iter()
         .any(|status| status.source_key == "fixtures" && status.state == SourceState::Unverified));
 }
+
+#[test]
+fn duplicate_resource_ids_do_not_select_an_arbitrary_incident_root() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let service = production
+        .resources
+        .iter()
+        .find(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service")
+        .clone();
+    let mut duplicate = service.clone();
+    duplicate.resource.name = "prod/checkout-other".into();
+    duplicate.resource.native_id = Some("uid-service-checkout-other".into());
+    production.resources.push(duplicate);
+
+    let mut duplicate_evidence = input
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-topology-k8s-service-checkout")
+        .expect("fixture should contain service evidence")
+        .clone();
+    duplicate_evidence.id = "evidence-topology-k8s-service-checkout-other".into();
+    duplicate_evidence.query = Some("checkout-other".into());
+    duplicate_evidence.excerpt = "checkout-other service".into();
+    input.evidence.push(duplicate_evidence);
+
+    let mut request = default_topology_request();
+    request.filter.incident_id = Some("alert-checkout-s1".into());
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&request)
+        .expect("ambiguous resource identity should not prevent projection");
+    assert_eq!(snapshot.summary.affected_nodes.value, 0.0);
+    assert!(snapshot.nodes.iter().all(|node| !node.affected_by_incident));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "incidents" && status.state == SourceState::Unverified
+    }));
+}
