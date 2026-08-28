@@ -1637,7 +1637,9 @@ fn sanitize_labels(labels: &BTreeMap<String, String>) -> BTreeMap<String, String
     object
         .into_iter()
         .filter(|(key, _)| {
-            !sensitive_key(key) && !contains_sensitive_marker(&key.to_ascii_lowercase())
+            safe_display_text(key)
+                && !sensitive_key(key)
+                && !contains_sensitive_marker(&key.to_ascii_lowercase())
         })
         .filter_map(|(key, value)| {
             let text = value.as_str()?;

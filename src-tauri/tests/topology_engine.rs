@@ -849,6 +849,41 @@ fn sensitive_topology_source_status_fields_are_unverified_instead_of_fresh() {
 }
 
 #[test]
+fn malformed_topology_label_keys_are_omitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let service = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory")
+        .resources
+        .iter_mut()
+        .find(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service");
+    service
+        .resource
+        .labels
+        .insert("malformed\nlabel".into(), "value".into());
+    input.fixture_edges[0]
+        .metadata
+        .insert("malformed\nmetadata".into(), "value".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("malformed display keys should be omitted");
+
+    assert!(snapshot.nodes.iter().all(|node| {
+        node.labels
+            .keys()
+            .all(|key| !key.chars().any(char::is_control))
+    }));
+    assert!(snapshot.edges.iter().all(|edge| {
+        edge.metadata
+            .keys()
+            .all(|key| !key.chars().any(char::is_control))
+    }));
+}
+
+#[test]
 fn unsafe_topology_metric_keys_are_omitted_and_mark_source_unverified() {
     let mut input = topology_fixture_input(fixture_scope());
     input.environments[0].resource_count.key = "account_id".into();
