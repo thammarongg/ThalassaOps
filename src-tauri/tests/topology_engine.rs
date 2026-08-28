@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use thalassaops::cloud::CloudResource;
 use thalassa_domain::{
     TopologyDirection, TopologyEdgeKind, TopologyError, TopologyFilter, TopologyPathTermination,
     TopologyRequest, TopologyTraversal,
@@ -70,6 +71,27 @@ fn zero_summary_counts_do_not_borrow_unrelated_evidence() {
         assert!(metric.drill_down.evidence_ids.is_empty());
         assert!(metric.drill_down_reference.evidence_ids.is_empty());
     }
+}
+
+#[test]
+fn cloud_records_without_matching_evidence_are_not_admitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut unattributed: CloudResource = input.cloud_resources[0].clone();
+    unattributed.id = "unattributed-resource".into();
+    unattributed.name = "unattributed-resource".into();
+    input.cloud_resources.push(unattributed);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("unmatched source records should degrade the source");
+
+    assert!(snapshot
+        .nodes
+        .iter()
+        .all(|node| node.native_id.as_deref() != Some("unattributed-resource")));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "cloud" && status.state == thalassa_domain::SourceState::Unverified
+    }));
 }
 
 #[test]

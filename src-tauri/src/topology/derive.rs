@@ -58,13 +58,12 @@ impl DerivedGraph {
         &self,
         source_kind: EvidenceSourceKind,
         hints: &[&str],
-        fallback_source_key: Option<&str>,
     ) -> Vec<String> {
         let normalized_hints = hints
             .iter()
             .filter_map(|hint| normalized_hint(hint))
             .collect::<Vec<_>>();
-        let mut matched = self
+        let matched = self
             .evidence
             .values()
             .filter(|evidence| evidence.source_kind == source_kind)
@@ -81,27 +80,6 @@ impl DerivedGraph {
             })
             .map(|evidence| evidence.id.clone())
             .collect::<BTreeSet<_>>();
-        if matched.is_empty() {
-            if let Some(source_key) = fallback_source_key {
-                if let Some(status) = self.source_status.get(source_key) {
-                    matched.extend(
-                        status
-                            .evidence_ids
-                            .iter()
-                            .filter(|evidence_id| self.evidence.contains_key(*evidence_id))
-                            .cloned(),
-                    );
-                }
-            }
-        }
-        if matched.is_empty() {
-            matched.extend(
-                self.evidence
-                    .values()
-                    .filter(|evidence| evidence.source_kind == source_kind)
-                    .map(|evidence| evidence.id.clone()),
-            );
-        }
         matched.into_iter().collect()
     }
 
@@ -330,7 +308,6 @@ fn derive_environments(input: &TopologyInput, graph: &mut DerivedGraph) {
             evidence_ids = graph.source_evidence_ids(
                 EvidenceSourceKind::Cloud,
                 &[&environment.environment_id, &environment.name],
-                Some("cloud"),
             );
         }
         if evidence_ids.is_empty() {
@@ -419,7 +396,6 @@ fn ensure_environment_node(
     let evidence_ids = graph.source_evidence_ids(
         EvidenceSourceKind::Kubernetes,
         &[environment_id],
-        Some(&format!("kubernetes:{environment_id}")),
     );
     let node_id = format!("node:kubernetes:{environment_id}:environment:{environment_id}");
     if evidence_ids.is_empty() {
@@ -501,7 +477,6 @@ fn derive_kubernetes_resource(
     let mut evidence_ids = graph.source_evidence_ids(
         EvidenceSourceKind::Kubernetes,
         &[canonical_name, &item.resource.name],
-        Some(&format!("kubernetes:{environment_id}")),
     );
     if evidence_ids.is_empty() {
         graph.mark_unverified(&format!("kubernetes:{environment_id}"));
@@ -812,7 +787,6 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
     let mut evidence_ids = graph.source_evidence_ids(
         EvidenceSourceKind::Cloud,
         &[&resource.id, &resource.name, &resource.environment_id],
-        Some("cloud"),
     );
     if evidence_ids.is_empty() {
         graph.mark_unverified("cloud");
@@ -953,7 +927,6 @@ fn attach_alert(graph: &mut DerivedGraph, alert: &NormalizedAlert) {
     let evidence_ids = graph.source_evidence_ids(
         EvidenceSourceKind::Alertmanager,
         &[&alert.fingerprint, name],
-        Some("observability"),
     );
     if evidence_ids.is_empty() {
         graph.mark_unverified("observability");
@@ -983,7 +956,6 @@ fn attach_metric(graph: &mut DerivedGraph, metric: &MetricFixture) {
     let evidence_ids = graph.source_evidence_ids(
         EvidenceSourceKind::Prometheus,
         &[&metric.key, &metric.source.query, name],
-        Some("observability"),
     );
     if evidence_ids.is_empty() {
         graph.mark_unverified("observability");
