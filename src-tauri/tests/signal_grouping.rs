@@ -108,6 +108,25 @@ impl TopologyCorrelationResolver for ErrorResolver {
     }
 }
 
+struct EchoResolver;
+
+impl TopologyCorrelationResolver for EchoResolver {
+    fn relation(
+        &self,
+        left: &SignalTarget,
+        right: &SignalTarget,
+        _window: &CorrelationWindow,
+    ) -> Result<Option<TopologyPath>, TopologyError> {
+        let mut path = path();
+        path.id = format!("path:{}:{}", left.id, right.id);
+        path.root_node_id = left.id.clone();
+        path.terminal_node_id = right.id.clone();
+        path.node_ids = vec![left.id.clone(), right.id.clone()];
+        path.edge_ids = vec![format!("edge:{}:{}", left.id, right.id)];
+        Ok(Some(path))
+    }
+}
+
 fn path() -> TopologyPath {
     TopologyPath {
         id: "path:fixture:checkout".into(),
@@ -287,6 +306,43 @@ fn candidate_ids_and_order_are_stable_under_shuffled_input_and_duplicate_edges()
         &StubResolver::default(),
     )
     .unwrap();
+    assert_eq!(first, second);
+}
+
+#[test]
+fn topology_resolution_is_stable_when_signal_targets_are_reordered() {
+    let (mut signals, evidence) = normalize(&["shared-service-alert", "shared-service-anomaly"]);
+    signals[0].targets = vec![
+        SignalTarget {
+            kind: thalassa_domain::SignalTargetKind::Topology,
+            id: "node-z".into(),
+        },
+        SignalTarget {
+            kind: thalassa_domain::SignalTargetKind::Topology,
+            id: "node-a".into(),
+        },
+    ];
+    signals[1].targets = vec![
+        SignalTarget {
+            kind: thalassa_domain::SignalTargetKind::Topology,
+            id: "node-y".into(),
+        },
+        SignalTarget {
+            kind: thalassa_domain::SignalTargetKind::Topology,
+            id: "node-b".into(),
+        },
+    ];
+    let scope = signals[0].scope.clone();
+    let first = correlate_signals(
+        input(scope.clone(), signals.clone(), evidence.clone()),
+        &EchoResolver,
+    )
+    .expect("ordered topology targets should correlate");
+    for signal in &mut signals {
+        signal.targets.reverse();
+    }
+    let second = correlate_signals(input(scope, signals, evidence), &EchoResolver)
+        .expect("reordered topology targets should correlate");
     assert_eq!(first, second);
 }
 

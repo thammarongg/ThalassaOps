@@ -11,10 +11,10 @@ fn scope() -> ResourceScope {
     )
 }
 
-fn evidence(id: &str) -> EvidenceRef {
+fn evidence_for(id: &str, source_kind: EvidenceSourceKind) -> EvidenceRef {
     EvidenceRef {
         id: id.into(),
-        source_kind: EvidenceSourceKind::Fixture,
+        source_kind,
         connector_id: None,
         scope: scope(),
         endpoint: "fixture://signal-correlation".into(),
@@ -213,7 +213,10 @@ fn complete_snapshot() -> CorrelationSnapshot {
         candidates: vec![candidate],
         topology_paths: vec![topology_path()],
         source_status: vec![],
-        evidence: vec![evidence("evidence-1"), evidence("evidence-2")],
+        evidence: vec![
+            evidence_for("evidence-1", EvidenceSourceKind::Trivy),
+            evidence_for("evidence-2", EvidenceSourceKind::Prometheus),
+        ],
     }
 }
 
@@ -506,10 +509,59 @@ fn correlation_requires_verified_in_scope_evidence() {
 }
 
 #[test]
+fn correlation_rejects_evidence_from_a_different_signal_source() {
+    let mut snapshot = complete_snapshot();
+    snapshot.evidence[0].source_kind = EvidenceSourceKind::Prometheus;
+    assert_eq!(snapshot.validate(), Err(CorrelationError::SourceMismatch));
+}
+
+#[test]
 fn candidate_signal_ids_must_resolve_inside_snapshot() {
     let mut snapshot = complete_snapshot();
     snapshot.candidates[0].signal_ids[0] = uuid::Uuid::from_u128(999);
     assert!(snapshot.validate().is_err());
+}
+
+#[test]
+fn candidate_reasons_must_explain_every_member_signal() {
+    let mut snapshot = complete_snapshot();
+    let mut third_signal = snapshot.signals[1].clone();
+    third_signal.id = uuid::Uuid::from_u128(3);
+    snapshot.signals.push(third_signal);
+    snapshot.candidates[0]
+        .signal_ids
+        .push(uuid::Uuid::from_u128(3));
+    snapshot.candidates[0].signal_ids.sort();
+    assert_eq!(snapshot.validate(), Err(CorrelationError::InvalidReason));
+}
+
+#[test]
+fn candidate_reason_target_must_match_the_member_signals() {
+    let mut snapshot = complete_snapshot();
+    let unrelated_target = SignalTarget {
+        kind: SignalTargetKind::Resource,
+        id: "resource-other".into(),
+    };
+    snapshot.candidates[0].grouping_targets = vec![unrelated_target.clone()];
+    snapshot.candidates[0].reasons[0].target = Some(unrelated_target);
+    assert_eq!(snapshot.validate(), Err(CorrelationError::InvalidReason));
+}
+
+#[test]
+fn candidate_status_must_follow_suppression_and_late_signal_precedence() {
+    let mut snapshot = complete_snapshot();
+    snapshot.candidates[0].status = CandidateStatus::Active;
+    assert_eq!(
+        snapshot.validate(),
+        Err(CorrelationError::CandidateStatusMismatch)
+    );
+
+    snapshot.candidates[0].status = CandidateStatus::Suppressed;
+    for signal in &mut snapshot.signals {
+        signal.suppression.kind = SuppressionKind::Rule;
+        signal.suppression.rule_ids = vec!["rule-checkout".into()];
+    }
+    assert!(snapshot.validate().is_ok());
 }
 
 #[test]

@@ -2031,6 +2031,7 @@ impl CorrelationCandidate {
         if self.reasons.is_empty() {
             return Err(CorrelationError::InvalidReason);
         }
+        let mut explained_signal_ids = BTreeSet::new();
         for reason in &self.reasons {
             reason.validate()?;
             if !contains_all(&self.signal_ids, &reason.signal_ids)
@@ -2038,6 +2039,15 @@ impl CorrelationCandidate {
             {
                 return Err(CorrelationError::CandidateReferenceMissing);
             }
+            explained_signal_ids.extend(reason.signal_ids.iter().copied());
+        }
+        if explained_signal_ids.len() != self.signal_ids.len()
+            || self
+                .signal_ids
+                .iter()
+                .any(|signal_id| !explained_signal_ids.contains(signal_id))
+        {
+            return Err(CorrelationError::InvalidReason);
         }
         validate_evidence_drill_down_for_correlation(
             &self.drill_down,
@@ -2178,6 +2188,25 @@ impl CorrelationSnapshot {
             ensure_known_evidence(&signal.source_record.evidence_ids, &evidence_ids)?;
             ensure_known_evidence(&signal.drill_down.evidence_ids, &evidence_ids)?;
             ensure_known_evidence(&signal.drill_down_reference.evidence_ids, &evidence_ids)?;
+            for evidence_id in signal
+                .evidence_ids
+                .iter()
+                .chain(signal.source_record.evidence_ids.iter())
+            {
+                let evidence = self
+                    .evidence
+                    .iter()
+                    .find(|evidence| evidence.id == *evidence_id)
+                    .ok_or(CorrelationError::EvidenceMissing)?;
+                if evidence.source_kind != signal.source || !signal.scope.contains(&evidence.scope)
+                {
+                    return Err(if evidence.source_kind != signal.source {
+                        CorrelationError::SourceMismatch
+                    } else {
+                        CorrelationError::ScopeMismatch
+                    });
+                }
+            }
         }
 
         let mut path_ids = BTreeSet::new();
@@ -2206,6 +2235,24 @@ impl CorrelationSnapshot {
             {
                 return Err(CorrelationError::CandidateReferenceMissing);
             }
+            let all_suppressed = candidate.signal_ids.iter().all(|signal_id| {
+                self.signals
+                    .iter()
+                    .find(|signal| signal.id == *signal_id)
+                    .is_some_and(|signal| signal.suppression.kind != SuppressionKind::NotSuppressed)
+            });
+            let expected_status = if all_suppressed {
+                CandidateStatus::Suppressed
+            } else if !candidate.late_signal_ids.is_empty()
+                || self.window.state == CorrelationWindowState::Reopened
+            {
+                CandidateStatus::Provisional
+            } else {
+                CandidateStatus::Active
+            };
+            if candidate.status != expected_status {
+                return Err(CorrelationError::CandidateStatusMismatch);
+            }
             ensure_known_evidence(&candidate.evidence_ids, &evidence_ids)?;
             ensure_known_evidence(&candidate.drill_down.evidence_ids, &evidence_ids)?;
             ensure_known_evidence(&candidate.drill_down_reference.evidence_ids, &evidence_ids)?;
@@ -2223,6 +2270,25 @@ impl CorrelationSnapshot {
                         .iter()
                         .find(|signal| signal.id == *signal_id)
                         .ok_or(CorrelationError::CandidateReferenceMissing)?;
+                    if let Some(target) = &reason.target {
+                        if !candidate.grouping_targets.contains(target)
+                            || !signal.targets.contains(target)
+                        {
+                            return Err(CorrelationError::InvalidReason);
+                        }
+                    } else if !reason.topology_path_ids.iter().any(|path_id| {
+                        self.topology_paths
+                            .iter()
+                            .find(|path| path.id == *path_id)
+                            .is_some_and(|path| {
+                                signal
+                                    .targets
+                                    .iter()
+                                    .any(|target| path.node_ids.contains(&target.id))
+                            })
+                    }) {
+                        return Err(CorrelationError::InvalidReason);
+                    }
                     if !contains_all(&reason.evidence_ids, &signal.evidence_ids) {
                         return Err(CorrelationError::EvidenceMissing);
                     }
@@ -2237,6 +2303,14 @@ impl CorrelationSnapshot {
                         return Err(CorrelationError::EvidenceMissing);
                     }
                 }
+            }
+            if candidate.grouping_targets.iter().any(|target| {
+                !candidate
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.target.as_ref() == Some(target))
+            }) {
+                return Err(CorrelationError::CandidateReferenceMissing);
             }
             for signal_id in &candidate.signal_ids {
                 let signal = self
@@ -2434,6 +2508,8 @@ pub enum CorrelationError {
     CandidateTooSmall,
     #[error("correlation candidate reference is missing")]
     CandidateReferenceMissing,
+    #[error("correlation candidate status is inconsistent")]
+    CandidateStatusMismatch,
     #[error("correlation snapshot scope does not contain a child value")]
     ScopeMismatch,
     #[error("correlation snapshot window and request do not agree")]
@@ -2540,6 +2616,40 @@ fn contains_sensitive_marker(value: &str) -> bool {
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+        || contains_sensitive_account_id(&lower)
+}
+
+fn contains_sensitive_account_id(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("sha256:") || lower.contains("dedup:v1:") {
+        return false;
+    }
+    if looks_like_uuid(value) {
+        return false;
+    }
+    let mut run_length = 0usize;
+    for character in value.chars() {
+        if character.is_ascii_digit() {
+            run_length = run_length.saturating_add(1);
+        } else {
+            if run_length >= 12 {
+                return true;
+            }
+            run_length = 0;
+        }
+    }
+    run_length >= 12
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(length, part)| {
+                part.len() == *length && part.chars().all(|c| c.is_ascii_hexdigit())
+            })
 }
 
 fn validate_correlation_evidence_ids(ids: &[ConsoleEvidenceId]) -> Result<(), CorrelationError> {

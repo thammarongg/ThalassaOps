@@ -734,6 +734,40 @@ fn contains_forbidden_marker(value: &str) -> bool {
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+        || contains_sensitive_account_id(&lower)
+}
+
+fn contains_sensitive_account_id(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("sha256:") || lower.contains("dedup:v1:") {
+        return false;
+    }
+    if looks_like_uuid(value) {
+        return false;
+    }
+    let mut run_length = 0usize;
+    for character in value.chars() {
+        if character.is_ascii_digit() {
+            run_length = run_length.saturating_add(1);
+        } else {
+            if run_length >= 12 {
+                return true;
+            }
+            run_length = 0;
+        }
+    }
+    run_length >= 12
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(length, part)| {
+                part.len() == *length && part.chars().all(|c| c.is_ascii_hexdigit())
+            })
 }
 
 fn is_opaque_key(value: &str) -> bool {
