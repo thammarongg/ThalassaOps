@@ -26,6 +26,14 @@ fn drill_down() -> DrillDownTarget {
     }
 }
 
+fn evidence_drill_down() -> DrillDownTarget {
+    DrillDownTarget {
+        destination: DrillDownDestination::Evidence,
+        evidence_ids: vec!["evidence-node".into()],
+        filter_key: None,
+    }
+}
+
 fn drill_down_reference() -> DrillDownReference {
     DrillDownReference {
         source_query: "topology:checkout".into(),
@@ -89,7 +97,7 @@ fn edge(upstream_node_id: &str, downstream_node_id: &str) -> TopologyEdge {
         confidence: 0.9,
         metadata: BTreeMap::from([(String::from("relationship"), String::from("routes_to"))]),
         evidence_ids: vec!["evidence-node".into()],
-        drill_down: drill_down(),
+        drill_down: evidence_drill_down(),
     }
 }
 
@@ -107,7 +115,7 @@ fn path() -> TopologyPath {
         termination: TopologyPathTermination::Leaf,
         cycle_edge_id: None,
         evidence_ids: vec!["evidence-node".into()],
-        drill_down: drill_down(),
+        drill_down: evidence_drill_down(),
     }
 }
 
@@ -424,6 +432,20 @@ fn topology_snapshot_requires_verified_evidence_for_rendered_records() {
         unverified.validate().unwrap_err(),
         TopologyError::EvidenceUnverified
     );
+}
+
+#[test]
+fn topology_edges_and_paths_open_their_evidence_destination() {
+    let valid = snapshot();
+    assert_eq!(
+        valid.edges[0].drill_down.destination,
+        DrillDownDestination::Evidence
+    );
+    assert_eq!(
+        valid.paths[0].drill_down.destination,
+        DrillDownDestination::Evidence
+    );
+    assert!(valid.validate().is_ok());
 }
 
 #[test]

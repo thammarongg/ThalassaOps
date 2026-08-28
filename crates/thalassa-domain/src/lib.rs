@@ -1799,7 +1799,7 @@ impl TopologyEdge {
         {
             return Err(TopologyError::EvidenceMissing);
         }
-        validate_topology_drill_down(&self.drill_down, &self.evidence_ids)
+        validate_evidence_drill_down(&self.drill_down, &self.evidence_ids)
     }
 
     /// Validates that both edge endpoints were emitted by the current graph.
@@ -1906,7 +1906,7 @@ impl TopologyPath {
         {
             return Err(TopologyError::EvidenceMissing);
         }
-        validate_topology_drill_down(&self.drill_down, &self.evidence_ids)
+        validate_evidence_drill_down(&self.drill_down, &self.evidence_ids)
     }
 
     /// Validates that path nodes and edges belong to the current graph.
@@ -2334,7 +2334,26 @@ fn validate_topology_drill_down(
     drill_down: &DrillDownTarget,
     evidence_ids: &[ConsoleEvidenceId],
 ) -> Result<(), TopologyError> {
-    if drill_down.destination != DrillDownDestination::Topology
+    validate_drill_down(
+        drill_down,
+        evidence_ids,
+        DrillDownDestination::Topology,
+    )
+}
+
+fn validate_evidence_drill_down(
+    drill_down: &DrillDownTarget,
+    evidence_ids: &[ConsoleEvidenceId],
+) -> Result<(), TopologyError> {
+    validate_drill_down(drill_down, evidence_ids, DrillDownDestination::Evidence)
+}
+
+fn validate_drill_down(
+    drill_down: &DrillDownTarget,
+    evidence_ids: &[ConsoleEvidenceId],
+    destination: DrillDownDestination,
+) -> Result<(), TopologyError> {
+    if drill_down.destination != destination
         || drill_down.evidence_ids.is_empty()
         || !shares_evidence(evidence_ids, &drill_down.evidence_ids)
     {

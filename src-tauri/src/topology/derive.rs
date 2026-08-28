@@ -906,7 +906,7 @@ fn derive_fixture_edges(input: &TopologyInput, graph: &mut DerivedGraph) {
         edge.provenance.dedup_by(|left, right| left == right);
         edge.evidence_ids.sort();
         edge.evidence_ids.dedup();
-        edge.drill_down = topology_drill_down(edge.evidence_ids.clone(), Some(&edge.id));
+        edge.drill_down = evidence_drill_down(edge.evidence_ids.clone());
         if edge.drill_down.evidence_ids.is_empty() {
             graph.mark_unverified("fixtures");
             continue;
@@ -1183,7 +1183,7 @@ fn make_edge(
         confidence,
         metadata: sanitize_labels(&metadata),
         evidence_ids: evidence_ids.clone(),
-        drill_down: topology_drill_down(evidence_ids, Some(&id)),
+        drill_down: evidence_drill_down(evidence_ids),
     })
 }
 
@@ -1254,6 +1254,14 @@ fn topology_drill_down(evidence_ids: Vec<String>, filter_key: Option<&str>) -> D
         destination: DrillDownDestination::Topology,
         evidence_ids,
         filter_key: filter_key.map(sanitize_text),
+    }
+}
+
+fn evidence_drill_down(evidence_ids: Vec<String>) -> DrillDownTarget {
+    DrillDownTarget {
+        destination: DrillDownDestination::Evidence,
+        evidence_ids,
+        filter_key: None,
     }
 }
 

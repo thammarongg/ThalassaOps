@@ -267,9 +267,9 @@ fn path_from_state(
         cycle_edge_id,
         evidence_ids: evidence_ids.clone(),
         drill_down: DrillDownTarget {
-            destination: DrillDownDestination::Topology,
+            destination: DrillDownDestination::Evidence,
             evidence_ids,
-            filter_key: Some(format!("path:{depth}")),
+            filter_key: None,
         },
     }
 }

@@ -651,9 +651,9 @@ fn fixture_edge(
         metadata: BTreeMap::from([("relationship".into(), "depends_on".into())]),
         evidence_ids: vec![evidence_id.clone()],
         drill_down: DrillDownTarget {
-            destination: DrillDownDestination::Topology,
+            destination: DrillDownDestination::Evidence,
             evidence_ids: vec![evidence_id],
-            filter_key: Some(id.into()),
+            filter_key: None,
         },
     }
 }
