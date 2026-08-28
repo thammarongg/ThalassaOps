@@ -588,7 +588,6 @@ it("does not let an older drill-down response replace the latest selection", asy
   pending[1]({ ok: true, value: [snapshot.evidence[2]] });
   expect(await screen.findByText("evidence-services evidence")).toBeInTheDocument();
   pending[0]({ ok: true, value: [snapshot.evidence[1]] });
-  await new Promise((resolve) => setTimeout(resolve, 0));
   await waitFor(() =>
     expect(screen.queryByText("evidence-attention evidence")).not.toBeInTheDocument()
   );
