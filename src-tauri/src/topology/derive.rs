@@ -1071,18 +1071,58 @@ fn derive_fixture_edges(input: &TopologyInput, graph: &mut DerivedGraph) {
 }
 
 fn derive_observability(input: &TopologyInput, graph: &mut DerivedGraph) {
-    let mut alerts = input.alerts.clone();
-    alerts.sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
-    for alert in alerts {
+    let mut alerts = BTreeMap::new();
+    let mut conflicting_alerts = BTreeSet::new();
+    for alert in input.alerts.iter().cloned() {
+        if !safe_identifier(&alert.fingerprint) {
+            graph.mark_unverified("observability");
+            continue;
+        }
+        if conflicting_alerts.contains(&alert.fingerprint) {
+            continue;
+        }
+        if let Some(existing) = alerts.get(&alert.fingerprint) {
+            if existing != &alert {
+                alerts.remove(&alert.fingerprint);
+                conflicting_alerts.insert(alert.fingerprint.clone());
+                graph.mark_unverified("observability");
+            }
+            continue;
+        }
+        alerts.insert(alert.fingerprint.clone(), alert);
+    }
+    for alert in alerts.into_values() {
         attach_alert(graph, &alert);
     }
-    let mut metrics = input.metrics.clone();
-    metrics.sort_by(|left, right| left.key.cmp(&right.key));
-    for metric in metrics {
+    let mut metrics = BTreeMap::new();
+    let mut conflicting_metrics = BTreeSet::new();
+    for metric in input.metrics.iter().cloned() {
         if !input.scope.contains(&metric.scope) {
             graph.mark_unverified("observability");
             continue;
         }
+        if !safe_identifier(&metric.key)
+            || !safe_display_text(&metric.source.connector_id)
+            || !safe_display_text(&metric.source.query)
+            || !safe_display_text(&metric.source.endpoint)
+        {
+            graph.mark_unverified("observability");
+            continue;
+        }
+        if conflicting_metrics.contains(&metric.key) {
+            continue;
+        }
+        if let Some(existing) = metrics.get(&metric.key) {
+            if existing != &metric {
+                metrics.remove(&metric.key);
+                conflicting_metrics.insert(metric.key.clone());
+                graph.mark_unverified("observability");
+            }
+            continue;
+        }
+        metrics.insert(metric.key.clone(), metric);
+    }
+    for metric in metrics.into_values() {
         attach_metric(graph, &metric);
     }
 }

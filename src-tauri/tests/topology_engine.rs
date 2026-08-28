@@ -5,6 +5,7 @@ use thalassa_domain::{
     TopologyPathTermination, TopologyRequest, TopologyTraversal,
 };
 use thalassaops::cloud::CloudResource;
+use thalassaops::observability::alertmanager::ResourceReference;
 use thalassaops::topology::{
     default_topology_request, fixture_scope, topology_fixture_input, TopologyBuilder,
 };
@@ -722,4 +723,78 @@ fn exact_cloud_node_duplicates_are_collapsed() {
         .iter()
         .find(|status| status.source_key == "cloud")
         .is_some_and(|status| status.state == SourceState::Fresh));
+}
+
+#[test]
+fn conflicting_observability_alerts_are_not_selected_by_input_order() {
+    let mut first_input = topology_fixture_input(fixture_scope());
+    let mut conflicting_alert = first_input.alerts[0].clone();
+    conflicting_alert
+        .labels
+        .insert("environment".into(), "env-gcp-staging".into());
+    conflicting_alert.resource_reference = ResourceReference::Resolved {
+        namespace: "staging".into(),
+        kind: "Service".into(),
+        name: "catalog".into(),
+    };
+    let mut catalog_evidence = first_input
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-topology-alert-checkout")
+        .expect("fixture should contain alert evidence")
+        .clone();
+    catalog_evidence.id = "evidence-topology-alert-catalog".into();
+    catalog_evidence.query = Some("catalog".into());
+    catalog_evidence.excerpt = "catalog alert is firing".into();
+    first_input.evidence.push(catalog_evidence);
+    first_input.alerts.push(conflicting_alert.clone());
+
+    let mut second_input = first_input.clone();
+    second_input.alerts.reverse();
+
+    let first = TopologyBuilder::from_input(first_input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting alerts should not prevent projection");
+    let second = TopologyBuilder::from_input(second_input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting alerts should not prevent projection");
+
+    assert_eq!(first, second);
+    assert!(first.nodes.iter().all(|node| {
+        !node.evidence_ids.iter().any(|id| {
+            id == "evidence-topology-alert-checkout" || id == "evidence-topology-alert-catalog"
+        })
+    }));
+    assert!(first.source_status.iter().any(|status| {
+        status.source_key == "observability" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
+fn conflicting_observability_metrics_are_not_selected_by_input_order() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut conflicting_metric = input.metrics[0].clone();
+    conflicting_metric
+        .labels
+        .insert("environment".into(), "env-gcp-staging".into());
+    conflicting_metric
+        .labels
+        .insert("namespace".into(), "staging".into());
+    conflicting_metric
+        .labels
+        .insert("service".into(), "catalog".into());
+    input.metrics.push(conflicting_metric);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting metrics should not prevent projection");
+    assert!(snapshot.nodes.iter().all(|node| {
+        !node
+            .evidence_ids
+            .iter()
+            .any(|id| id == "evidence-topology-metric-checkout")
+    }));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "observability" && status.state == SourceState::Unverified
+    }));
 }
