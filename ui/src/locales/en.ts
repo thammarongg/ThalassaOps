@@ -256,6 +256,152 @@ const en = {
       permission_denied: "Permission denied",
       unavailable: "Access unavailable"
     }
+  },
+  operations: {
+    eyebrow: "Operations Console / live read model",
+    title: "Operations Console",
+    subtitle: "See what needs attention now, then open the evidence behind it.",
+    health_summary: "Health summary",
+    incident_queue: "Active incident queue",
+    signal_summary: "Alerts and anomalies",
+    change_stream: "Recent change stream",
+    environment_status: "Environment status",
+    attention: "needs attention",
+    impactedServices: "impacted services",
+    activeBySeverity: "Active by severity",
+    environmentsByState: "Environments by state",
+    contributingScopes: "Contributing scopes",
+    serviceCriticality: "Service criticality",
+    trajectory: "Trajectory",
+    activeAlerts: "active alerts",
+    activeAnomalies: "active anomalies",
+    checksDue: "checks due",
+    checksTimedOut: "timed out",
+    signalsBySource: "Signals by source",
+    resources: "resources",
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " ms",
+      seconds: " s"
+    },
+    severityTotal: "active incidents",
+    environmentTotal: "environments",
+    customerImpact: "Customer impact",
+    queueImpactHint: "Items are ranked by business impact and severity.",
+    noActiveIncidents: "No active incidents need attention.",
+    noRecentChanges: "No recent changes in this window",
+    noEnvironments: "No environment status is available.",
+    noVisibleWidgets: "All optional widgets are hidden.",
+    snapshotError: "The console snapshot is unavailable.",
+    widgetLoading: "Loading this widget…",
+    widgetError: "This widget is unavailable while its source is being checked.",
+    numberUnavailable: "Number unavailable; evidence could not be verified.",
+    sourceUnavailable: "{{source}} is {{state}} ({{reason}}).",
+    changeStreamUnavailable: "Recent changes are unavailable ({{reason}}).",
+    unknownTarget: "Unknown target",
+    unknownActor: "Unknown actor",
+    unknownProvider: "Unknown provider",
+    lastObserved: "Last observed",
+    lastSync: "Last sync: {{timestamp}}",
+    customizeConsole: "Customize console",
+    customizeHint: "Choose from the curated widgets and set their order or presentation.",
+    showWidget: "Show {{widget}}",
+    collapseWidget: "Collapse {{widget}}",
+    widgetSize: "Size for {{widget}}",
+    moveWidgetUp: "Move {{widget}} up",
+    moveWidgetDown: "Move {{widget}} down",
+    resetLayout: "Reset layout",
+    expandWidget: "Expand widget",
+    evidenceTitle: "Evidence and drill-down",
+    destination: "Destination",
+    sourceQuery: "Source query",
+    timeWindow: "Time window",
+    evidenceLoading: "Loading evidence…",
+    evidenceError: "Evidence is unavailable for this drill-down.",
+    noEvidence: "No verified evidence is available.",
+    endpoint: "Endpoint",
+    query: "Query",
+    observedAt: "Observed",
+    excerpt: "Excerpt",
+    masked: "Sensitive fields masked",
+    notMasked: "No fields masked",
+    unparsed: "Unparsed source",
+    parsed: "Parsed source",
+    openDrillDown: "Open evidence for {{label}} ({{value}})",
+    openItemEvidence: "Open evidence for {{label}}",
+    openEvidence: "Open evidence",
+    sizes: {
+      compact: "Compact",
+      standard: "Standard",
+      wide: "Wide"
+    },
+    reasons: {
+      not_configured: "not configured",
+      unreachable: "unreachable",
+      timed_out: "timed out",
+      policy_denied: "blocked by policy",
+      no_data_in_window: "empty in this window",
+      unknown: "unavailable"
+    },
+    trajectories: {
+      expanding: "expanding",
+      stable: "stable",
+      improving: "improving",
+      unknown: "unknown"
+    },
+    queueStatuses: {
+      detected: "Detected",
+      triage: "Triage",
+      investigating: "Investigating",
+      mitigating: "Mitigating",
+      monitoring: "Monitoring"
+    },
+    sourceKinds: {
+      alert: "alerts",
+      anomaly: "anomalies",
+      scheduled_health_check: "scheduled checks",
+      fixture_incident: "fixture incidents"
+    },
+    severityTotals: {
+      active_s1: "S1 critical",
+      active_s2: "S2 major",
+      active_s3: "S3 moderate",
+      active_s4: "S4 minor",
+      active_s5: "S5 informational",
+      critical: "critical incidents",
+      degraded: "degraded incidents",
+      healthy: "healthy incidents",
+      unknown: "unknown incidents"
+    },
+    environmentTotals: {
+      healthy_environments: "healthy environments",
+      critical: "critical environments",
+      degraded: "degraded environments",
+      healthy: "healthy environments",
+      unknown: "unknown environments"
+    },
+    destinations: {
+      evidence: "Evidence",
+      incident_queue: "Incident queue",
+      signal_summary: "Signal summary",
+      change_stream: "Change stream",
+      environment_status: "Environment status"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "Cloud",
+      health_check: "Health check",
+      fixture: "Fixture"
+    },
+    sourceStates: {
+      fresh: "fresh",
+      stale: "degraded",
+      unavailable: "unavailable",
+      unverified: "unverified"
+    }
   }
 } as const;
 

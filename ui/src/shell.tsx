@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "./i18n";
 import { EnvironmentWorkspace } from "./EnvironmentWorkspace";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
+import { OperationsConsole } from "./OperationsConsole";
 type Area =
   | "commandCenter"
   | "incidents"
@@ -206,15 +207,28 @@ export function Shell({ invoke }: { invoke: Invoke }) {
         </nav>
       </aside>
       <main className="shell-main">
-        <h1>{t(`shell.${active}`)}</h1>
-        {active === "environments" ? (
-          <EnvironmentWorkspace invoke={invoke} />
+        {active === "commandCenter" ? (
+          <OperationsConsole invoke={invoke} />
+        ) : active === "environments" ? (
+          <>
+            <h1>{t(`shell.${active}`)}</h1>
+            <EnvironmentWorkspace invoke={invoke} />
+          </>
         ) : active === "integrations" ? (
-          <Integrations invoke={invoke} />
+          <>
+            <h1>{t(`shell.${active}`)}</h1>
+            <Integrations invoke={invoke} />
+          </>
         ) : active === "observability" ? (
-          <ObservabilityWorkspace invoke={invoke} />
+          <>
+            <h1>{t(`shell.${active}`)}</h1>
+            <ObservabilityWorkspace invoke={invoke} />
+          </>
         ) : (
-          <EmptyState titleKey="shell.routeUnavailable" />
+          <>
+            <h1>{t(`shell.${active}`)}</h1>
+            <EmptyState titleKey="shell.routeUnavailable" />
+          </>
         )}
       </main>
       <aside className="shell-status">

@@ -256,6 +256,152 @@ const th = {
       permission_denied: "ไม่มีสิทธิ์",
       unavailable: "ไม่สามารถเข้าถึงได้"
     }
+  },
+  operations: {
+    eyebrow: "คอนโซลปฏิบัติการ / แบบจำลองอ่านสด",
+    title: "คอนโซลปฏิบัติการ",
+    subtitle: "ดูสิ่งที่ต้องให้ความสนใจตอนนี้ แล้วเปิดหลักฐานเบื้องหลัง",
+    health_summary: "สรุปสุขภาพระบบ",
+    incident_queue: "คิวเหตุการณ์ที่กำลังดำเนินอยู่",
+    signal_summary: "การแจ้งเตือนและความผิดปกติ",
+    change_stream: "สตรีมการเปลี่ยนแปลงล่าสุด",
+    environment_status: "สถานะสภาพแวดล้อม",
+    attention: "ต้องให้ความสนใจ",
+    impactedServices: "บริการที่ได้รับผลกระทบ",
+    activeBySeverity: "รายการตามระดับความรุนแรง",
+    environmentsByState: "สภาพแวดล้อมตามสถานะ",
+    contributingScopes: "ขอบเขตที่มีส่วนเกี่ยวข้อง",
+    serviceCriticality: "ความสำคัญของบริการ",
+    trajectory: "แนวโน้ม",
+    activeAlerts: "การแจ้งเตือนที่ทำงานอยู่",
+    activeAnomalies: "ความผิดปกติที่ทำงานอยู่",
+    checksDue: "การตรวจสอบที่ถึงกำหนด",
+    checksTimedOut: "หมดเวลาตรวจสอบ",
+    signalsBySource: "สัญญาณตามแหล่งที่มา",
+    resources: "ทรัพยากร",
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " มิลลิวินาที",
+      seconds: " วินาที"
+    },
+    severityTotal: "เหตุการณ์ที่ทำงานอยู่",
+    environmentTotal: "สภาพแวดล้อม",
+    customerImpact: "ผลกระทบต่อลูกค้า",
+    queueImpactHint: "รายการเรียงตามผลกระทบทางธุรกิจและความรุนแรง",
+    noActiveIncidents: "ไม่มีเหตุการณ์ที่กำลังดำเนินอยู่ซึ่งต้องให้ความสนใจ",
+    noRecentChanges: "ไม่มีการเปลี่ยนแปลงล่าสุดในช่วงเวลานี้",
+    noEnvironments: "ไม่มีข้อมูลสถานะสภาพแวดล้อม",
+    noVisibleWidgets: "ซ่อนวิดเจ็ตเสริมทั้งหมดแล้ว",
+    snapshotError: "ไม่สามารถโหลดภาพรวมคอนโซลได้",
+    widgetLoading: "กำลังโหลดวิดเจ็ตนี้…",
+    widgetError: "วิดเจ็ตนี้ไม่พร้อมใช้งานระหว่างตรวจสอบแหล่งข้อมูล",
+    numberUnavailable: "หมายเลขไม่พร้อมใช้งาน ไม่สามารถยืนยันหลักฐานได้",
+    sourceUnavailable: "{{source}}อยู่ในสถานะ{{state}} ({{reason}})",
+    changeStreamUnavailable: "การเปลี่ยนแปลงล่าสุดไม่พร้อมใช้งาน ({{reason}})",
+    unknownTarget: "ไม่ทราบเป้าหมาย",
+    unknownActor: "ไม่ทราบผู้ดำเนินการ",
+    unknownProvider: "ไม่ทราบผู้ให้บริการ",
+    lastObserved: "พบข้อมูลล่าสุด",
+    lastSync: "ซิงค์ล่าสุด: {{timestamp}}",
+    customizeConsole: "ปรับแต่งคอนโซล",
+    customizeHint: "เลือกจากวิดเจ็ตที่คัดสรร แล้วกำหนดลำดับหรือรูปแบบการแสดงผล",
+    showWidget: "แสดง {{widget}}",
+    collapseWidget: "ย่อ {{widget}}",
+    widgetSize: "ขนาดของ {{widget}}",
+    moveWidgetUp: "เลื่อน {{widget}} ขึ้น",
+    moveWidgetDown: "เลื่อน {{widget}} ลง",
+    resetLayout: "รีเซ็ตเค้าโครง",
+    expandWidget: "ขยายวิดเจ็ต",
+    evidenceTitle: "หลักฐานและการเจาะดูรายละเอียด",
+    destination: "ปลายทาง",
+    sourceQuery: "คำสั่งแหล่งข้อมูล",
+    timeWindow: "ช่วงเวลา",
+    evidenceLoading: "กำลังโหลดหลักฐาน…",
+    evidenceError: "หลักฐานสำหรับการเจาะดูรายละเอียดไม่พร้อมใช้งาน",
+    noEvidence: "ไม่มีหลักฐานที่ยืนยันแล้ว",
+    endpoint: "ปลายทางเชื่อมต่อ",
+    query: "คำสั่ง",
+    observedAt: "เวลาที่พบ",
+    excerpt: "ข้อความตัดตอน",
+    masked: "ปกปิดข้อมูลสำคัญแล้ว",
+    notMasked: "ไม่มีการปกปิดข้อมูล",
+    unparsed: "แหล่งข้อมูลที่ยังแยกวิเคราะห์ไม่ได้",
+    parsed: "แหล่งข้อมูลที่แยกวิเคราะห์แล้ว",
+    openDrillDown: "เปิดหลักฐานสำหรับ {{label}} ({{value}})",
+    openItemEvidence: "เปิดหลักฐานสำหรับ {{label}}",
+    openEvidence: "เปิดหลักฐาน",
+    sizes: {
+      compact: "กะทัดรัด",
+      standard: "มาตรฐาน",
+      wide: "กว้าง"
+    },
+    reasons: {
+      not_configured: "ยังไม่ได้ตั้งค่า",
+      unreachable: "ติดต่อไม่ได้",
+      timed_out: "หมดเวลา",
+      policy_denied: "ถูกบล็อกโดยนโยบาย",
+      no_data_in_window: "ไม่มีข้อมูลในช่วงเวลานี้",
+      unknown: "ไม่พร้อมใช้งาน"
+    },
+    trajectories: {
+      expanding: "กำลังขยายตัว",
+      stable: "คงที่",
+      improving: "ดีขึ้น",
+      unknown: "ไม่ทราบ"
+    },
+    queueStatuses: {
+      detected: "ตรวจพบ",
+      triage: "คัดแยก",
+      investigating: "กำลังตรวจสอบ",
+      mitigating: "กำลังลดผลกระทบ",
+      monitoring: "กำลังติดตาม"
+    },
+    sourceKinds: {
+      alert: "การแจ้งเตือน",
+      anomaly: "ความผิดปกติ",
+      scheduled_health_check: "การตรวจสอบตามกำหนด",
+      fixture_incident: "เหตุการณ์ตัวอย่าง"
+    },
+    severityTotals: {
+      active_s1: "S1 วิกฤต",
+      active_s2: "S2 ร้ายแรง",
+      active_s3: "S3 ปานกลาง",
+      active_s4: "S4 เล็กน้อย",
+      active_s5: "S5 ข้อมูล",
+      critical: "เหตุการณ์วิกฤต",
+      degraded: "เหตุการณ์ที่ประสิทธิภาพลดลง",
+      healthy: "เหตุการณ์ที่พร้อมใช้งาน",
+      unknown: "เหตุการณ์ไม่ทราบสถานะ"
+    },
+    environmentTotals: {
+      healthy_environments: "สภาพแวดล้อมที่พร้อมใช้งาน",
+      critical: "สภาพแวดล้อมวิกฤต",
+      degraded: "สภาพแวดล้อมที่ประสิทธิภาพลดลง",
+      healthy: "สภาพแวดล้อมที่พร้อมใช้งาน",
+      unknown: "สภาพแวดล้อมไม่ทราบสถานะ"
+    },
+    destinations: {
+      evidence: "หลักฐาน",
+      incident_queue: "คิวเหตุการณ์",
+      signal_summary: "สรุปสัญญาณ",
+      change_stream: "สตรีมการเปลี่ยนแปลง",
+      environment_status: "สถานะสภาพแวดล้อม"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "คลาวด์",
+      health_check: "การตรวจสอบสุขภาพ",
+      fixture: "ข้อมูลตัวอย่าง"
+    },
+    sourceStates: {
+      fresh: "เป็นข้อมูลใหม่",
+      stale: "ประสิทธิภาพลดลง",
+      unavailable: "ไม่พร้อมใช้งาน",
+      unverified: "ยังไม่ยืนยัน"
+    }
   }
 } as const;
 
