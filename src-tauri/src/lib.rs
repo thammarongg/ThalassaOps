@@ -4,3 +4,4 @@ pub mod connectors;
 pub mod kubernetes;
 pub mod observability;
 pub mod operations;
+pub mod topology;

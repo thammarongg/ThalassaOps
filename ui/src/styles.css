@@ -205,6 +205,9 @@ h2 {
 .indicator--critical {
   color: var(--color-coral);
 }
+.indicator--unknown {
+  color: var(--color-sea-glass);
+}
 .empty-state {
   display: grid;
   place-items: center;
@@ -990,6 +993,28 @@ td {
 }
 
 .operations-item-drilldown:hover {
+  color: var(--color-abyss);
+  background: var(--color-reef-cyan);
+}
+
+.operations-incident-entry__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.operations-incident-entry__topology {
+  margin-block-start: 0.7rem;
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  color: var(--color-sea-glass);
+  background: transparent;
+  cursor: pointer;
+}
+
+.operations-incident-entry__topology:hover {
   color: var(--color-abyss);
   background: var(--color-reef-cyan);
 }

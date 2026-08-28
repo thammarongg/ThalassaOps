@@ -657,6 +657,8 @@ pub enum DrillDownDestination {
     ChangeStream,
     #[serde(rename = "environment_status")]
     EnvironmentStatus,
+    #[serde(rename = "topology")]
+    Topology,
 }
 
 /// Evidence IDs and an optional local filter for a console drill-down.
@@ -1522,6 +1524,1007 @@ pub struct DrillDownReference {
     pub scope: ResourceScope,
     pub time_window: Option<TimeWindow>,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+/// Closed, provider-neutral node kinds in the resource and service topology.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum TopologyNodeKind {
+    #[serde(rename = "environment")]
+    Environment,
+    #[serde(rename = "cluster")]
+    Cluster,
+    #[serde(rename = "namespace")]
+    Namespace,
+    #[serde(rename = "workload")]
+    Workload,
+    #[serde(rename = "service")]
+    Service,
+    #[serde(rename = "pod")]
+    Pod,
+    #[serde(rename = "node")]
+    Node,
+    #[serde(rename = "cloud_resource")]
+    CloudResource,
+    #[serde(rename = "observability_target")]
+    ObservabilityTarget,
+}
+
+/// Source used to resolve a topology node's owning team.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum TopologyOwnershipSource {
+    #[serde(rename = "explicit_label")]
+    ExplicitLabel,
+    #[serde(rename = "resource_scope")]
+    ResourceScope,
+    #[serde(rename = "environment_default")]
+    EnvironmentDefault,
+    #[serde(rename = "fixture")]
+    Fixture,
+    #[serde(rename = "unassigned")]
+    Unassigned,
+}
+
+/// Resolved owner reference for a topology node.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyOwnership {
+    pub team_id: Option<TeamId>,
+    pub team_name: Option<String>,
+    pub source: TopologyOwnershipSource,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl TopologyOwnership {
+    /// Validates the explicit unassigned state and canonical team pairing.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        match self.source {
+            TopologyOwnershipSource::Unassigned => {
+                if self.team_id.is_some() || self.team_name.is_some() {
+                    return Err(TopologyError::InvalidRequest);
+                }
+            }
+            _ => {
+                if self.team_id.is_none()
+                    || self
+                        .team_name
+                        .as_deref()
+                        .is_none_or(|name| name.trim().is_empty())
+                {
+                    return Err(TopologyError::InvalidRequest);
+                }
+            }
+        }
+        if self
+            .evidence_ids
+            .iter()
+            .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self.source != TopologyOwnershipSource::Unassigned && self.evidence_ids.is_empty() {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        Ok(())
+    }
+}
+
+/// Evidence-backed numeric value used by topology nodes and summaries.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologyMetric {
+    pub key: String,
+    pub value: f64,
+    pub unit: NumberUnit,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+impl TopologyMetric {
+    /// Validates finite values and the evidence navigation behind the metric.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        self.validate_with_destination(DrillDownDestination::Topology)
+    }
+
+    /// Validates a summary metric whose drill-down opens its evidence set.
+    pub fn validate_summary(&self) -> Result<(), TopologyError> {
+        self.validate_with_destination(DrillDownDestination::Evidence)
+    }
+
+    fn validate_with_destination(
+        &self,
+        destination: DrillDownDestination,
+    ) -> Result<(), TopologyError> {
+        if !self.value.is_finite() {
+            return Err(TopologyError::NonFiniteNumber(
+                TopologyNumberField::MetricValue,
+            ));
+        }
+        if self.unit == NumberUnit::Count && self.value < 0.0 {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self.key.trim().is_empty() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self.drill_down_reference.source_query.trim().is_empty() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if destination == DrillDownDestination::Evidence
+            && self.value == 0.0
+            && self.evidence_ids.is_empty()
+        {
+            if self.drill_down.destination != DrillDownDestination::Evidence
+                || !self.drill_down.evidence_ids.is_empty()
+                || self.drill_down.filter_key.is_some()
+                || !self.drill_down_reference.evidence_ids.is_empty()
+            {
+                return Err(TopologyError::InvalidRequest);
+            }
+            return Ok(());
+        }
+        if self.evidence_ids.is_empty()
+            || self
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        validate_drill_down(&self.drill_down, &self.evidence_ids, destination)?;
+        if self.drill_down_reference.evidence_ids.is_empty()
+            || !shares_evidence(&self.evidence_ids, &self.drill_down_reference.evidence_ids)
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+}
+
+/// Evidence-backed node in the provider-neutral topology graph.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologyNode {
+    pub id: String,
+    pub kind: TopologyNodeKind,
+    pub name: String,
+    pub native_kind: Option<String>,
+    pub native_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub provider: Option<String>,
+    pub scope: ResourceScope,
+    pub status: ConsoleHealthState,
+    pub labels: BTreeMap<String, String>,
+    pub ownership: TopologyOwnership,
+    pub metric: Option<TopologyMetric>,
+    pub affected_by_incident: bool,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+}
+
+impl TopologyNode {
+    /// Validates identity, ownership, optional source fields and evidence.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.id.trim().is_empty()
+            || self.name.trim().is_empty()
+            || self
+                .native_kind
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+            || self
+                .native_id
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+            || self
+                .environment_id
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+            || self
+                .provider
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        self.ownership.validate()?;
+        if let Some(metric) = &self.metric {
+            metric.validate()?;
+        }
+        if self.evidence_ids.is_empty()
+            || self
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        validate_topology_node_drill_down(&self.drill_down, &self.evidence_ids, &self.id)
+    }
+}
+
+/// Relationship vocabulary for directed topology edges.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum TopologyEdgeKind {
+    #[serde(rename = "contains")]
+    Contains,
+    #[serde(rename = "owns")]
+    Owns,
+    #[serde(rename = "selects")]
+    Selects,
+    #[serde(rename = "routes_to")]
+    RoutesTo,
+    #[serde(rename = "runs_on")]
+    RunsOn,
+    #[serde(rename = "depends_on")]
+    DependsOn,
+}
+
+/// Provider-neutral source category that produced a topology edge.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum TopologySourceKind {
+    #[serde(rename = "kubernetes")]
+    Kubernetes,
+    #[serde(rename = "cloud")]
+    Cloud,
+    #[serde(rename = "observability")]
+    Observability,
+    #[serde(rename = "fixture")]
+    Fixture,
+}
+
+/// Source key and observation time for one edge provenance record.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyEdgeProvenance {
+    pub source: TopologySourceKind,
+    pub source_key: String,
+    pub observed_at: Option<String>,
+}
+
+impl TopologyEdgeProvenance {
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.source_key.trim().is_empty()
+            || self
+                .observed_at
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(TopologyError::MalformedSource);
+        }
+        Ok(())
+    }
+}
+
+/// Directed, evidence-backed relationship between an upstream and downstream node.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologyEdge {
+    pub id: String,
+    pub upstream_node_id: String,
+    pub downstream_node_id: String,
+    pub kind: TopologyEdgeKind,
+    pub provenance: Vec<TopologyEdgeProvenance>,
+    pub confidence: f64,
+    pub metadata: BTreeMap<String, String>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+}
+
+impl TopologyEdge {
+    /// Validates an edge without requiring the graph's node index.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.id.trim().is_empty()
+            || self.upstream_node_id.trim().is_empty()
+            || self.downstream_node_id.trim().is_empty()
+            || self.upstream_node_id == self.downstream_node_id
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        validate_confidence(self.confidence, TopologyNumberField::EdgeConfidence)?;
+        if self.provenance.is_empty() {
+            return Err(TopologyError::MalformedSource);
+        }
+        let mut provenance_identity = BTreeSet::new();
+        for provenance in &self.provenance {
+            provenance.validate()?;
+            if !provenance_identity.insert((provenance.source, provenance.source_key.clone())) {
+                return Err(TopologyError::MalformedSource);
+            }
+        }
+        if self.evidence_ids.is_empty()
+            || self
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        validate_evidence_drill_down(&self.drill_down, &self.evidence_ids)
+    }
+
+    /// Validates that both edge endpoints were emitted by the current graph.
+    pub fn validate_against_nodes(&self, node_ids: &BTreeSet<String>) -> Result<(), TopologyError> {
+        self.validate()?;
+        if !node_ids.contains(&self.upstream_node_id)
+            || !node_ids.contains(&self.downstream_node_id)
+        {
+            return Err(TopologyError::NodeNotFound);
+        }
+        Ok(())
+    }
+}
+
+/// Direction used when traversing topology relationships.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopologyDirection {
+    #[serde(rename = "upstream")]
+    Upstream,
+    #[serde(rename = "downstream")]
+    Downstream,
+    #[serde(rename = "both")]
+    Both,
+}
+
+/// Qualification for a topology path; no causal qualification is exposed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopologyPathKind {
+    #[serde(rename = "probable_structural")]
+    ProbableStructural,
+}
+
+/// Reason a bounded topology path ended.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopologyPathTermination {
+    #[serde(rename = "leaf")]
+    Leaf,
+    #[serde(rename = "cycle_detected")]
+    CycleDetected,
+    #[serde(rename = "depth_limit")]
+    DepthLimit,
+}
+
+/// Evidence-backed path returned from a bounded topology traversal.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologyPath {
+    pub id: String,
+    pub root_node_id: String,
+    pub terminal_node_id: String,
+    pub node_ids: Vec<String>,
+    pub edge_ids: Vec<String>,
+    pub direction: TopologyDirection,
+    pub depth: u16,
+    pub confidence: f64,
+    pub kind: TopologyPathKind,
+    pub termination: TopologyPathTermination,
+    pub cycle_edge_id: Option<String>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+}
+
+impl TopologyPath {
+    /// Validates simple-path shape, bounded depth and evidence navigation.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.id.trim().is_empty()
+            || self.root_node_id.trim().is_empty()
+            || self.terminal_node_id.trim().is_empty()
+            || self.node_ids.is_empty()
+            || self.node_ids.first() != Some(&self.root_node_id)
+            || self.node_ids.last() != Some(&self.terminal_node_id)
+            || self.node_ids.len() != self.edge_ids.len().saturating_add(1)
+            || self.edge_ids.len() != usize::from(self.depth)
+            || self.depth > 8
+            || self
+                .node_ids
+                .iter()
+                .any(|node_id| node_id.trim().is_empty())
+            || self
+                .edge_ids
+                .iter()
+                .any(|edge_id| edge_id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        let unique_nodes: BTreeSet<_> = self.node_ids.iter().collect();
+        if unique_nodes.len() != self.node_ids.len() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        validate_confidence(self.confidence, TopologyNumberField::PathConfidence)?;
+        match (&self.termination, &self.cycle_edge_id) {
+            (TopologyPathTermination::CycleDetected, Some(edge_id))
+                if !edge_id.trim().is_empty() => {}
+            (TopologyPathTermination::CycleDetected, _) => {
+                return Err(TopologyError::InvalidRequest)
+            }
+            (_, Some(_)) => return Err(TopologyError::InvalidRequest),
+            (_, None) => {}
+        }
+        if self.evidence_ids.is_empty()
+            || self
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        validate_evidence_drill_down(&self.drill_down, &self.evidence_ids)
+    }
+
+    /// Validates that path nodes and edges belong to the current graph.
+    pub fn validate_against_graph(
+        &self,
+        node_ids: &BTreeSet<String>,
+        edges: &BTreeMap<String, TopologyEdge>,
+    ) -> Result<(), TopologyError> {
+        self.validate()?;
+        if self
+            .node_ids
+            .iter()
+            .any(|node_id| !node_ids.contains(node_id))
+        {
+            return Err(TopologyError::NodeNotFound);
+        }
+        if self
+            .edge_ids
+            .iter()
+            .chain(self.cycle_edge_id.iter())
+            .any(|edge_id| !edges.contains_key(edge_id))
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self
+            .cycle_edge_id
+            .as_ref()
+            .is_some_and(|edge_id| self.edge_ids.contains(edge_id))
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+
+        let mut expected_confidence: f64 = 1.0;
+        for edge_id in self.edge_ids.iter().chain(self.cycle_edge_id.iter()) {
+            let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+            expected_confidence = expected_confidence.min(edge.confidence);
+        }
+        if self.confidence != expected_confidence {
+            return Err(TopologyError::InvalidRequest);
+        }
+
+        for (edge_id, node_pair) in self.edge_ids.iter().zip(self.node_ids.windows(2)) {
+            let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+            let follows_direction = match self.direction {
+                TopologyDirection::Upstream => {
+                    edge.downstream_node_id == node_pair[0] && edge.upstream_node_id == node_pair[1]
+                }
+                TopologyDirection::Downstream => {
+                    edge.upstream_node_id == node_pair[0] && edge.downstream_node_id == node_pair[1]
+                }
+                TopologyDirection::Both => {
+                    (edge.upstream_node_id == node_pair[0]
+                        && edge.downstream_node_id == node_pair[1])
+                        || (edge.downstream_node_id == node_pair[0]
+                            && edge.upstream_node_id == node_pair[1])
+                }
+            };
+            if !follows_direction {
+                return Err(TopologyError::InvalidRequest);
+            }
+        }
+
+        if let Some(cycle_edge_id) = &self.cycle_edge_id {
+            let cycle_edge = edges
+                .get(cycle_edge_id)
+                .ok_or(TopologyError::InvalidRequest)?;
+            let closes_cycle = match self.direction {
+                TopologyDirection::Upstream => {
+                    cycle_edge.downstream_node_id == self.terminal_node_id
+                        && self.node_ids.contains(&cycle_edge.upstream_node_id)
+                }
+                TopologyDirection::Downstream => {
+                    cycle_edge.upstream_node_id == self.terminal_node_id
+                        && self.node_ids.contains(&cycle_edge.downstream_node_id)
+                }
+                TopologyDirection::Both => {
+                    (cycle_edge.downstream_node_id == self.terminal_node_id
+                        && self.node_ids.contains(&cycle_edge.upstream_node_id))
+                        || (cycle_edge.upstream_node_id == self.terminal_node_id
+                            && self.node_ids.contains(&cycle_edge.downstream_node_id))
+                }
+            };
+            if !closes_cycle {
+                return Err(TopologyError::InvalidRequest);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Bounded upstream/downstream traversal request.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyTraversal {
+    pub direction: TopologyDirection,
+    pub max_depth: u16,
+}
+
+impl TopologyTraversal {
+    /// Validates the inclusive Sprint 12 depth bound.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.max_depth > 8 {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+}
+
+/// Environment, team and Sprint 11 incident-queue filter dimensions.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyFilter {
+    pub environment_ids: Vec<String>,
+    pub team_ids: Vec<TeamId>,
+    /// Sprint 11 IncidentQueueItem.id; this is not IncidentId.
+    pub incident_id: Option<String>,
+}
+
+impl TopologyFilter {
+    /// Validates explicit absent values, identifiers and duplicate dimensions.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self
+            .environment_ids
+            .iter()
+            .any(|environment_id| environment_id.trim().is_empty())
+            || self
+                .incident_id
+                .as_deref()
+                .is_some_and(|incident_id| incident_id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        let environments: BTreeSet<_> = self.environment_ids.iter().collect();
+        let teams: BTreeSet<_> = self.team_ids.iter().collect();
+        if environments.len() != self.environment_ids.len() || teams.len() != self.team_ids.len() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+
+    /// Validates filter IDs against the current workspace graph and queue projection.
+    pub fn validate_against(
+        &self,
+        environment_ids: &BTreeSet<String>,
+        team_ids: &BTreeSet<TeamId>,
+        incident_ids: &BTreeSet<String>,
+    ) -> Result<(), TopologyError> {
+        self.validate()?;
+        if self
+            .environment_ids
+            .iter()
+            .any(|environment_id| !environment_ids.contains(environment_id))
+            || self
+                .team_ids
+                .iter()
+                .any(|team_id| !team_ids.contains(team_id))
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self
+            .incident_id
+            .as_ref()
+            .is_some_and(|incident_id| !incident_ids.contains(incident_id))
+        {
+            return Err(TopologyError::IncidentNotFound);
+        }
+        Ok(())
+    }
+}
+
+/// Complete topology selection and bounded traversal request.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyRequest {
+    pub filter: TopologyFilter,
+    pub focus_node_id: Option<String>,
+    pub traversal: TopologyTraversal,
+}
+
+impl TopologyRequest {
+    /// Validates request shape before graph work.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        self.filter.validate()?;
+        self.traversal.validate()?;
+        if self
+            .focus_node_id
+            .as_deref()
+            .is_some_and(|node_id| node_id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+
+    /// Validates request IDs against a current workspace graph and queue projection.
+    pub fn validate_against(
+        &self,
+        node_ids: &BTreeSet<String>,
+        environment_ids: &BTreeSet<String>,
+        team_ids: &BTreeSet<TeamId>,
+        incident_ids: &BTreeSet<String>,
+    ) -> Result<(), TopologyError> {
+        self.validate()?;
+        if self
+            .focus_node_id
+            .as_ref()
+            .is_some_and(|node_id| !node_ids.contains(node_id))
+        {
+            return Err(TopologyError::NodeNotFound);
+        }
+        self.filter
+            .validate_against(environment_ids, team_ids, incident_ids)
+    }
+}
+
+/// Evidence-backed counts for the visible topology projection.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologySummary {
+    pub visible_nodes: TopologyMetric,
+    pub visible_edges: TopologyMetric,
+    pub affected_nodes: TopologyMetric,
+    pub probable_paths: TopologyMetric,
+}
+
+impl TopologySummary {
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        self.visible_nodes.validate_summary()?;
+        self.visible_edges.validate_summary()?;
+        self.affected_nodes.validate_summary()?;
+        self.probable_paths.validate_summary()
+    }
+}
+
+/// Complete read-only topology graph, paths, source statuses and admitted evidence.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TopologySnapshot {
+    pub generated_at: String,
+    pub scope: ResourceScope,
+    pub filter: TopologyFilter,
+    pub focus_node_id: Option<String>,
+    pub traversal: TopologyTraversal,
+    pub summary: TopologySummary,
+    pub nodes: Vec<TopologyNode>,
+    pub edges: Vec<TopologyEdge>,
+    pub paths: Vec<TopologyPath>,
+    pub source_status: Vec<SourceStatus>,
+    pub evidence: Vec<EvidenceRef>,
+}
+
+impl TopologySnapshot {
+    /// Validates graph references, evidence navigation and all finite numbers.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.generated_at.trim().is_empty() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        self.filter.validate()?;
+        self.traversal.validate()?;
+
+        let node_ids: BTreeSet<_> = self.nodes.iter().map(|node| node.id.clone()).collect();
+        if node_ids.len() != self.nodes.len()
+            || self.nodes.iter().any(|node| node.id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        for node in &self.nodes {
+            node.validate()?;
+        }
+        if self
+            .focus_node_id
+            .as_ref()
+            .is_some_and(|node_id| !node_ids.contains(node_id))
+        {
+            return Err(TopologyError::NodeNotFound);
+        }
+
+        let edges: BTreeMap<_, _> = self
+            .edges
+            .iter()
+            .map(|edge| (edge.id.clone(), edge.clone()))
+            .collect();
+        if edges.len() != self.edges.len()
+            || self.edges.iter().any(|edge| edge.id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        for edge in &self.edges {
+            edge.validate_against_nodes(&node_ids)?;
+        }
+
+        let path_ids: BTreeSet<_> = self.paths.iter().map(|path| path.id.clone()).collect();
+        if path_ids.len() != self.paths.len()
+            || self.paths.iter().any(|path| path.id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        for path in &self.paths {
+            path.validate_against_graph(&node_ids, &edges)?;
+        }
+        for (metric, expected) in [
+            (&self.summary.visible_nodes, self.nodes.len()),
+            (&self.summary.visible_edges, self.edges.len()),
+            (
+                &self.summary.affected_nodes,
+                self.nodes
+                    .iter()
+                    .filter(|node| node.affected_by_incident)
+                    .count(),
+            ),
+            (&self.summary.probable_paths, self.paths.len()),
+        ] {
+            if metric.value != expected as f64 {
+                return Err(TopologyError::InvalidRequest);
+            }
+        }
+        self.summary.validate()?;
+
+        let evidence_ids: BTreeSet<_> = self
+            .evidence
+            .iter()
+            .map(|evidence| evidence.id.clone())
+            .collect();
+        if evidence_ids.len() != self.evidence.len()
+            || self
+                .evidence
+                .iter()
+                .any(|evidence| evidence.id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self.evidence.iter().any(|evidence| {
+            !evidence.redaction.classification_verified
+                || !evidence.redaction.redaction_verified
+                || (evidence.redaction.unparsed && evidence.redaction.masked)
+        }) {
+            return Err(TopologyError::EvidenceUnverified);
+        }
+        for node in &self.nodes {
+            validate_evidence_ids(&node.evidence_ids, &evidence_ids)?;
+            validate_evidence_ids(&node.ownership.evidence_ids, &evidence_ids)?;
+            if let Some(metric) = &node.metric {
+                validate_evidence_ids(&metric.evidence_ids, &evidence_ids)?;
+                validate_evidence_ids(&metric.drill_down.evidence_ids, &evidence_ids)?;
+                validate_evidence_ids(&metric.drill_down_reference.evidence_ids, &evidence_ids)?;
+            }
+            validate_evidence_ids(&node.drill_down.evidence_ids, &evidence_ids)?;
+        }
+        for edge in &self.edges {
+            validate_evidence_ids(&edge.evidence_ids, &evidence_ids)?;
+            validate_evidence_ids(&edge.drill_down.evidence_ids, &evidence_ids)?;
+        }
+        for path in &self.paths {
+            validate_evidence_ids(&path.evidence_ids, &evidence_ids)?;
+            validate_evidence_ids(&path.drill_down.evidence_ids, &evidence_ids)?;
+            validate_path_evidence(path, &self.nodes, &edges)?;
+        }
+        for metric in [
+            &self.summary.visible_nodes,
+            &self.summary.visible_edges,
+            &self.summary.affected_nodes,
+            &self.summary.probable_paths,
+        ] {
+            validate_evidence_ids(&metric.evidence_ids, &evidence_ids)?;
+            validate_evidence_ids(&metric.drill_down.evidence_ids, &evidence_ids)?;
+            validate_evidence_ids(&metric.drill_down_reference.evidence_ids, &evidence_ids)?;
+        }
+        let source_status_keys: BTreeSet<_> = self
+            .source_status
+            .iter()
+            .map(|status| status.source_key.clone())
+            .collect();
+        if source_status_keys.len() != self.source_status.len()
+            || self
+                .source_status
+                .iter()
+                .any(|status| status.source_key.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        for status in &self.source_status {
+            validate_evidence_ids(&status.evidence_ids, &evidence_ids)?;
+        }
+        Ok(())
+    }
+}
+
+/// Request for evidence IDs previously emitted by a topology snapshot.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyEvidenceRequest {
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl TopologyEvidenceRequest {
+    /// Validates non-empty, unique evidence IDs before lookup.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        if self.evidence_ids.is_empty()
+            || self
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id.trim().is_empty())
+            || self.evidence_ids.iter().collect::<BTreeSet<_>>().len() != self.evidence_ids.len()
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+
+    /// Validates that every requested ID was emitted and verified by a snapshot.
+    pub fn validate_against(&self, emitted_ids: &BTreeSet<String>) -> Result<(), TopologyError> {
+        self.validate()?;
+        if self
+            .evidence_ids
+            .iter()
+            .any(|evidence_id| !emitted_ids.contains(evidence_id))
+        {
+            return Err(TopologyError::EvidenceMissing);
+        }
+        Ok(())
+    }
+}
+
+/// Internal selector used by deterministic ownership adapters and fixtures.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopologyOwnershipSelector {
+    #[serde(rename = "node_id")]
+    NodeId { node_id: String },
+    #[serde(rename = "label")]
+    Label { key: String, value: String },
+    #[serde(rename = "environment")]
+    Environment { environment_id: String },
+}
+
+impl TopologyOwnershipSelector {
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        let valid = match self {
+            Self::NodeId { node_id } => !node_id.trim().is_empty(),
+            Self::Label { key, value } => !key.trim().is_empty() && !value.trim().is_empty(),
+            Self::Environment { environment_id } => !environment_id.trim().is_empty(),
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(TopologyError::InvalidRequest)
+        }
+    }
+}
+
+/// Deterministic, non-IPC mapping rule from a node or scope to a team.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TopologyOwnershipRule {
+    pub selector: TopologyOwnershipSelector,
+    pub team_id: TeamId,
+    pub team_name: String,
+    pub source: TopologyOwnershipSource,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl TopologyOwnershipRule {
+    /// Validates rule selectors and canonical team display data.
+    pub fn validate(&self) -> Result<(), TopologyError> {
+        self.selector.validate()?;
+        if self.team_name.trim().is_empty() {
+            return Err(TopologyError::InvalidRequest);
+        }
+        if self
+            .evidence_ids
+            .iter()
+            .any(|evidence_id| evidence_id.trim().is_empty())
+        {
+            return Err(TopologyError::InvalidRequest);
+        }
+        Ok(())
+    }
+}
+
+/// Number-bearing field used in typed non-finite topology errors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TopologyNumberField {
+    MetricValue,
+    EdgeConfidence,
+    PathConfidence,
+}
+
+/// Typed validation failures for topology requests, graph records and evidence.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum TopologyError {
+    #[error("invalid topology request")]
+    InvalidRequest,
+    #[error("topology node was not found")]
+    NodeNotFound,
+    #[error("incident queue item was not found")]
+    IncidentNotFound,
+    #[error("topology scope is not allowed")]
+    ScopeDenied,
+    #[error("topology evidence is not verified")]
+    EvidenceUnverified,
+    #[error("topology evidence is missing")]
+    EvidenceMissing,
+    #[error("topology number is not finite")]
+    NonFiniteNumber(TopologyNumberField),
+    #[error("topology confidence is outside the allowed range")]
+    ConfidenceOutOfRange,
+    #[error("topology source is malformed")]
+    MalformedSource,
+}
+
+fn validate_confidence(value: f64, field: TopologyNumberField) -> Result<(), TopologyError> {
+    if !value.is_finite() {
+        return Err(TopologyError::NonFiniteNumber(field));
+    }
+    if !(0.0..=1.0).contains(&value) {
+        return Err(TopologyError::ConfidenceOutOfRange);
+    }
+    Ok(())
+}
+
+fn validate_topology_node_drill_down(
+    drill_down: &DrillDownTarget,
+    evidence_ids: &[ConsoleEvidenceId],
+    node_id: &str,
+) -> Result<(), TopologyError> {
+    if drill_down.filter_key.as_deref() != Some(node_id) {
+        return Err(TopologyError::InvalidRequest);
+    }
+    validate_drill_down(drill_down, evidence_ids, DrillDownDestination::Topology)
+}
+
+fn validate_evidence_drill_down(
+    drill_down: &DrillDownTarget,
+    evidence_ids: &[ConsoleEvidenceId],
+) -> Result<(), TopologyError> {
+    validate_drill_down(drill_down, evidence_ids, DrillDownDestination::Evidence)
+}
+
+fn validate_drill_down(
+    drill_down: &DrillDownTarget,
+    evidence_ids: &[ConsoleEvidenceId],
+    destination: DrillDownDestination,
+) -> Result<(), TopologyError> {
+    if drill_down.destination != destination
+        || drill_down.evidence_ids.is_empty()
+        || !shares_evidence(evidence_ids, &drill_down.evidence_ids)
+    {
+        return Err(TopologyError::InvalidRequest);
+    }
+    Ok(())
+}
+
+fn shares_evidence(left: &[ConsoleEvidenceId], right: &[ConsoleEvidenceId]) -> bool {
+    left.iter().any(|id| right.contains(id))
+}
+
+fn validate_evidence_ids(
+    ids: &[ConsoleEvidenceId],
+    known_ids: &BTreeSet<String>,
+) -> Result<(), TopologyError> {
+    if ids.iter().any(|id| !known_ids.contains(id)) {
+        return Err(TopologyError::EvidenceMissing);
+    }
+    Ok(())
+}
+
+fn validate_path_evidence(
+    path: &TopologyPath,
+    nodes: &[TopologyNode],
+    edges: &BTreeMap<String, TopologyEdge>,
+) -> Result<(), TopologyError> {
+    let mut expected = BTreeSet::new();
+    for node_id in &path.node_ids {
+        let node = nodes
+            .iter()
+            .find(|node| node.id == *node_id)
+            .ok_or(TopologyError::NodeNotFound)?;
+        expected.extend(node.evidence_ids.iter().cloned());
+    }
+    for edge_id in path.edge_ids.iter().chain(path.cycle_edge_id.iter()) {
+        let edge = edges.get(edge_id).ok_or(TopologyError::InvalidRequest)?;
+        expected.extend(edge.evidence_ids.iter().cloned());
+    }
+
+    let actual: BTreeSet<_> = path.evidence_ids.iter().cloned().collect();
+    if actual.len() != path.evidence_ids.len()
+        || actual != expected
+        || path.evidence_ids != expected.iter().cloned().collect::<Vec<_>>()
+    {
+        return Err(TopologyError::InvalidRequest);
+    }
+    Ok(())
 }
 
 /// Validation errors for an Operations Console snapshot.

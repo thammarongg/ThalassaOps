@@ -3,6 +3,7 @@ mod connectors;
 mod kubernetes;
 mod observability;
 mod operations;
+mod topology;
 
 use crate::connectors::{
     ConnectorError, ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,

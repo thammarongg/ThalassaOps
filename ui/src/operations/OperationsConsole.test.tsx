@@ -342,6 +342,31 @@ it("puts anomalies and failing checks at the top of the attention narrative", as
   expect(screen.getByRole("button", { name: /timed out/ })).toBeInTheDocument();
 });
 
+it("hands an incident to the topology workspace when its handler is provided", async () => {
+  const user = userEvent.setup();
+  const onOpenIncidentTopology = vi.fn();
+  const invoke = vi.fn();
+  invoke.mockResolvedValue({ ok: true, value: anomalySnapshot() });
+  render(
+    <I18nProvider>
+      <OperationsConsole invoke={invoke} onOpenIncidentTopology={onOpenIncidentTopology} />
+    </I18nProvider>
+  );
+
+  expect(await screen.findByRole("heading", { name: "Checkout API failing" })).toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: /dependency paths for Checkout API failing in topology/ })
+  );
+  expect(onOpenIncidentTopology).toHaveBeenCalledWith("incident-1");
+});
+
+it("omits the topology affordance when no handler is provided", async () => {
+  renderConsole(anomalySnapshot());
+
+  expect(await screen.findByRole("heading", { name: "Checkout API failing" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /in topology/ })).not.toBeInTheDocument();
+});
+
 it("keeps the rest of the console visible when a source is unavailable", async () => {
   const snapshot = healthySnapshot();
   snapshot.source_status = snapshot.source_status.map((status) =>

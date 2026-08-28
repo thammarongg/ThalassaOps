@@ -37,6 +37,20 @@ fn full_fixture_console_is_business_impact_first_and_evidence_backed() {
 }
 
 #[test]
+fn alert_queue_ids_do_not_duplicate_the_alert_prefix() {
+    let snapshot = OperationsAggregator::from_fixture_catalog(fixture_catalog())
+        .snapshot_at(fixture_time())
+        .expect("the complete fixture catalog should aggregate");
+
+    let alert = snapshot
+        .incident_queue
+        .iter()
+        .find(|item| item.source_kind == QueueItemSourceKind::Alert)
+        .expect("fixture should contain an alert incident");
+    assert_eq!(alert.id, "alert-checkout-s1");
+}
+
+#[test]
 fn healthy_console_has_no_attention_and_numbers_still_have_evidence() {
     let mut catalog = fixture_catalog();
     catalog.alerts.clear();

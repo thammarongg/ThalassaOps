@@ -1,0 +1,461 @@
+/* Sprint 12 resource topology workspace styles. */
+
+.topology-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.topology-workspace__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  padding-bottom: var(--space-1);
+}
+
+.topology-workspace__subtitle {
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  margin: 0;
+}
+
+.topology-workspace__sync {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.topology-workspace__notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.topology-workspace__error {
+  margin: 0;
+  border-inline-start: 3px solid var(--color-coral);
+  padding: 0.7rem 0.85rem;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-coral) 11%, var(--color-abyss));
+}
+
+.topology-workspace__incidents-note {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  font-size: 0.85rem;
+}
+
+.topology-source-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-amber) 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+}
+
+.topology-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+  padding: var(--space-1) 0;
+}
+
+.topology-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.topology-filters__field label {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+}
+
+.topology-filters__field select {
+  font-family: var(--font-ui);
+  color: var(--color-sea-glass);
+  background: var(--color-deep-water);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+}
+
+.topology-workspace__main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+
+.topology-graph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.topology-graph__nodes h2,
+.topology-graph__edges h2,
+.topology-pathlist h2 {
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-reef-cyan);
+  margin: 0 0 var(--space-1);
+}
+
+.topology-graph__node-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-1);
+}
+
+.topology-graph__node {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.topology-graph__node-select {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  text-align: left;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  color: var(--color-sea-glass);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.topology-graph__node-select[aria-pressed="true"] {
+  border-color: var(--color-reef-cyan);
+  box-shadow: inset 0 0 0 1px var(--color-reef-cyan);
+}
+
+.topology-graph__node-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.topology-graph__node-kind,
+.topology-graph__node-owner {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+}
+
+.topology-graph__node-affected {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--color-amber);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  color: var(--color-amber);
+}
+
+.topology-graph__node-evidence {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-sea-glass);
+  font-family: var(--font-ui);
+  padding: 0 0.5rem;
+  cursor: pointer;
+}
+
+.topology-graph__visual {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  padding: var(--space-1);
+  background: color-mix(in srgb, var(--color-deep-water) 55%, var(--color-abyss));
+}
+
+.topology-graph__visual h2 {
+  margin-bottom: var(--space-1);
+}
+
+.topology-graph__relationship-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.topology-graph__relationship-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.topology-graph__relationship-select[aria-pressed="true"] {
+  border-color: var(--color-reef-cyan);
+  box-shadow: inset 0 0 0 1px var(--color-reef-cyan);
+}
+
+.topology-graph__relationship-node {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.topology-graph__relationship-kind {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-reef-cyan);
+  font-size: 0.75rem;
+}
+
+.topology-graph__relationship-arrow {
+  color: var(--color-reef-cyan);
+}
+
+.topology-graph__relation {
+  white-space: nowrap;
+}
+
+.topology-pathlist {
+  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  padding-top: var(--space-2);
+}
+
+.topology-pathlist__group h3 {
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  margin: var(--space-1) 0 0.5rem;
+}
+
+.topology-pathlist__group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.topology-path {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-deep-water) 60%, var(--color-abyss));
+}
+
+.topology-path--error {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  border-style: dashed;
+  border-color: var(--color-coral);
+}
+
+.topology-path__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.topology-path__kind {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-reef-cyan);
+}
+
+.topology-path__sequence {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+.topology-path__termination {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 40%, transparent);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+}
+
+.topology-path__termination--cycle_detected {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+
+.topology-path__termination--depth_limit {
+  border-color: var(--color-reef-cyan);
+  color: var(--color-reef-cyan);
+}
+
+.topology-path__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.topology-path__facts div {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.topology-path__facts dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+}
+
+.topology-path__facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.topology-path__note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+.topology-detail {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  padding: var(--space-1);
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+}
+
+.topology-detail h2 {
+  font-family: var(--font-mono);
+  margin: 0 0 var(--space-1);
+}
+
+.topology-detail dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0.2rem 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-sea-glass) 15%, transparent);
+  font-size: 0.85rem;
+}
+
+.topology-detail dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+}
+
+.topology-detail dd {
+  margin: 0;
+  text-align: right;
+}
+
+.topology-detail__labels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.topology-evidence__context {
+  margin: 0 0 var(--space-1);
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+.topology-evidence__error {
+  margin: 0;
+  color: var(--color-coral);
+}
+
+.topology-evidence__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.topology-evidence__entry {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  padding: var(--space-1);
+}
+
+.topology-evidence__entry-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-1);
+  align-items: baseline;
+}
+
+.topology-evidence__entry-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.topology-evidence__entry-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+}
+
+.topology-evidence__entry dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-sea-glass) 15%, transparent);
+}
+
+.topology-evidence__entry dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+}
+
+.topology-evidence__entry dd {
+  margin: 0;
+}
+
+.topology-evidence__entry code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.topology-evidence__redaction {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+@media (max-width: 60rem) {
+  .topology-workspace__main {
+    grid-template-columns: 1fr;
+  }
+}

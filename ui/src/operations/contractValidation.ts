@@ -6,26 +6,33 @@ import type {
   ConsolePriority,
   ConsoleSeverity,
   CriticalNumber,
-  DrillDownReference,
-  DrillDownTarget,
   EnvironmentStatus,
-  EvidenceRef,
   HealthSummary,
   ImpactLevel,
   IncidentQueueItem,
   OperationsSnapshot,
   QueueItemSourceKind,
   QueueStatus,
-  ResourceScope,
   SignalCount,
   SignalSummary,
-  SourceStatus,
-  StatusReason,
-  TimeWindow,
   WidgetDefinition,
   WidgetId,
   WidgetSize
 } from "../../contracts/ipc";
+import {
+  isBoolean,
+  isDrillDownReference,
+  isDrillDownTarget,
+  isEnum,
+  isEvidence,
+  isNonEmptyString,
+  isNullableString,
+  isRecord,
+  isScope,
+  isSourceStatus,
+  isStringArray,
+  statusReasons
+} from "../../contracts/guards";
 
 const healthStates: ConsoleHealthState[] = ["healthy", "degraded", "critical", "unknown"];
 const impactLevels: ImpactLevel[] = ["critical", "high", "medium", "low", "none", "unknown"];
@@ -44,14 +51,6 @@ const queueStatuses: QueueStatus[] = [
   "mitigating",
   "monitoring"
 ];
-const statusReasons: StatusReason[] = [
-  "not_configured",
-  "unreachable",
-  "timed_out",
-  "policy_denied",
-  "no_data_in_window",
-  "unknown"
-];
 const widgetIds: WidgetId[] = [
   "health_summary",
   "incident_queue",
@@ -61,67 +60,16 @@ const widgetIds: WidgetId[] = [
 ];
 const widgetSizes: WidgetSize[] = ["compact", "standard", "wide"];
 const numberUnits = ["count", "percentage", "milliseconds", "seconds"] as const;
-const evidenceSources = [
-  "alertmanager",
-  "prometheus",
-  "kubernetes",
-  "cloud",
-  "health_check",
-  "fixture"
-] as const;
-const destinations = [
-  "evidence",
-  "incident_queue",
-  "signal_summary",
-  "change_stream",
-  "environment_status"
-] as const;
 const changeKinds = ["deployment", "configuration", "maintenance", "connector"] as const;
-
-type UnknownRecord = Record<string, unknown>;
-
-const isRecord = (value: unknown): value is UnknownRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-const isNonEmptyString = (value: unknown): value is string =>
-  isString(value) && value.trim() !== "";
-
-const isNullableString = (value: unknown): value is string | null =>
-  value === null || isString(value);
 
 const finiteDecimalPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 const isFiniteDecimal = (value: unknown): value is string =>
-  isString(value) && finiteDecimalPattern.test(value.trim()) && Number.isFinite(Number(value));
-
-export const isTrustedNativeUrl = (value: unknown): value is string => {
-  if (!isNonEmptyString(value)) return false;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname !== "" && !url.username && !url.password;
-  } catch {
-    return false;
-  }
-};
-
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
-
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => isString(item) && item.trim() !== "");
+  typeof value === "string" &&
+  finiteDecimalPattern.test(value.trim()) &&
+  Number.isFinite(Number(value));
 
 const sharesEvidence = (left: string[], right: string[]) => left.some((id) => right.includes(id));
-
-const isEnum = <T extends string>(value: unknown, values: readonly T[]): value is T =>
-  isString(value) && values.includes(value as T);
-
-const isScope = (value: unknown): value is ResourceScope => {
-  if (!isRecord(value) || !isStringArray(value.resource_ids)) return false;
-  return ["organization_id", "team_id", "workspace_id", "environment_id"].every(
-    (key) => value[key] === undefined || isString(value[key])
-  );
-};
 
 const isBusinessImpact = (value: unknown): value is BusinessImpact => {
   if (!isRecord(value)) return false;
@@ -134,22 +82,6 @@ const isBusinessImpact = (value: unknown): value is BusinessImpact => {
   );
 };
 
-const isTimeWindow = (value: unknown): value is TimeWindow =>
-  isRecord(value) && isNonEmptyString(value.start) && isNonEmptyString(value.end);
-
-const isDrillDownTarget = (value: unknown): value is DrillDownTarget =>
-  isRecord(value) &&
-  isEnum(value.destination, destinations) &&
-  isStringArray(value.evidence_ids) &&
-  (value.filter_key === null || isString(value.filter_key));
-
-const isDrillDownReference = (value: unknown): value is DrillDownReference =>
-  isRecord(value) &&
-  isNonEmptyString(value.source_query) &&
-  isScope(value.scope) &&
-  (value.time_window === null || isTimeWindow(value.time_window)) &&
-  isStringArray(value.evidence_ids);
-
 const isCriticalNumber = (value: unknown): value is CriticalNumber => {
   if (!isRecord(value)) return false;
   return (
@@ -161,51 +93,6 @@ const isCriticalNumber = (value: unknown): value is CriticalNumber => {
     isDrillDownReference(value.drill_down_reference) &&
     sharesEvidence(value.evidence_ids, value.drill_down.evidence_ids) &&
     sharesEvidence(value.evidence_ids, value.drill_down_reference.evidence_ids)
-  );
-};
-
-const isSourceStatus = (value: unknown): value is SourceStatus =>
-  isRecord(value) &&
-  isNonEmptyString(value.source_key) &&
-  isEnum(value.state, ["fresh", "stale", "unavailable", "unverified"]) &&
-  (value.reason === null || isEnum(value.reason, statusReasons)) &&
-  isNullableString(value.detail) &&
-  (value.observed_at === null || isString(value.observed_at)) &&
-  Array.isArray(value.evidence_ids) &&
-  value.evidence_ids.every(isNonEmptyString);
-
-export const isEvidence = (value: unknown): value is EvidenceRef =>
-  isRecord(value) &&
-  isNonEmptyString(value.id) &&
-  isEnum(value.source_kind, evidenceSources) &&
-  (value.connector_id === null || isNonEmptyString(value.connector_id)) &&
-  isScope(value.scope) &&
-  isNonEmptyString(value.endpoint) &&
-  (value.query === null || isString(value.query)) &&
-  isNonEmptyString(value.observed_at) &&
-  isNonEmptyString(value.excerpt) &&
-  (value.native_url === null || isTrustedNativeUrl(value.native_url)) &&
-  isRecord(value.redaction) &&
-  isBoolean(value.redaction.classification_verified) &&
-  isBoolean(value.redaction.redaction_verified) &&
-  isBoolean(value.redaction.masked) &&
-  isBoolean(value.redaction.unparsed) &&
-  value.redaction.classification_verified &&
-  value.redaction.redaction_verified &&
-  (!value.redaction.unparsed || !value.redaction.masked);
-
-export const isEvidenceResponse = (
-  value: unknown,
-  expectedIds: string[]
-): value is EvidenceRef[] => {
-  if (!Array.isArray(value) || !value.every(isEvidence)) return false;
-  const returnedIds = new Set(value.map((item) => item.id));
-  const requestedIds = new Set(expectedIds);
-  return (
-    returnedIds.size === value.length &&
-    requestedIds.size === expectedIds.length &&
-    returnedIds.size === requestedIds.size &&
-    expectedIds.every((id) => returnedIds.has(id))
   );
 };
 

@@ -130,6 +130,26 @@ pub fn operations_evidence_descriptor() -> CommandDescriptor {
     )
 }
 
+/// Stable command descriptor for the read-only topology snapshot projection.
+pub fn topology_snapshot_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "topology",
+        "snapshot",
+        Capability::WorkspaceRead,
+        Permission::Read,
+    )
+}
+
+/// Stable command descriptor for workspace-scoped topology evidence lookup.
+pub fn topology_evidence_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "topology",
+        "evidence",
+        Capability::ResourceRead,
+        Permission::Read,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,

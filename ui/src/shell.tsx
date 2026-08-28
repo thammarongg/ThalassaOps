@@ -24,11 +24,13 @@ import { useTranslation } from "./i18n";
 import { EnvironmentWorkspace } from "./EnvironmentWorkspace";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 import { OperationsConsole } from "./OperationsConsole";
+import { TopologyWorkspace } from "./topology/TopologyWorkspace";
 type Area =
   | "commandCenter"
   | "incidents"
   | "environments"
   | "observability"
+  | "topology"
   | "changes"
   | "vulnerability"
   | "automations"
@@ -41,6 +43,7 @@ const areas: Area[] = [
   "incidents",
   "environments",
   "observability",
+  "topology",
   "changes",
   "vulnerability",
   "automations",
@@ -82,6 +85,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [handoffRequested, setHandoffRequested] = useState(false);
+  const [topologyIncidentId, setTopologyIncidentId] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     setContextFetchState("loading");
@@ -123,6 +127,10 @@ export function Shell({ invoke }: { invoke: Invoke }) {
     setActive(area);
     setPaletteOpen(false);
     setQuery("");
+  };
+  const openIncidentTopology = (incidentId: string) => {
+    setTopologyIncidentId(incidentId);
+    setActive("topology");
   };
   const contextPlaceholder = contextFetchState === "error" ? t("shell.contextUnavailable") : "…";
   const policyState =
@@ -208,7 +216,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
       </aside>
       <main className="shell-main">
         {active === "commandCenter" ? (
-          <OperationsConsole invoke={invoke} />
+          <OperationsConsole invoke={invoke} onOpenIncidentTopology={openIncidentTopology} />
         ) : active === "environments" ? (
           <>
             <h1>{t(`shell.${active}`)}</h1>
@@ -224,6 +232,8 @@ export function Shell({ invoke }: { invoke: Invoke }) {
             <h1>{t(`shell.${active}`)}</h1>
             <ObservabilityWorkspace invoke={invoke} />
           </>
+        ) : active === "topology" ? (
+          <TopologyWorkspace invoke={invoke} initialIncidentId={topologyIncidentId} />
         ) : (
           <>
             <h1>{t(`shell.${active}`)}</h1>
