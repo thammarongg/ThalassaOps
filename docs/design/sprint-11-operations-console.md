@@ -785,6 +785,12 @@ recent evidence for the responder to inspect. Change summaries and actors are
 fixture data and are subject to the same masking and classification rules as
 all other evidence.
 
+An empty stream is explicit rather than a fabricated list. Its typed state is
+`available`, `empty` or `unavailable`; an `empty` or `unavailable` state carries
+one of the localized `StatusReason` values (`not_configured`, `unreachable`,
+`timed_out`, `policy_denied`, `no_data_in_window` or `unknown`) and an optional
+safe detail for the evidence panel.
+
 ### Environment status overview
 
 ```rust
@@ -821,6 +827,7 @@ pub struct OperationsSnapshot {
     pub incident_queue: Vec<IncidentQueueItem>,
     pub signal_summary: SignalSummary,
     pub changes: Vec<ChangeStreamItem>,
+    pub change_stream_status: ChangeStreamStatus,
     pub environments: Vec<EnvironmentStatus>,
     pub evidence: Vec<EvidenceRef>,
     pub widget_registry: Vec<WidgetDefinition>,
@@ -838,12 +845,47 @@ pub enum SourceState {
     Unverified,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum StatusReason {
+    #[serde(rename = "not_configured")]
+    NotConfigured,
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    #[serde(rename = "timed_out")]
+    TimedOut,
+    #[serde(rename = "policy_denied")]
+    PolicyDenied,
+    #[serde(rename = "no_data_in_window")]
+    NoDataInWindow,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SourceStatus {
     pub source_key: String,
     pub state: SourceState,
+    pub reason: Option<StatusReason>,
+    pub detail: Option<String>,
     pub observed_at: Option<String>,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChangeStreamState {
+    #[serde(rename = "available")]
+    Available,
+    #[serde(rename = "empty")]
+    Empty,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeStreamStatus {
+    pub state: ChangeStreamState,
+    pub reason: Option<StatusReason>,
+    pub detail: Option<String>,
 }
 ```
 

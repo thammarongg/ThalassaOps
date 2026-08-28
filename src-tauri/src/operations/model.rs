@@ -6,7 +6,13 @@
 
 pub use thalassa_domain::{
     AnomalyCondition, AnomalyEvaluation, AnomalyEvaluationStatus, AnomalyRule, AnomalySignal,
-    ConsoleEvidenceId, ConsoleSeverity, FixtureHealthCheck, HealthCheckAudit, HealthCheckOutcome,
-    HealthCheckResult, HealthCheckSchedule, HealthCheckSource, MetricFixture, MetricFixtureSample,
-    MetricFixtureSource, RateDirection, ResourceScope, ThresholdOperator,
+    BusinessImpact, ChangeKind, ChangeStreamItem, ChangeStreamState, ChangeStreamStatus,
+    ConsoleEvidenceId, ConsoleHealthState, ConsolePriority, ConsoleSeverity, ContributingScope,
+    CriticalNumber, DrillDownDestination, DrillDownReference, DrillDownTarget, EnvironmentStatus,
+    EvidenceRedaction, EvidenceRef, EvidenceSourceKind, FixtureHealthCheck, HealthCheckAudit,
+    HealthCheckOutcome, HealthCheckResult, HealthCheckSchedule, HealthCheckSource, HealthSummary,
+    ImpactLevel, ImpactTrajectory, IncidentQueueItem, MetricFixture, MetricFixtureSample,
+    MetricFixtureSource, NumberUnit, OperationsSnapshot, QueueItemSourceKind, QueueStatus,
+    RateDirection, ResourceScope, SignalCount, SignalSummary, SourceState, SourceStatus,
+    StatusReason, ThresholdOperator, TimeWindow, WidgetDefinition, WidgetId, WidgetSize,
 };

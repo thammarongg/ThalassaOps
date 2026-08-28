@@ -4,11 +4,13 @@
 //! not perform correlation, deduplication, incident creation, or network I/O;
 //! those concerns belong to later aggregation and workflow layers.
 
+pub mod aggregate;
 pub mod anomaly;
 pub mod fixtures;
 pub mod health_check;
 pub mod model;
 
+pub use aggregate::{AggregationError, AggregationInput, OperationsAggregator};
 pub use anomaly::{
     evaluate_rule, evaluate_rules, metric_fixtures_from_prometheus, parse_prometheus_fixture,
     AnomalyError,

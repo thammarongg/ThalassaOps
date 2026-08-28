@@ -1318,6 +1318,56 @@ pub struct ChangeStreamItem {
     pub drill_down: DrillDownTarget,
 }
 
+/// Typed reason for a source or projection status that is not healthy/fresh.
+///
+/// The UI maps these stable wire values to localized copy.  Provider-specific
+/// details belong in evidence and the optional `SourceStatus::detail` field,
+/// never in this user-facing reason.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum StatusReason {
+    #[serde(rename = "not_configured")]
+    NotConfigured,
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    #[serde(rename = "timed_out")]
+    TimedOut,
+    #[serde(rename = "policy_denied")]
+    PolicyDenied,
+    #[serde(rename = "no_data_in_window")]
+    NoDataInWindow,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Availability state for the recent change widget.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChangeStreamState {
+    #[serde(rename = "available")]
+    Available,
+    #[serde(rename = "empty")]
+    Empty,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+}
+
+/// Explicit state for the recent change stream, including honest empty data.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeStreamStatus {
+    pub state: ChangeStreamState,
+    pub reason: Option<StatusReason>,
+    pub detail: Option<String>,
+}
+
+impl Default for ChangeStreamStatus {
+    fn default() -> Self {
+        Self {
+            state: ChangeStreamState::Empty,
+            reason: Some(StatusReason::NotConfigured),
+            detail: None,
+        }
+    }
+}
+
 /// Provider-neutral environment health and resource count overview.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EnvironmentStatus {
@@ -1350,6 +1400,10 @@ pub enum SourceState {
 pub struct SourceStatus {
     pub source_key: String,
     pub state: SourceState,
+    #[serde(default)]
+    pub reason: Option<StatusReason>,
+    #[serde(default)]
+    pub detail: Option<String>,
     pub observed_at: Option<String>,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
 }
@@ -1364,6 +1418,8 @@ pub struct OperationsSnapshot {
     pub incident_queue: Vec<IncidentQueueItem>,
     pub signal_summary: SignalSummary,
     pub changes: Vec<ChangeStreamItem>,
+    #[serde(default)]
+    pub change_stream_status: ChangeStreamStatus,
     pub environments: Vec<EnvironmentStatus>,
     pub evidence: Vec<EvidenceRef>,
     pub widget_registry: Vec<WidgetDefinition>,
@@ -1655,6 +1711,20 @@ impl OperationsSnapshot {
                 "widget IDs must be unique".into(),
             ));
         }
+        if self.change_streams_status_is_invalid() {
+            return Err(OperationsSnapshotError::Validation(
+                "change stream status is invalid".into(),
+            ));
+        }
         Ok(())
+    }
+
+    fn change_streams_status_is_invalid(&self) -> bool {
+        match self.change_stream_status.state {
+            ChangeStreamState::Available => self.change_stream_status.reason.is_some(),
+            ChangeStreamState::Empty | ChangeStreamState::Unavailable => {
+                self.change_stream_status.reason.is_none()
+            }
+        }
     }
 }

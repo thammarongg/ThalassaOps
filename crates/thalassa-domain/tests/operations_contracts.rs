@@ -213,6 +213,8 @@ fn operations_contracts_round_trip_through_json() {
     let source_status = SourceStatus {
         source_key: "prometheus-prod".into(),
         state: SourceState::Fresh,
+        reason: None,
+        detail: None,
         observed_at: Some("2026-08-28T09:00:00Z".into()),
         evidence_ids: vec![evidence_id.clone()],
     };
@@ -253,6 +255,11 @@ fn operations_contracts_round_trip_through_json() {
             }],
         },
         changes: vec![change],
+        change_stream_status: ChangeStreamStatus {
+            state: ChangeStreamState::Available,
+            reason: None,
+            detail: None,
+        },
         environments: vec![environment],
         evidence: vec![evidence],
         widget_registry: widgets,
@@ -403,6 +410,21 @@ fn every_operations_enum_uses_an_explicit_symmetric_wire_value() {
         SourceState::Stale => "stale",
         SourceState::Unavailable => "unavailable",
         SourceState::Unverified => "unverified",
+    );
+    assert_wire_values!(
+        StatusReason,
+        StatusReason::NotConfigured => "not_configured",
+        StatusReason::Unreachable => "unreachable",
+        StatusReason::TimedOut => "timed_out",
+        StatusReason::PolicyDenied => "policy_denied",
+        StatusReason::NoDataInWindow => "no_data_in_window",
+        StatusReason::Unknown => "unknown",
+    );
+    assert_wire_values!(
+        ChangeStreamState,
+        ChangeStreamState::Available => "available",
+        ChangeStreamState::Empty => "empty",
+        ChangeStreamState::Unavailable => "unavailable",
     );
     assert_wire_values!(
         WidgetId,
