@@ -95,6 +95,28 @@ fn cloud_records_without_matching_evidence_are_not_admitted() {
 }
 
 #[test]
+fn conflicting_duplicate_evidence_ids_are_rejected_as_ambiguous() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut conflicting = input.evidence[0].clone();
+    conflicting.excerpt = "conflicting evidence payload".into();
+    input.evidence.push(conflicting);
+    let duplicate_id = input.evidence[0].id.clone();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("ambiguous evidence should degrade its source");
+
+    assert!(snapshot
+        .evidence
+        .iter()
+        .all(|evidence| evidence.id != duplicate_id));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.state == thalassa_domain::SourceState::Unverified
+            && status.source_key == "observability"
+    }));
+}
+
+#[test]
 fn downstream_impact_traverses_structural_paths_from_a_node() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())

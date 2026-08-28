@@ -214,8 +214,9 @@ fn admit_evidence(input: &TopologyInput, graph: &mut DerivedGraph) {
         left.id
             .cmp(&right.id)
             .then_with(|| left.endpoint.cmp(&right.endpoint))
-            .then_with(|| left.excerpt.cmp(&right.excerpt))
+        .then_with(|| left.excerpt.cmp(&right.excerpt))
     });
+    let mut rejected_ids = BTreeSet::new();
     for evidence in source_evidence {
         let source_key = evidence_source_status_key(evidence.source_kind);
         if evidence.id.trim().is_empty()
@@ -231,10 +232,19 @@ fn admit_evidence(input: &TopologyInput, graph: &mut DerivedGraph) {
             graph.mark_unverified(source_key);
             continue;
         };
-        graph
-            .evidence
-            .entry(sanitized.id.clone())
-            .or_insert(sanitized);
+        let evidence_id = sanitized.id.clone();
+        if rejected_ids.contains(&evidence_id) {
+            continue;
+        }
+        if let Some(existing) = graph.evidence.get(&evidence_id) {
+            if existing != &sanitized {
+                graph.evidence.remove(&evidence_id);
+                rejected_ids.insert(evidence_id);
+                graph.mark_unverified(source_key);
+            }
+            continue;
+        }
+        graph.evidence.insert(evidence_id, sanitized);
     }
 }
 
