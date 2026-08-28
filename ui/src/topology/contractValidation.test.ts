@@ -57,6 +57,13 @@ it("rejects credential-bearing native evidence links", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects sensitive evidence fields before they reach the renderer", () => {
+  const snapshot = structuredClone(topologySnapshotFixture);
+  snapshot.evidence[0].excerpt = "password=opaque-fixture-value";
+
+  expect(isTopologySnapshot(snapshot)).toBe(false);
+});
+
 it("rejects rendered nodes without evidence or a paired owner", () => {
   const missingEvidence = structuredClone(topologySnapshotFixture);
   missingEvidence.nodes[0].evidence_ids = [];

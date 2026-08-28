@@ -79,10 +79,13 @@ const sensitiveUrlMarkers = [
   "sk-live-"
 ] as const;
 
-const containsSensitiveUrlValue = (value: string) => {
+const containsSensitiveValue = (value: string) => {
   const lower = value.toLowerCase();
   return sensitiveUrlMarkers.some((marker) => lower.includes(marker)) || /\d{12}/.test(value);
 };
+
+const isSafeDisplayText = (value: unknown): value is string =>
+  isNonEmptyString(value) && !/[\u0000-\u001f\u007f]/.test(value) && !containsSensitiveValue(value);
 
 const destinations: DrillDownDestination[] = [
   "evidence",
@@ -103,8 +106,7 @@ export const statusReasons: StatusReason[] = [
 ];
 
 export const isTrustedNativeUrl = (value: unknown): value is string => {
-  if (!isNonEmptyString(value)) return false;
-  if (containsSensitiveUrlValue(value)) return false;
+  if (!isSafeDisplayText(value)) return false;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname !== "" && !url.username && !url.password;
@@ -150,12 +152,12 @@ export const isEvidence = (value: unknown): value is EvidenceRef =>
   isRecord(value) &&
   isNonEmptyString(value.id) &&
   isEnum(value.source_kind, evidenceSources) &&
-  (value.connector_id === null || isNonEmptyString(value.connector_id)) &&
+  (value.connector_id === null || isSafeDisplayText(value.connector_id)) &&
   isScope(value.scope) &&
-  isNonEmptyString(value.endpoint) &&
-  (value.query === null || isNonEmptyString(value.query)) &&
-  isNonEmptyString(value.observed_at) &&
-  isNonEmptyString(value.excerpt) &&
+  isSafeDisplayText(value.endpoint) &&
+  (value.query === null || isSafeDisplayText(value.query)) &&
+  isSafeDisplayText(value.observed_at) &&
+  isSafeDisplayText(value.excerpt) &&
   (value.native_url === null || isTrustedNativeUrl(value.native_url)) &&
   isRecord(value.redaction) &&
   isBoolean(value.redaction.classification_verified) &&
