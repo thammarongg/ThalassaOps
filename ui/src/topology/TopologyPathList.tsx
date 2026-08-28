@@ -49,7 +49,7 @@ export function TopologyPathList({
   const directionLabel = (path: TopologyPath) => t(`topology.paths.direction_${path.direction}`);
 
   const edgeSequence = (path: TopologyPath) =>
-    path.edge_ids
+    [...path.edge_ids, ...(path.cycle_edge_id ? [path.cycle_edge_id] : [])]
       .map((edgeId) => {
         const edge = edgesById.get(edgeId);
         if (!edge) return edgeId;
@@ -62,7 +62,7 @@ export function TopologyPathList({
   const provenance = (path: TopologyPath) => {
     const sourceKeys = [
       ...new Set(
-        path.edge_ids.flatMap(
+        [...path.edge_ids, ...(path.cycle_edge_id ? [path.cycle_edge_id] : [])].flatMap(
           (edgeId) => edgesById.get(edgeId)?.provenance.map((item) => item.source_key) ?? []
         )
       )
