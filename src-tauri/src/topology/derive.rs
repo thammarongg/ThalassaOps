@@ -1464,6 +1464,10 @@ fn topology_metric_from_critical_number(
             return None;
         }
     };
+    if number.unit == NumberUnit::Count && value < 0.0 {
+        graph.mark_unverified(source_key);
+        return None;
+    }
     if has_unadmitted_ids(&number.evidence_ids, graph) {
         graph.mark_unverified(source_key);
         return None;

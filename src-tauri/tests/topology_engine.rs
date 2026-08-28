@@ -195,6 +195,31 @@ fn negative_kubernetes_replica_counts_are_omitted() {
 }
 
 #[test]
+fn negative_environment_counts_are_omitted() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input
+        .environments
+        .first_mut()
+        .expect("fixture should contain an environment")
+        .resource_count
+        .value = "-1".into();
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("negative source counts should degrade the source");
+    let environment = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.name == "AWS production")
+        .expect("the environment should remain visible");
+
+    assert!(environment.metric.is_none());
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "cloud" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn evidence_matching_does_not_mix_similar_resource_names() {
     let snapshot = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())
