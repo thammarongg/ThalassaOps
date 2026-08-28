@@ -167,7 +167,10 @@ impl AppState {
         if self
             .policy
             .evaluate_egress(EgressRequest::verified(
-                DataClass::Internal,
+                // Topology detail is classified as Confidential by the
+                // operational policy baseline, even when every value is
+                // redacted and verified.
+                DataClass::Confidential,
                 EgressDestination::AuditLog,
             ))
             .is_allowed()
@@ -186,7 +189,7 @@ impl AppState {
         if self
             .policy
             .evaluate_egress(EgressRequest::verified(
-                DataClass::Internal,
+                DataClass::Confidential,
                 EgressDestination::Ui,
             ))
             .is_allowed()
@@ -490,6 +493,26 @@ mod tests {
             Capability::WorkspaceRead,
             request_value(),
         ));
+        assert!(matches!(
+            result,
+            IpcResult::Err { error, .. } if error.message == "policy denied topology source retention"
+        ));
+    }
+
+    #[test]
+    fn topology_source_retention_requires_confidential_policy() {
+        let (_directory, mut state) = test_state();
+        state.policy = PolicyRuntime::load(
+            PolicyDocument::baseline(2).with_audit_log_data_classes(vec![DataClass::Internal]),
+        )
+        .unwrap();
+
+        let result = state.topology_snapshot(envelope(
+            "snapshot",
+            Capability::WorkspaceRead,
+            request_value(),
+        ));
+
         assert!(matches!(
             result,
             IpcResult::Err { error, .. } if error.message == "policy denied topology source retention"
