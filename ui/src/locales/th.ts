@@ -204,6 +204,58 @@ const th = {
     readOnly: "อ่านอย่างเดียว",
     replicas: "เรพลิกา",
     servicePods: "พ็อดที่เลือก"
+  },
+  environment: {
+    eyebrow: "สภาพแวดล้อมคลาวด์",
+    description: "ระบบจะตรวจสอบแต่ละสภาพแวดล้อมแยกกันก่อนแสดงทรัพยากร",
+    empty: "ยังไม่ได้ตั้งค่าสภาพแวดล้อมคลาวด์",
+    loading: "กำลังโหลดสภาพแวดล้อมคลาวด์…",
+    connectorUnavailable: "สภาพแวดล้อมคลาวด์ไม่พร้อมใช้งาน",
+    accessChecking: "กำลังตรวจสอบสิทธิ์การอ่าน…",
+    accessCheckRemedy: "ตรวจสอบการตั้งค่าตัวเชื่อมต่อ แล้วตรวจสอบสิทธิ์อีกครั้ง",
+    accessCheckFailed: "ไม่สามารถยืนยันสิทธิ์การอ่านได้",
+    accessLabel: "สิทธิ์การอ่าน",
+    providerLabel: "สภาพแวดล้อม {{provider}}",
+    providers: {
+      aws: "AWS",
+      azure: "Azure",
+      gcp: "GCP"
+    },
+    account: "บัญชี / ตัวเลือก",
+    location: "ตำแหน่ง",
+    name: "ทรัพยากร",
+    type: "ประเภท",
+    health: "สุขภาพ",
+    statusDetail: "รายละเอียดสถานะ",
+    actions: "การดำเนินการ",
+    resourceTableCaption: "ทรัพยากรคลาวด์",
+    resourceTypes: {
+      kubernetesCluster: "คลัสเตอร์ Kubernetes",
+      computeInstance: "อินสแตนซ์ประมวลผล"
+    },
+    healthStates: {
+      healthy: "พร้อมใช้งาน",
+      degraded: "ประสิทธิภาพลดลง",
+      unavailable: "ไม่พร้อมใช้งาน",
+      unknown: "ไม่ทราบสถานะ"
+    },
+    noResources: "ไม่พบทรัพยากรสำหรับสภาพแวดล้อมนี้",
+    inventoryLoading: "กำลังโหลดทรัพยากร…",
+    requestUnavailable: "รายการทรัพยากรไม่พร้อมใช้งาน",
+    notAvailable: "ไม่มีข้อมูล",
+    remedyLabel: "วิธีแก้ไขสำหรับผู้ปฏิบัติงาน",
+    copyRemedy: "คัดลอกวิธีแก้ไข",
+    copiedRemedy: "คัดลอกวิธีแก้ไขแล้ว",
+    openConsole: "เปิดคอนโซล",
+    copyCommand: "คัดลอกคำสั่ง CLI",
+    copiedCommand: "คัดลอกคำสั่ง CLI แล้ว",
+    access: {
+      confirmed: "ยืนยันสิทธิ์แล้ว",
+      no_credential: "ต้องเข้าสู่ระบบ",
+      session_expired: "เซสชันหมดอายุ",
+      permission_denied: "ไม่มีสิทธิ์",
+      unavailable: "ไม่สามารถเข้าถึงได้"
+    }
   }
 } as const;
 

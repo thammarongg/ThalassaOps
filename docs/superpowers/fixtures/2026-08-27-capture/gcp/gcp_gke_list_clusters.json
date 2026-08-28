@@ -1,0 +1,206 @@
+{
+  "clusters": [
+    {
+      "addonsConfig": {
+        "dnsCacheConfig": {
+          "enabled": true
+        },
+        "gcePersistentDiskCsiDriverConfig": {
+          "enabled": true
+        },
+        "kubernetesDashboard": {
+          "disabled": true
+        },
+        "networkPolicyConfig": {
+          "disabled": true
+        },
+        "nodeReadinessConfig": {}
+      },
+      "anonymousAuthenticationConfig": {
+        "mode": "LIMITED"
+      },
+      "autopilot": {},
+      "autoscaling": {
+        "autoprovisioningNodePoolDefaults": {
+          "imageType": "COS_CONTAINERD",
+          "management": {
+            "autoRepair": true,
+            "autoUpgrade": true
+          },
+          "oauthScopes": [
+            "https://www.googleapis.com/auth/devstorage.read_only",
+            "https://www.googleapis.com/auth/logging.write",
+            "https://www.googleapis.com/auth/monitoring",
+            "https://www.googleapis.com/auth/servicecontrol",
+            "https://www.googleapis.com/auth/service.management.readonly",
+            "https://www.googleapis.com/auth/trace.append"
+          ],
+          "serviceAccount": "default"
+        },
+        "autoscalingProfile": "BALANCED"
+      },
+      "binaryAuthorization": {},
+      "clusterIpv4Cidr": "<IP_ADDRESS>/14",
+      "controlPlaneEgress": {
+        "mode": "VIA_CONTROL_PLANE"
+      },
+      "controlPlaneEndpointsConfig": {
+        "dnsEndpointConfig": {
+          "allowExternalTraffic": false,
+          "enableK8sCertsViaDns": false,
+          "enableK8sTokensViaDns": false,
+          "endpoint": "gke-<CLOUD_RESOURCE_ID_2>-<ACCOUNT_OR_PROJECT_NUMBER_3>.asia-southeast1-a.autopush.gke.goog"
+        },
+        "ipEndpointsConfig": {
+          "authorizedNetworksConfig": {
+            "gcpPublicCidrsAccessEnabled": true
+          },
+          "enablePublicEndpoint": true,
+          "enabled": true,
+          "privateEndpoint": "<IP_ADDRESS_3>",
+          "publicEndpoint": "<IP_ADDRESS_4>"
+        }
+      },
+      "createTime": "2026-08-27T16:28:55+00:00",
+      "currentMasterVersion": "1.35.6-gke.<ACCOUNT_OR_PROJECT_NUMBER_2>",
+      "currentNodeVersion": "1.35.6-gke.<ACCOUNT_OR_PROJECT_NUMBER_2>",
+      "databaseEncryption": {
+        "currentState": "CURRENT_STATE_DECRYPTED",
+        "state": "DECRYPTED"
+      },
+      "defaultMaxPodsConstraint": {
+        "maxPodsPerNode": "110"
+      },
+      "endpoint": "<IP_ADDRESS_4>",
+      "enterpriseConfig": {
+        "clusterTier": "STANDARD"
+      },
+      "etag": "<CLOUD_RESOURCE_ID_3>",
+      "id": "<CLOUD_RESOURCE_ID>",
+      "initialClusterVersion": "1.35.6-gke.<ACCOUNT_OR_PROJECT_NUMBER_2>",
+      "initialNodeCount": 1,
+      "ipAllocationPolicy": {
+        "clusterIpv4Cidr": "<IP_ADDRESS>/14",
+        "clusterIpv4CidrBlock": "<IP_ADDRESS>/14",
+        "clusterSecondaryRangeName": "gke-thalassaops-s10-fixture-gke-pods-4f518436",
+        "networkTierConfig": {
+          "networkTier": "NETWORK_TIER_DEFAULT"
+        },
+        "podCidrOverprovisionConfig": {},
+        "servicesIpv4Cidr": "<IP_ADDRESS_2>/20",
+        "servicesIpv4CidrBlock": "<IP_ADDRESS_2>/20",
+        "stackType": "IPV4",
+        "useIpAliases": true
+      },
+      "labelFingerprint": "<ACCOUNT_OR_PROJECT_NUMBER>",
+      "legacyAbac": {},
+      "location": "asia-southeast1-a",
+      "locations": [
+        "asia-southeast1-a"
+      ],
+      "loggingConfig": {
+        "componentConfig": {
+          "enableComponents": [
+            "SYSTEM_COMPONENTS",
+            "WORKLOADS"
+          ]
+        }
+      },
+      "loggingService": "logging.googleapis.com/kubernetes",
+      "maintenancePolicy": {
+        "resourceVersion": "e3b0c442"
+      },
+      "masterAuth": {
+        "clientCertificateConfig": {},
+        "clusterCaCertificate": "<SENSITIVE_DATA>"
+      },
+      "masterAuthorizedNetworksConfig": {
+        "gcpPublicCidrsAccessEnabled": true
+      },
+      "monitoringConfig": {
+        "advancedDatapathObservabilityConfig": {},
+        "componentConfig": {
+          "enableComponents": [
+            "SYSTEM_COMPONENTS",
+            "STORAGE",
+            "HPA",
+            "POD",
+            "DAEMONSET",
+            "DEPLOYMENT",
+            "STATEFULSET",
+            "CADVISOR",
+            "KUBELET",
+            "DCGM",
+            "JOBSET"
+          ]
+        },
+        "managedPrometheusConfig": {
+          "enabled": true
+        }
+      },
+      "monitoringService": "monitoring.googleapis.com/kubernetes",
+      "name": "thalassaops-s10-fixture-gke",
+      "network": "thalassaops-s10-fixture-network",
+      "networkConfig": {
+        "defaultSnatStatus": {},
+        "network": "projects/<GCP_PROJECT_ID>/global/networks/thalassaops-s10-fixture-network",
+        "serviceExternalIpsConfig": {},
+        "subnetwork": "projects/<GCP_PROJECT_ID>/regions/asia-southeast1/subnetworks/thalassaops-s10-fixture-subnet"
+      },
+      "nodeCreationConfig": {
+        "nodeCreationMode": "VIA_KUBELET"
+      },
+      "nodePoolAutoConfig": {
+        "nodeKubeletConfig": {
+          "insecureKubeletReadonlyPortEnabled": false
+        }
+      },
+      "nodePoolDefaults": {
+        "nodeConfigDefaults": {
+          "loggingConfig": {
+            "variantConfig": {
+              "variant": "DEFAULT"
+            }
+          },
+          "nodeKubeletConfig": {
+            "insecureKubeletReadonlyPortEnabled": false
+          }
+        }
+      },
+      "notificationConfig": {
+        "pubsub": {}
+      },
+      "podAutoscaling": {
+        "hpaProfile": "PERFORMANCE"
+      },
+      "privateClusterConfig": {
+        "privateEndpoint": "<IP_ADDRESS_3>",
+        "publicEndpoint": "<IP_ADDRESS_4>"
+      },
+      "rbacBindingConfig": {
+        "enableInsecureBindingSystemAuthenticated": true,
+        "enableInsecureBindingSystemUnauthenticated": true
+      },
+      "releaseChannel": {
+        "channel": "REGULAR"
+      },
+      "resourceLabels": {
+        "goog-terraform-provisioned": "true",
+        "purpose": "thalassaops-sprint-10-fixture-capture"
+      },
+      "securityPostureConfig": {
+        "mode": "BASIC",
+        "vulnerabilityMode": "VULNERABILITY_MODE_UNSPECIFIED"
+      },
+      "selfLink": "https://container.googleapis.com/v1/projects/<GCP_PROJECT_ID>/zones/asia-southeast1-a/clusters/thalassaops-s10-fixture-gke",
+      "servicesIpv4Cidr": "<IP_ADDRESS_2>/20",
+      "shieldedNodes": {
+        "enabled": true
+      },
+      "status": "RUNNING",
+      "subnetwork": "thalassaops-s10-fixture-subnet",
+      "userManagedKeysConfig": {},
+      "zone": "asia-southeast1-a"
+    }
+  ]
+}

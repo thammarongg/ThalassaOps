@@ -1,0 +1,31 @@
+{
+  "value": [
+    {
+      "id": "<AZURE_RESOURCE_ID_5>",
+      "location": "eastasia",
+      "name": "thalassaops-s10-fixture-vm",
+      "properties": {
+        "hardwareProfile": {},
+        "instanceView": {
+          "platformFaultDomain": 0,
+          "statuses": [
+            {
+              "code": "ProvisioningState/succeeded",
+              "displayStatus": "Provisioning succeeded",
+              "level": "Info",
+              "time": "2026-08-27T19:13:28.3094967+00:00"
+            },
+            {
+              "code": "PowerState/running",
+              "displayStatus": "VM running",
+              "level": "Info"
+            }
+          ]
+        },
+        "provisioningState": "Succeeded",
+        "vmId": "<CLOUD_RESOURCE_ID_7>"
+      },
+      "type": "Microsoft.Compute/virtualMachines"
+    }
+  ]
+}

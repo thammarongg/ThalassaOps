@@ -36,3 +36,14 @@ provider shipping a new feature does not break an existing call; surfacing that
 feature is product work under any transport choice. This decision therefore
 trades no maintenance burden for a uniform, auditable egress path and a
 predictable cost per new integration.
+
+## Amendment: credential-resolution process policy
+
+The no-provider-CLI rule applies to resource actions: ThalassaOps never executes the generated
+provider CLI commands. Credential resolution is an explicit exception for delegated auth
+libraries; Azure may invoke `az` read-only through `azure_identity::AzureCliCredential`, while
+GCP resolution is limited to the ADC file, environment, or metadata sources and must not invoke
+`gcloud`.
+
+A Rust `std::process` spawn bypasses Tauri capability gating entirely, so this ADR is the control
+that records and constrains this allowance.

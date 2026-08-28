@@ -1,0 +1,119 @@
+{
+  "cluster": {
+    "accessConfig": {
+      "authenticationMode": "CONFIG_MAP",
+      "bootstrapClusterCreatorAdminPermissions": null
+    },
+    "arn": "<AWS_ARN><AWS_CLUSTER_NAME>",
+    "certificateAuthority": {
+      "active": {
+        "activatedBy": "<SENSITIVE_DATA>",
+        "id": "<SENSITIVE_DATA_2>"
+      },
+      "data": "<SENSITIVE_DATA_3>"
+    },
+    "clientRequestToken": null,
+    "computeConfig": null,
+    "connectorConfig": null,
+    "controlPlaneScalingConfig": {
+      "tier": "standard"
+    },
+    "createdAt": 1787847811.119,
+    "deletionProtection": false,
+    "encryptionConfig": null,
+    "endpoint": "https://<CLOUD_RESOURCE_ID_5>.gr7.ap-southeast-1.eks.amazonaws.com",
+    "health": null,
+    "id": null,
+    "identity": {
+      "oidc": {
+        "issuer": "https://oidc.eks.ap-southeast-1.amazonaws.com/id/<CLOUD_RESOURCE_ID_5>"
+      }
+    },
+    "kubeApiServerConfig": {
+      "eventTtl": "60m",
+      "serviceNodePortRange": {
+        "maxPort": 32767,
+        "minPort": 30000
+      }
+    },
+    "kubeControllerManagerConfig": {
+      "horizontalPodAutoscalerControllerConfig": {
+        "horizontalPodAutoscalerSyncPeriod": "15s"
+      },
+      "podGcControllerConfig": {
+        "terminatedPodGcThreshold": 12500
+      }
+    },
+    "kubeSchedulerConfig": {
+      "nodeResourcesFit": {
+        "scoringStrategy": {
+          "resources": [
+            {
+              "name": "cpu",
+              "weight": 1
+            },
+            {
+              "name": "memory",
+              "weight": 1
+            }
+          ],
+          "type": "LeastAllocated"
+        }
+      }
+    },
+    "kubernetesNetworkConfig": {
+      "elasticLoadBalancing": {
+        "enabled": false
+      },
+      "ipFamily": "ipv4",
+      "serviceIpv4Cidr": "<IP_ADDRESS_2>/16",
+      "serviceIpv6Cidr": null
+    },
+    "logging": {
+      "clusterLogging": [
+        {
+          "enabled": false,
+          "types": [
+            "api",
+            "audit",
+            "authenticator",
+            "controllerManager",
+            "scheduler"
+          ]
+        }
+      ]
+    },
+    "name": "<AWS_CLUSTER_NAME>",
+    "outpostConfig": null,
+    "platformVersion": "eks.10",
+    "remoteNetworkConfig": null,
+    "resourcesVpcConfig": {
+      "clusterSecurityGroupId": "<CLOUD_RESOURCE_ID_3>",
+      "controlPlaneEgressMode": "AWS_MANAGED",
+      "endpointPrivateAccess": false,
+      "endpointPublicAccess": true,
+      "publicAccessCidrs": [
+        "<IP_ADDRESS>/0"
+      ],
+      "securityGroupIds": [],
+      "subnetIds": [
+        "<CLOUD_RESOURCE_ID>",
+        "<CLOUD_RESOURCE_ID_2>"
+      ],
+      "vpcId": "<CLOUD_RESOURCE_ID_4>"
+    },
+    "roleArn": "<AWS_ARN_2><AWS_CLUSTER_NAME>-cluster",
+    "status": "ACTIVE",
+    "storageConfig": null,
+    "tags": {
+      "Name": "<AWS_CLUSTER_NAME>",
+      "purpose": "thalassaops-sprint-10-fixture-capture"
+    },
+    "upgradePolicy": {
+      "supportType": "EXTENDED"
+    },
+    "vendedLogs": false,
+    "version": "1.36",
+    "zonalShiftConfig": null
+  }
+}

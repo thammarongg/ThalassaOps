@@ -204,6 +204,58 @@ const en = {
     readOnly: "Read-only",
     replicas: "Replicas",
     servicePods: "Selected pods"
+  },
+  environment: {
+    eyebrow: "Cloud environment",
+    description: "Each environment is checked independently before its resources are shown.",
+    empty: "No cloud environments are configured.",
+    loading: "Loading cloud environments…",
+    connectorUnavailable: "Cloud environments are unavailable.",
+    accessChecking: "Checking read access…",
+    accessCheckRemedy: "Review the connector configuration and run the access check again.",
+    accessCheckFailed: "Read access could not be confirmed.",
+    accessLabel: "Read access",
+    providerLabel: "{{provider}} environment",
+    providers: {
+      aws: "AWS",
+      azure: "Azure",
+      gcp: "GCP"
+    },
+    account: "Account / selector",
+    location: "Location",
+    name: "Resource",
+    type: "Type",
+    health: "Health",
+    statusDetail: "Status detail",
+    actions: "Actions",
+    resourceTableCaption: "Cloud resources",
+    resourceTypes: {
+      kubernetesCluster: "Kubernetes cluster",
+      computeInstance: "Compute instance"
+    },
+    healthStates: {
+      healthy: "Healthy",
+      degraded: "Degraded",
+      unavailable: "Unavailable",
+      unknown: "Unknown"
+    },
+    noResources: "No resources were returned for this environment.",
+    inventoryLoading: "Loading resources…",
+    requestUnavailable: "Resource inventory is unavailable.",
+    notAvailable: "Not available",
+    remedyLabel: "Operator remedy",
+    copyRemedy: "Copy remedy",
+    copiedRemedy: "Remedy copied",
+    openConsole: "Open console",
+    copyCommand: "Copy CLI command",
+    copiedCommand: "CLI command copied",
+    access: {
+      confirmed: "Access confirmed",
+      no_credential: "Login required",
+      session_expired: "Session expired",
+      permission_denied: "Permission denied",
+      unavailable: "Access unavailable"
+    }
   }
 } as const;
 

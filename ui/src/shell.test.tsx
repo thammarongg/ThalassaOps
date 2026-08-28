@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { I18nProvider, i18n } from "./i18n";
 import { Shell } from "./shell";
 import { open } from "@tauri-apps/plugin-shell";
+import type { CloudEnvironment, CloudResource } from "../contracts/ipc";
 
 vi.mock("@tauri-apps/plugin-shell", () => ({
   open: vi.fn()
@@ -1129,4 +1130,170 @@ it("configures Loki and Tempo tenant metadata separately from credentials", asyn
     expect.objectContaining({ base_url: "https://tempo.example.test", tenant_id: "team-b" })
   );
   expect(addPayload().credential_value).toBeUndefined();
+});
+
+it("shows three cloud environments with provider boundaries and keeps healthy ones visible when one session expires", async () => {
+  const user = userEvent.setup();
+  const awsConnector = {
+    id: "aws-1",
+    kind: "aws",
+    display_name: "AWS Production",
+    enabled: true,
+    config_metadata: { profile: "prod", region: "us-east-1" },
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const azureConnector = {
+    id: "azure-1",
+    kind: "azure",
+    display_name: "Azure Production",
+    enabled: true,
+    config_metadata: { subscription_id: "sub-1", tenant_id: "tenant-1" },
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const gcpConnector = {
+    id: "gcp-1",
+    kind: "gcp",
+    display_name: "GCP Production",
+    enabled: true,
+    config_metadata: { project: "prod-project" },
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const accessFixtures: Record<string, CloudEnvironment> = {
+    "aws-1": {
+      connector_id: "aws-1",
+      provider: "aws",
+      account_label: "prod",
+      location: "us-east-1",
+      access: "confirmed",
+      remedy: ""
+    },
+    "azure-1": {
+      connector_id: "azure-1",
+      provider: "azure",
+      account_label: "sub-1",
+      location: "eastus",
+      access: "no_credential",
+      remedy: "az login --subscription sub-1"
+    },
+    "gcp-1": {
+      connector_id: "gcp-1",
+      provider: "gcp",
+      account_label: "prod-project",
+      location: "global",
+      access: "confirmed",
+      remedy: ""
+    }
+  };
+  const inventoryFixtures: Record<string, CloudResource[]> = {
+    "aws-1": [
+      {
+        provider: "aws",
+        environment_id: "aws-1",
+        resource_type: "kubernetes_cluster",
+        id: "arn:aws:eks:us-east-1:123:cluster/prod-eks",
+        name: "prod-eks",
+        location: "us-east-1",
+        health: "healthy",
+        status_detail: "ACTIVE",
+        console_url: "https://console.aws.amazon.com/eks/home#/clusters/prod-eks",
+        cli_command: "aws eks describe-cluster --name prod-eks --profile prod --region us-east-1"
+      },
+      {
+        provider: "aws",
+        environment_id: "aws-1",
+        resource_type: "compute_instance",
+        id: "i-prod-ec2",
+        name: "prod-ec2",
+        location: "us-east-1",
+        health: "healthy",
+        status_detail: "running",
+        console_url: "https://console.aws.amazon.com/ec2/home#/Instances:i-prod-ec2",
+        cli_command:
+          "aws ec2 describe-instances --instance-ids i-prod-ec2 --profile prod --region us-east-1"
+      }
+    ],
+    "azure-1": [
+      {
+        provider: "azure",
+        environment_id: "azure-1",
+        resource_type: "kubernetes_cluster",
+        id: "/subscriptions/sub-1/resourceGroups/prod/providers/Microsoft.ContainerService/managedClusters/prod-aks",
+        name: "prod-aks",
+        location: "eastus",
+        health: "healthy",
+        status_detail: "Succeeded",
+        console_url: "https://portal.azure.com/#resource/prod-aks",
+        cli_command: "az aks show --name prod-aks --subscription sub-1"
+      }
+    ],
+    "gcp-1": [
+      {
+        provider: "gcp",
+        environment_id: "gcp-1",
+        resource_type: "kubernetes_cluster",
+        id: "projects/prod-project/locations/asia-southeast1/clusters/prod-gke",
+        name: "prod-gke",
+        location: "asia-southeast1",
+        health: "healthy",
+        status_detail: "RUNNING",
+        console_url:
+          "https://console.cloud.google.com/kubernetes/clusters/details/asia-southeast1/prod-gke",
+        cli_command:
+          "gcloud container clusters describe prod-gke --project prod-project --region asia-southeast1"
+      },
+      {
+        provider: "gcp",
+        environment_id: "gcp-1",
+        resource_type: "compute_instance",
+        id: "projects/prod-project/zones/asia-southeast1-a/instances/prod-gce",
+        name: "prod-gce",
+        location: "asia-southeast1-a",
+        health: "healthy",
+        status_detail: "RUNNING",
+        console_url:
+          "https://console.cloud.google.com/compute/instancesDetail/zones/asia-southeast1-a/instances/prod-gce",
+        cli_command:
+          "gcloud compute instances describe prod-gce --project prod-project --zone asia-southeast1-a"
+      }
+    ]
+  };
+  const invoke = vi
+    .fn()
+    .mockImplementation(
+      (name: string, args?: { envelope?: { payload?: { connector_id?: string } } }) => {
+        if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+        if (name === "connector_list")
+          return Promise.resolve({ ok: true, value: [awsConnector, azureConnector, gcpConnector] });
+        if (name === "cloud_access_check") {
+          const id = args?.envelope?.payload?.connector_id;
+          return Promise.resolve({ ok: true, value: accessFixtures[id!] });
+        }
+        if (name === "cloud_inventory") {
+          const id = args?.envelope?.payload?.connector_id;
+          return Promise.resolve({ ok: true, value: inventoryFixtures[id!] ?? [] });
+        }
+        return Promise.resolve({ ok: true, value: {} });
+      }
+    );
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Environments" }));
+
+  expect(await screen.findByText("AWS")).toBeInTheDocument();
+  expect(screen.getByText("Azure")).toBeInTheDocument();
+  expect(screen.getByText("GCP")).toBeInTheDocument();
+  expect(await screen.findByText("prod-eks")).toBeInTheDocument();
+  expect(await screen.findByText("prod-gke")).toBeInTheDocument();
+  expect(await screen.findByText("prod-ec2")).toBeInTheDocument();
+  expect(await screen.findByText("prod-gce")).toBeInTheDocument();
+  expect(screen.getByText(/az login/)).toBeInTheDocument();
+  expect(screen.queryByText("prod-aks")).not.toBeInTheDocument();
 });
