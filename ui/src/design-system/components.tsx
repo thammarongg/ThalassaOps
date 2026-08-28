@@ -2,12 +2,7 @@ import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode } f
 import { useTranslation } from "../i18n";
 
 export type StatusState =
-  | "healthy"
-  | "degraded"
-  | "unavailable"
-  | "warning"
-  | "critical"
-  | "unknown";
+  "healthy" | "degraded" | "unavailable" | "warning" | "critical" | "unknown";
 export type Severity = "s1" | "s2" | "s3" | "s4" | "s5";
 type TranslationKey = string;
 type IndicatorTone = StatusState | "informational";

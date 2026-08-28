@@ -46,8 +46,7 @@ export function TopologyPathList({
     path.edge_ids.every((id) => edgesById.has(id)) &&
     (path.cycle_edge_id === null || edgesById.has(path.cycle_edge_id));
 
-  const directionLabel = (path: TopologyPath) =>
-    t(`topology.paths.direction_${path.direction}`);
+  const directionLabel = (path: TopologyPath) => t(`topology.paths.direction_${path.direction}`);
 
   const edgeSequence = (path: TopologyPath) =>
     path.edge_ids
@@ -68,7 +67,9 @@ export function TopologyPathList({
         )
       )
     ].sort();
-    return sourceKeys.length > 0 ? sourceKeys.join(", ") : t("topology.paths.provenanceUnavailable");
+    return sourceKeys.length > 0
+      ? sourceKeys.join(", ")
+      : t("topology.paths.provenanceUnavailable");
   };
 
   const renderPath = (path: TopologyPath) => {

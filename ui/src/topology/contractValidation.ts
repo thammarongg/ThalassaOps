@@ -75,11 +75,8 @@ const isTopologyDrillDown = (value: unknown, evidenceIds: string[]) =>
   isNonEmptySafeStringArray(value.evidence_ids) &&
   sharesEvidence(evidenceIds, value.evidence_ids);
 
-const isNodeTopologyDrillDown = (
-  value: unknown,
-  evidenceIds: string[],
-  nodeId: string
-) => isTopologyDrillDown(value, evidenceIds) && value.filter_key === nodeId;
+const isNodeTopologyDrillDown = (value: unknown, evidenceIds: string[], nodeId: string) =>
+  isTopologyDrillDown(value, evidenceIds) && value.filter_key === nodeId;
 
 const isEvidenceDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&
