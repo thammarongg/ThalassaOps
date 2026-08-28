@@ -493,3 +493,46 @@ fn unsafe_topology_metric_keys_are_omitted_and_mark_source_unverified() {
         .iter()
         .any(|status| status.source_key == "cloud" && status.state == SourceState::Unverified));
 }
+
+#[test]
+fn conflicting_topology_edge_identities_are_rejected_as_ambiguous() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let mut conflicting_edge = input.fixture_edges[0].clone();
+    conflicting_edge.downstream_node_id = input.fixture_edges[1].downstream_node_id.clone();
+    input.fixture_edges.push(conflicting_edge);
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting edge identity should not prevent projection");
+    assert!(!snapshot
+        .edges
+        .iter()
+        .any(|edge| edge.id == "edge:fixture:checkout-depends-on-api"));
+    assert!(snapshot
+        .source_status
+        .iter()
+        .any(|status| status.source_key == "fixtures" && status.state == SourceState::Unverified));
+}
+
+#[test]
+fn exact_topology_edge_duplicates_are_collapsed() {
+    let mut input = topology_fixture_input(fixture_scope());
+    input.fixture_edges.push(input.fixture_edges[0].clone());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("exact duplicate edge should be collapsed");
+    assert_eq!(
+        snapshot
+            .edges
+            .iter()
+            .filter(|edge| edge.id == "edge:fixture:checkout-depends-on-api")
+            .count(),
+        1
+    );
+    assert!(snapshot
+        .source_status
+        .iter()
+        .find(|status| status.source_key == "fixtures")
+        .is_some_and(|status| status.state == SourceState::Fresh));
+}

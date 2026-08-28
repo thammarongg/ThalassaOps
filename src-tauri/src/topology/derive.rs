@@ -23,6 +23,7 @@ pub(crate) struct DerivedGraph {
     pub(crate) edges: Vec<TopologyEdge>,
     pub(crate) source_status: BTreeMap<String, SourceStatus>,
     pub(crate) evidence: BTreeMap<String, EvidenceRef>,
+    ambiguous_edge_ids: BTreeSet<String>,
     pub(crate) incident_ids: BTreeSet<String>,
     pub(crate) incident_root_nodes: BTreeMap<String, Vec<String>>,
     pub(crate) incident_fixture_root_nodes: BTreeMap<String, Vec<String>>,
@@ -129,12 +130,22 @@ impl DerivedGraph {
         }
     }
 
-    fn add_edge(&mut self, edge: TopologyEdge) {
-        if let Some(existing) = self
+    fn add_edge(&mut self, edge: TopologyEdge) -> bool {
+        let edge_id = edge.id.clone();
+        if self.ambiguous_edge_ids.contains(&edge_id) {
+            return false;
+        }
+        if let Some(index) = self
             .edges
-            .iter_mut()
-            .find(|candidate| candidate.id == edge.id)
+            .iter()
+            .position(|candidate| candidate.id == edge.id)
         {
+            if !edge_identity_matches(&self.edges[index], &edge) {
+                self.edges.remove(index);
+                self.ambiguous_edge_ids.insert(edge_id);
+                return false;
+            }
+            let existing = &mut self.edges[index];
             existing.confidence = existing.confidence.min(edge.confidence);
             existing.evidence_ids.extend(edge.evidence_ids);
             existing.evidence_ids.sort();
@@ -146,11 +157,36 @@ impl DerivedGraph {
                 existing.metadata.entry(key).or_insert(value);
             }
             existing.drill_down.evidence_ids = existing.evidence_ids.clone();
+            true
         } else {
             self.edges.push(edge);
             self.edges.sort_by(|left, right| left.id.cmp(&right.id));
+            true
         }
     }
+}
+
+fn edge_identity_matches(left: &TopologyEdge, right: &TopologyEdge) -> bool {
+    left.upstream_node_id == right.upstream_node_id
+        && left.downstream_node_id == right.downstream_node_id
+        && left.kind == right.kind
+        && left.metadata == right.metadata
+        && provenance_identity(&left.provenance) == provenance_identity(&right.provenance)
+}
+
+fn provenance_identity(provenance: &[TopologyEdgeProvenance]) -> Vec<(String, String)> {
+    let mut identity = provenance
+        .iter()
+        .map(|entry| {
+            (
+                topology_source_kind_name(entry.source).into(),
+                entry.source_key.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    identity.sort();
+    identity.dedup();
+    identity
 }
 
 pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
@@ -159,6 +195,7 @@ pub(crate) fn derive_graph(input: &TopologyInput) -> DerivedGraph {
         edges: Vec::new(),
         source_status: BTreeMap::new(),
         evidence: BTreeMap::new(),
+        ambiguous_edge_ids: BTreeSet::new(),
         incident_ids: BTreeSet::new(),
         incident_root_nodes: BTreeMap::new(),
         incident_fixture_root_nodes: BTreeMap::new(),
@@ -632,7 +669,9 @@ fn derive_kubernetes_containment(
             evidence_ids,
         );
         if let Some(edge) = edge {
-            graph.add_edge(edge);
+            if !graph.add_edge(edge) {
+                graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+            }
         }
     }
 
@@ -684,7 +723,9 @@ fn derive_kubernetes_containment(
         ) else {
             continue;
         };
-        graph.add_edge(edge);
+        if !graph.add_edge(edge) {
+            graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+        }
     }
 }
 
@@ -757,7 +798,9 @@ fn derive_kubernetes_edges(
             graph.mark_unverified(&format!("kubernetes:{environment_id}"));
             continue;
         };
-        graph.add_edge(edge);
+        if !graph.add_edge(edge) {
+            graph.mark_unverified(&format!("kubernetes:{environment_id}"));
+        }
     }
 }
 
@@ -909,7 +952,9 @@ fn derive_cloud_resource(input: &TopologyInput, graph: &mut DerivedGraph, resour
             BTreeMap::from([("relationship".into(), "contains".into())]),
             evidence_ids,
         ) {
-            graph.add_edge(edge);
+            if !graph.add_edge(edge) {
+                graph.mark_unverified("cloud");
+            }
         }
     } else {
         graph.mark_unverified("cloud");
@@ -950,7 +995,9 @@ fn derive_fixture_edges(input: &TopologyInput, graph: &mut DerivedGraph) {
             graph.mark_unverified("fixtures");
             continue;
         }
-        graph.add_edge(edge);
+        if !graph.add_edge(edge) {
+            graph.mark_unverified("fixtures");
+        }
     }
 }
 
