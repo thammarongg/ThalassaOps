@@ -1241,13 +1241,21 @@ fn find_observability_candidates(
     let Some(kind) = map_kubernetes_kind(kind) else {
         return Vec::new();
     };
-    let (_, canonical_name) = canonical_resource_name(name);
-    let mut candidates = Vec::new();
-    let namespaced_name = if namespace.trim().is_empty() {
-        None
+    let (embedded_namespace, canonical_name) = canonical_resource_name(name);
+    let requested_namespace = namespace.trim();
+    if embedded_namespace.is_some_and(|embedded| {
+        !requested_namespace.is_empty() && !embedded.eq_ignore_ascii_case(requested_namespace)
+    }) {
+        return Vec::new();
+    }
+    let effective_namespace = if requested_namespace.is_empty() {
+        embedded_namespace
     } else {
-        Some(format!("{namespace}/{canonical_name}"))
+        Some(requested_namespace)
     };
+    let mut candidates = Vec::new();
+    let namespaced_name =
+        effective_namespace.map(|namespace| format!("{namespace}/{canonical_name}"));
     for ((environment_id, candidate_kind, candidate_name), node_ids) in &graph.node_lookup {
         if candidate_kind != topology_kind_name(kind) {
             continue;
@@ -1258,7 +1266,7 @@ fn find_observability_candidates(
         {
             continue;
         }
-        let namespace_matches = if namespace.trim().is_empty() {
+        let namespace_matches = if effective_namespace.is_none() {
             true
         } else {
             namespaced_name.as_deref() == Some(candidate_name.as_str())

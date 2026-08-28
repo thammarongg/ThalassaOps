@@ -657,6 +657,53 @@ fn namespace_is_part_of_kubernetes_identity_without_a_native_id() {
 }
 
 #[test]
+fn conflicting_embedded_and_explicit_namespaces_do_not_bind_observability() {
+    let mut input = topology_fixture_input(fixture_scope());
+    let production = input
+        .kubernetes
+        .get_mut("env-aws-prod")
+        .expect("fixture should contain the production inventory");
+    let service = production
+        .resources
+        .iter()
+        .find(|item| item.resource.kind == "Service")
+        .expect("fixture should contain a service")
+        .clone();
+    let mut conflicting_service = service;
+    conflicting_service.resource.id = Uuid::from_u128(0x00000000000000000000000000000998);
+    conflicting_service.resource.name = "staging/checkout".into();
+    conflicting_service.resource.native_id = Some("uid-service-checkout-staging".into());
+    production.resources.push(conflicting_service);
+
+    input.alerts[0].resource_reference = ResourceReference::Resolved {
+        namespace: "staging".into(),
+        kind: "Service".into(),
+        name: "prod/checkout".into(),
+    };
+    input
+        .evidence
+        .iter_mut()
+        .find(|evidence| evidence.id == "evidence-topology-alert-checkout")
+        .expect("fixture should contain alert evidence")
+        .query = Some("alert-checkout-s1".into());
+
+    let snapshot = TopologyBuilder::from_input(input)
+        .snapshot_at(&default_topology_request())
+        .expect("conflicting resource references should degrade observability");
+    let staging = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.native_id.as_deref() == Some("uid-service-checkout-staging"))
+        .expect("the conflicting service should remain in the graph");
+    assert!(!staging
+        .evidence_ids
+        .contains(&"evidence-topology-alert-checkout".to_string()));
+    assert!(snapshot.source_status.iter().any(|status| {
+        status.source_key == "observability" && status.state == SourceState::Unverified
+    }));
+}
+
+#[test]
 fn duplicate_kubernetes_namespaces_do_not_select_an_arbitrary_containment_parent() {
     let mut input = topology_fixture_input(fixture_scope());
     let production = input
