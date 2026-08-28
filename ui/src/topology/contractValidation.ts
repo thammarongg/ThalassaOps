@@ -22,8 +22,10 @@ import {
   isEnum,
   isEvidence,
   isNonEmptyString,
-  isNullableNonEmptyString,
+  isNullableSafeDisplayText,
   isRecord,
+  isSafeDisplayText,
+  isSafeStringArray,
   isScope,
   isSourceStatus,
   isStringArray
@@ -62,23 +64,23 @@ const numberUnits = ["count", "percentage", "milliseconds", "seconds"] as const;
 const isConfidence = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 
-const isNonEmptyStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+const isNonEmptySafeStringArray = (value: unknown): value is string[] =>
+  isSafeStringArray(value) && value.length > 0;
 
 const sharesEvidence = (left: string[], right: string[]) => left.some((id) => right.includes(id));
 
 const isTopologyDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&
   value.destination === "topology" &&
-  (value.filter_key === null || isNonEmptyString(value.filter_key)) &&
-  isNonEmptyStringArray(value.evidence_ids) &&
+  (value.filter_key === null || isSafeDisplayText(value.filter_key)) &&
+  isNonEmptySafeStringArray(value.evidence_ids) &&
   sharesEvidence(evidenceIds, value.evidence_ids);
 
 const isEvidenceDrillDown = (value: unknown, evidenceIds: string[]) =>
   isDrillDownTarget(value) &&
   value.destination === "evidence" &&
   value.filter_key === null &&
-  isNonEmptyStringArray(value.evidence_ids) &&
+  isNonEmptySafeStringArray(value.evidence_ids) &&
   sharesEvidence(evidenceIds, value.evidence_ids);
 
 const isOwnership = (value: unknown): value is TopologyOwnership => {
@@ -86,7 +88,7 @@ const isOwnership = (value: unknown): value is TopologyOwnership => {
     !isRecord(value) ||
     !isEnum(value.source, ownershipSources) ||
     !Array.isArray(value.evidence_ids) ||
-    !value.evidence_ids.every(isNonEmptyString)
+    !value.evidence_ids.every(isSafeDisplayText)
   ) {
     return false;
   }
@@ -94,9 +96,9 @@ const isOwnership = (value: unknown): value is TopologyOwnership => {
     return value.team_id === null && value.team_name === null;
   }
   return (
-    isNonEmptyString(value.team_id) &&
-    isNonEmptyString(value.team_name) &&
-    isNonEmptyStringArray(value.evidence_ids)
+    isSafeDisplayText(value.team_id) &&
+    isSafeDisplayText(value.team_name) &&
+    isNonEmptySafeStringArray(value.evidence_ids)
   );
 };
 
@@ -106,11 +108,12 @@ const isMetricFor = (
 ): value is TopologyMetric => {
   if (
     !isRecord(value) ||
-    !isNonEmptyString(value.key) ||
+    !isSafeDisplayText(value.key) ||
     typeof value.value !== "number" ||
     !Number.isFinite(value.value) ||
     !isEnum(value.unit, numberUnits) ||
-    !isDrillDownReference(value.drill_down_reference)
+    !isDrillDownReference(value.drill_down_reference) ||
+    !isSafeDisplayText(value.drill_down_reference.source_query)
   ) {
     return false;
   }
@@ -129,7 +132,7 @@ const isMetricFor = (
     );
   }
   if (
-    !isNonEmptyStringArray(value.evidence_ids) ||
+    !isNonEmptySafeStringArray(value.evidence_ids) ||
     !(destination === "topology"
       ? isTopologyDrillDown(value.drill_down, value.evidence_ids)
       : isEvidenceDrillDown(value.drill_down, value.evidence_ids))
@@ -137,7 +140,7 @@ const isMetricFor = (
     return false;
   }
   return (
-    isNonEmptyStringArray(value.drill_down_reference.evidence_ids) &&
+    isNonEmptySafeStringArray(value.drill_down_reference.evidence_ids) &&
     sharesEvidence(value.evidence_ids, value.drill_down_reference.evidence_ids)
   );
 };
@@ -149,23 +152,23 @@ const isSummaryMetric = (value: unknown): value is TopologyMetric => isMetricFor
 const isNode = (value: unknown): value is TopologyNode => {
   if (
     !isRecord(value) ||
-    !isNonEmptyString(value.id) ||
+    !isSafeDisplayText(value.id) ||
     !isEnum(value.kind, nodeKinds) ||
-    !isNonEmptyString(value.name) ||
-    !isNullableNonEmptyString(value.native_kind) ||
-    !isNullableNonEmptyString(value.native_id) ||
-    !isNullableNonEmptyString(value.environment_id) ||
-    !isNullableNonEmptyString(value.provider) ||
+    !isSafeDisplayText(value.name) ||
+    !isNullableSafeDisplayText(value.native_kind) ||
+    !isNullableSafeDisplayText(value.native_id) ||
+    !isNullableSafeDisplayText(value.environment_id) ||
+    !isNullableSafeDisplayText(value.provider) ||
     !isScope(value.scope) ||
     !isEnum(value.status, ["healthy", "degraded", "critical", "unknown"]) ||
     !isRecord(value.labels) ||
     !Object.entries(value.labels).every(
-      ([key, label]) => isNonEmptyString(key) && isNonEmptyString(label)
+      ([key, label]) => isSafeDisplayText(key) && isSafeDisplayText(label)
     ) ||
     !isOwnership(value.ownership) ||
     (value.metric !== null && !isMetric(value.metric)) ||
     !isBoolean(value.affected_by_incident) ||
-    !isNonEmptyStringArray(value.evidence_ids)
+    !isNonEmptySafeStringArray(value.evidence_ids)
   ) {
     return false;
   }
@@ -175,9 +178,9 @@ const isNode = (value: unknown): value is TopologyNode => {
 const isEdge = (value: unknown): value is TopologyEdge => {
   if (
     !isRecord(value) ||
-    !isNonEmptyString(value.id) ||
-    !isNonEmptyString(value.upstream_node_id) ||
-    !isNonEmptyString(value.downstream_node_id) ||
+    !isSafeDisplayText(value.id) ||
+    !isSafeDisplayText(value.upstream_node_id) ||
+    !isSafeDisplayText(value.downstream_node_id) ||
     value.upstream_node_id === value.downstream_node_id ||
     !isEnum(value.kind, edgeKinds) ||
     !Array.isArray(value.provenance) ||
@@ -186,15 +189,15 @@ const isEdge = (value: unknown): value is TopologyEdge => {
       (item) =>
         isRecord(item) &&
         isEnum(item.source, sourceKinds) &&
-        isNonEmptyString(item.source_key) &&
-        (item.observed_at === null || isNonEmptyString(item.observed_at))
+        isSafeDisplayText(item.source_key) &&
+        (item.observed_at === null || isSafeDisplayText(item.observed_at))
     ) ||
     !isConfidence(value.confidence) ||
     !isRecord(value.metadata) ||
     !Object.entries(value.metadata).every(
-      ([key, entry]) => isNonEmptyString(key) && isNonEmptyString(entry)
+      ([key, entry]) => isSafeDisplayText(key) && isSafeDisplayText(entry)
     ) ||
-    !isNonEmptyStringArray(value.evidence_ids)
+    !isNonEmptySafeStringArray(value.evidence_ids)
   ) {
     return false;
   }
@@ -209,11 +212,11 @@ const isEdge = (value: unknown): value is TopologyEdge => {
 const isPath = (value: unknown): value is TopologyPath => {
   if (
     !isRecord(value) ||
-    !isNonEmptyString(value.id) ||
-    !isNonEmptyString(value.root_node_id) ||
-    !isNonEmptyString(value.terminal_node_id) ||
-    !isNonEmptyStringArray(value.node_ids) ||
-    !isStringArray(value.edge_ids) ||
+    !isSafeDisplayText(value.id) ||
+    !isSafeDisplayText(value.root_node_id) ||
+    !isSafeDisplayText(value.terminal_node_id) ||
+    !isNonEmptySafeStringArray(value.node_ids) ||
+    !isSafeStringArray(value.edge_ids) ||
     !isEnum(value.direction, ["upstream", "downstream", "both"]) ||
     typeof value.depth !== "number" ||
     !Number.isSafeInteger(value.depth) ||
@@ -228,9 +231,9 @@ const isPath = (value: unknown): value is TopologyPath => {
     value.kind !== "probable_structural" ||
     !isEnum(value.termination, terminations) ||
     (value.termination === "cycle_detected"
-      ? !isNonEmptyString(value.cycle_edge_id)
+      ? !isSafeDisplayText(value.cycle_edge_id)
       : value.cycle_edge_id !== null) ||
-    !isNonEmptyStringArray(value.evidence_ids)
+    !isNonEmptySafeStringArray(value.evidence_ids)
   ) {
     return false;
   }
@@ -247,9 +250,9 @@ const isTraversal = (value: unknown): value is TopologyTraversal =>
 
 const isFilter = (value: unknown): value is TopologyFilter =>
   isRecord(value) &&
-  isStringArray(value.environment_ids) &&
-  isStringArray(value.team_ids) &&
-  (value.incident_id === null || isNonEmptyString(value.incident_id));
+  isSafeStringArray(value.environment_ids) &&
+  isSafeStringArray(value.team_ids) &&
+  (value.incident_id === null || isSafeDisplayText(value.incident_id));
 
 const isSummary = (value: unknown) =>
   isRecord(value) &&

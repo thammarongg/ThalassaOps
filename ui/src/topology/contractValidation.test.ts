@@ -64,6 +64,20 @@ it("rejects sensitive evidence fields before they reach the renderer", () => {
   expect(isTopologySnapshot(snapshot)).toBe(false);
 });
 
+it("rejects sensitive topology labels, edge metadata, and status text", () => {
+  const nodeSnapshot = structuredClone(topologySnapshotFixture);
+  nodeSnapshot.nodes[0].labels = { account_id: "opaque-account" };
+  expect(isTopologySnapshot(nodeSnapshot)).toBe(false);
+
+  const edgeSnapshot = structuredClone(topologySnapshotFixture);
+  edgeSnapshot.edges[0].metadata = { cursor: "opaque-page" };
+  expect(isTopologySnapshot(edgeSnapshot)).toBe(false);
+
+  const statusSnapshot = structuredClone(topologySnapshotFixture);
+  statusSnapshot.source_status[0].detail = "token=opaque-value";
+  expect(isTopologySnapshot(statusSnapshot)).toBe(false);
+});
+
 it("rejects rendered nodes without evidence or a paired owner", () => {
   const missingEvidence = structuredClone(topologySnapshotFixture);
   missingEvidence.nodes[0].evidence_ids = [];

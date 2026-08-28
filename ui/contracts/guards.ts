@@ -81,11 +81,21 @@ const sensitiveUrlMarkers = [
 
 const containsSensitiveValue = (value: string) => {
   const lower = value.toLowerCase();
-  return sensitiveUrlMarkers.some((marker) => lower.includes(marker)) || /\d{12}/.test(value);
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  return (
+    sensitiveUrlMarkers.some((marker) => lower.includes(marker)) ||
+    (!isUuid && /\d{12}/.test(value))
+  );
 };
 
-const isSafeDisplayText = (value: unknown): value is string =>
+export const isSafeDisplayText = (value: unknown): value is string =>
   isNonEmptyString(value) && !/[\u0000-\u001f\u007f]/.test(value) && !containsSensitiveValue(value);
+
+export const isNullableSafeDisplayText = (value: unknown): value is string | null =>
+  value === null || isSafeDisplayText(value);
+
+export const isSafeStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(isSafeDisplayText);
 
 const destinations: DrillDownDestination[] = [
   "evidence",
@@ -140,17 +150,17 @@ export const isDrillDownReference = (value: unknown): value is DrillDownReferenc
 
 export const isSourceStatus = (value: unknown): value is SourceStatus =>
   isRecord(value) &&
-  isNonEmptyString(value.source_key) &&
+  isSafeDisplayText(value.source_key) &&
   isEnum(value.state, ["fresh", "stale", "unavailable", "unverified"]) &&
   (value.reason === null || isEnum(value.reason, statusReasons)) &&
-  isNullableNonEmptyString(value.detail) &&
-  (value.observed_at === null || isNonEmptyString(value.observed_at)) &&
+  isNullableSafeDisplayText(value.detail) &&
+  isNullableSafeDisplayText(value.observed_at) &&
   Array.isArray(value.evidence_ids) &&
-  value.evidence_ids.every(isNonEmptyString);
+  value.evidence_ids.every(isSafeDisplayText);
 
 export const isEvidence = (value: unknown): value is EvidenceRef =>
   isRecord(value) &&
-  isNonEmptyString(value.id) &&
+  isSafeDisplayText(value.id) &&
   isEnum(value.source_kind, evidenceSources) &&
   (value.connector_id === null || isSafeDisplayText(value.connector_id)) &&
   isScope(value.scope) &&
