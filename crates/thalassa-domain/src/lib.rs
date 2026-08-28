@@ -322,29 +322,72 @@ impl Resource {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+/// Canonical, source-preserving envelope for every normalized signal.
+///
+/// The typed fields are deliberately small.  Source-specific facts remain in
+/// the retained source record addressed by [`SourceRecordRef`], which means a
+/// normalization pass never has to replace the originating record with a
+/// lossy projection.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Signal {
     pub id: SignalId,
-    pub source: String,
-    pub kind: String,
-    pub observed_at: DateTime<Utc>,
-    pub resource_ids: Vec<ResourceId>,
-    pub payload: Value,
+    pub kind: SignalKind,
+    pub source: EvidenceSourceKind,
+    pub state: SignalState,
+    pub observed_at: Option<String>,
+    pub ingested_at: Option<String>,
+    pub scope: ResourceScope,
+    pub targets: Vec<SignalTarget>,
+    pub business_severity: Option<ConsoleSeverity>,
+    pub payload: SignalPayload,
+    pub source_record: SourceRecordRef,
+    pub dedup_key: Option<String>,
+    pub suppression: SuppressionState,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
 }
+
 impl Signal {
-    pub fn new(
-        source: impl Into<String>,
-        kind: impl Into<String>,
-        resource_ids: Vec<ResourceId>,
-    ) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            source: source.into(),
-            kind: kind.into(),
-            observed_at: now(),
-            resource_ids,
-            payload: Value::Null,
+    /// Validate the signal before it crosses a serialization or IPC boundary.
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        if self.id.is_nil() {
+            return Err(CorrelationError::InvalidId);
         }
+        validate_optional_timestamp(self.observed_at.as_deref())?;
+        validate_optional_timestamp(self.ingested_at.as_deref())?;
+        self.source_record.validate()?;
+        if self.source_record.source_kind != self.source {
+            return Err(CorrelationError::SourceMismatch);
+        }
+        validate_targets(&self.targets)?;
+        validate_correlation_evidence_ids(&self.evidence_ids)?;
+        if !contains_all(&self.evidence_ids, &self.source_record.evidence_ids) {
+            return Err(CorrelationError::EvidenceMissing);
+        }
+        self.suppression.validate()?;
+        validate_evidence_drill_down_for_correlation(
+            &self.drill_down,
+            &self.drill_down_reference,
+            &self.evidence_ids,
+        )?;
+        if !self.scope.contains(&self.drill_down_reference.scope) {
+            return Err(CorrelationError::ScopeMismatch);
+        }
+        if let Some(key) = &self.dedup_key {
+            validate_safe_identifier(key)?;
+        }
+
+        self.payload.validate_for(self.kind, self.source)?;
+        if let SignalPayload::SecurityFinding { finding } = &self.payload {
+            if !contains_all(&self.targets, std::slice::from_ref(&finding.asset.target)) {
+                return Err(CorrelationError::TargetMismatch);
+            }
+            if !contains_all(&self.evidence_ids, &finding.evidence_ids) {
+                return Err(CorrelationError::EvidenceMissing);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -604,7 +647,7 @@ pub enum Permission {
 pub type ConsoleEvidenceId = String;
 
 /// Provider-neutral source that produced a console evidence reference.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum EvidenceSourceKind {
     #[serde(rename = "alertmanager")]
     Alertmanager,
@@ -618,6 +661,14 @@ pub enum EvidenceSourceKind {
     HealthCheck,
     #[serde(rename = "fixture")]
     Fixture,
+    #[serde(rename = "trivy")]
+    Trivy,
+    #[serde(rename = "falco")]
+    Falco,
+    #[serde(rename = "kyverno")]
+    Kyverno,
+    #[serde(rename = "opa_gatekeeper")]
+    OpaGatekeeper,
 }
 
 /// Redaction and classification assertions attached to evidence.
@@ -1524,6 +1575,1052 @@ pub struct DrillDownReference {
     pub scope: ResourceScope,
     pub time_window: Option<TimeWindow>,
     pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+/// Typed kind of a normalized signal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SignalKind {
+    #[serde(rename = "alert")]
+    Alert,
+    #[serde(rename = "anomaly")]
+    Anomaly,
+    #[serde(rename = "security_finding")]
+    SecurityFinding,
+    #[serde(rename = "health_check")]
+    HealthCheck,
+}
+
+/// Lifecycle state of a normalized signal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SignalState {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "cleared")]
+    Cleared,
+    #[serde(rename = "observed")]
+    Observed,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Exact target categories that can participate in correlation grouping.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum SignalTargetKind {
+    #[serde(rename = "resource")]
+    Resource,
+    #[serde(rename = "service")]
+    Service,
+    #[serde(rename = "deployment")]
+    Deployment,
+    #[serde(rename = "topology")]
+    Topology,
+}
+
+/// A safe, canonical target identity carried by a Signal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SignalTarget {
+    pub kind: SignalTargetKind,
+    pub id: String,
+}
+
+impl SignalTarget {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_safe_identifier(&self.id)
+    }
+}
+
+/// Reference to the complete post-policy source record retained by the core.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SourceRecordRef {
+    pub source_kind: EvidenceSourceKind,
+    pub native_id: Option<String>,
+    pub revision: Option<String>,
+    pub content_digest: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl SourceRecordRef {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_safe_identifier(&self.content_digest)?;
+        if let Some(native_id) = &self.native_id {
+            validate_safe_identifier(native_id)?;
+        }
+        if let Some(revision) = &self.revision {
+            validate_safe_identifier(revision)?;
+        }
+        validate_correlation_evidence_ids(&self.evidence_ids)
+    }
+}
+
+/// Provider-neutral payload for each Signal kind.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum SignalPayload {
+    #[serde(rename = "alert")]
+    Alert,
+    #[serde(rename = "anomaly")]
+    Anomaly {
+        observed_value: f64,
+        comparison_value: f64,
+        condition: AnomalyCondition,
+    },
+    #[serde(rename = "security_finding")]
+    SecurityFinding { finding: VulnerabilityFinding },
+    #[serde(rename = "health_check")]
+    HealthCheck { outcome: HealthCheckOutcome },
+}
+
+impl SignalPayload {
+    pub fn kind(&self) -> SignalKind {
+        match self {
+            Self::Alert => SignalKind::Alert,
+            Self::Anomaly { .. } => SignalKind::Anomaly,
+            Self::SecurityFinding { .. } => SignalKind::SecurityFinding,
+            Self::HealthCheck { .. } => SignalKind::HealthCheck,
+        }
+    }
+
+    pub fn validate_for(
+        &self,
+        expected_kind: SignalKind,
+        source: EvidenceSourceKind,
+    ) -> Result<(), CorrelationError> {
+        if self.kind() != expected_kind {
+            return Err(CorrelationError::PayloadKindMismatch);
+        }
+        match self {
+            Self::Alert => Ok(()),
+            Self::Anomaly {
+                observed_value,
+                comparison_value,
+                condition,
+            } => {
+                validate_finite(*observed_value, CorrelationNumberField::ObservedValue)?;
+                validate_finite(*comparison_value, CorrelationNumberField::ComparisonValue)?;
+                condition
+                    .validate()
+                    .map_err(|_| CorrelationError::InvalidPayload)
+            }
+            Self::SecurityFinding { finding } => {
+                finding.validate()?;
+                if finding.source != source {
+                    return Err(CorrelationError::SourceMismatch);
+                }
+                Ok(())
+            }
+            Self::HealthCheck { .. } => Ok(()),
+        }
+    }
+}
+
+/// Asset categories used by a normalized vulnerability/security finding.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum FindingAssetKind {
+    #[serde(rename = "container_image")]
+    ContainerImage,
+    #[serde(rename = "runtime_resource")]
+    RuntimeResource,
+    #[serde(rename = "kubernetes_resource")]
+    KubernetesResource,
+    #[serde(rename = "host")]
+    Host,
+    #[serde(rename = "policy_subject")]
+    PolicySubject,
+}
+
+/// Safe target and optional source-provided display/artifact metadata.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct FindingAsset {
+    pub kind: FindingAssetKind,
+    pub target: SignalTarget,
+    pub display_name: Option<String>,
+    pub artifact_digest: Option<String>,
+}
+
+impl FindingAsset {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        self.target.validate()?;
+        if let Some(display_name) = &self.display_name {
+            validate_safe_text(display_name)?;
+        }
+        if let Some(artifact_digest) = &self.artifact_digest {
+            validate_safe_identifier(artifact_digest)?;
+        }
+        Ok(())
+    }
+}
+
+/// Source severity of a vulnerability or security finding.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum FindingSeverity {
+    #[serde(rename = "critical")]
+    Critical,
+    #[serde(rename = "high")]
+    High,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "negligible")]
+    Negligible,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Source-provided exploitability classification.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Exploitability {
+    #[serde(rename = "exploited")]
+    Exploited,
+    #[serde(rename = "known_exploit")]
+    KnownExploit,
+    #[serde(rename = "probable")]
+    Probable,
+    #[serde(rename = "possible")]
+    Possible,
+    #[serde(rename = "unlikely")]
+    Unlikely,
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Provider-neutral vulnerability/security finding nested in a Signal.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct VulnerabilityFinding {
+    pub source: EvidenceSourceKind,
+    pub asset: FindingAsset,
+    pub severity: Option<FindingSeverity>,
+    pub exploitability: Option<Exploitability>,
+    pub cvss_score: Option<f64>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl VulnerabilityFinding {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        if !self.source.is_security_source() {
+            return Err(CorrelationError::UnsupportedFindingSource);
+        }
+        self.asset.validate()?;
+        if let Some(cvss_score) = self.cvss_score {
+            validate_finite(cvss_score, CorrelationNumberField::CvssScore)?;
+            if !(0.0..=10.0).contains(&cvss_score) {
+                return Err(CorrelationError::CvssOutOfRange);
+            }
+        }
+        validate_correlation_evidence_ids(&self.evidence_ids)
+    }
+}
+
+impl EvidenceSourceKind {
+    /// Whether this source is one of the initial security finding adapters.
+    pub fn is_security_source(self) -> bool {
+        matches!(
+            self,
+            Self::Trivy | Self::Falco | Self::Kyverno | Self::OpaGatekeeper
+        )
+    }
+}
+
+/// Explicit request for one deterministic event-time correlation evaluation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CorrelationRequest {
+    pub window: TimeWindow,
+    pub evaluated_at: String,
+    pub allowed_lateness_seconds: u64,
+}
+
+impl CorrelationRequest {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        self.window.validate()?;
+        if self.allowed_lateness_seconds > MAX_CORRELATION_LATENESS_SECONDS {
+            return Err(CorrelationError::LatenessOutOfRange);
+        }
+        let start = parse_correlation_timestamp(&self.window.start)?;
+        let evaluated_at = parse_correlation_timestamp(&self.evaluated_at)?;
+        if evaluated_at < start {
+            return Err(CorrelationError::InvalidWindow);
+        }
+        Ok(())
+    }
+}
+
+/// Lifecycle state of an event-time correlation window.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CorrelationWindowState {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "ready_to_finalize")]
+    ReadyToFinalize,
+    #[serde(rename = "finalized")]
+    Finalized,
+    #[serde(rename = "reopened")]
+    Reopened,
+}
+
+/// Explicit event-time window and watermark used for one snapshot.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CorrelationWindow {
+    pub range: TimeWindow,
+    pub evaluated_at: String,
+    pub watermark: String,
+    pub allowed_lateness_seconds: u64,
+    pub state: CorrelationWindowState,
+}
+
+impl CorrelationWindow {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        self.range.validate()?;
+        if self.allowed_lateness_seconds > MAX_CORRELATION_LATENESS_SECONDS {
+            return Err(CorrelationError::LatenessOutOfRange);
+        }
+        let start = parse_correlation_timestamp(&self.range.start)?;
+        let end = parse_correlation_timestamp(&self.range.end)?;
+        let evaluated_at = parse_correlation_timestamp(&self.evaluated_at)?;
+        let watermark = parse_correlation_timestamp(&self.watermark)?;
+        let expected_watermark = evaluated_at
+            .checked_sub_signed(chrono::Duration::seconds(
+                self.allowed_lateness_seconds as i64,
+            ))
+            .ok_or(CorrelationError::InvalidWindow)?;
+        if watermark != expected_watermark {
+            return Err(CorrelationError::InvalidWindow);
+        }
+        let finalization_at = end
+            .checked_add_signed(chrono::Duration::seconds(
+                self.allowed_lateness_seconds as i64,
+            ))
+            .ok_or(CorrelationError::InvalidWindow)?;
+        let expected_state = if evaluated_at < end {
+            CorrelationWindowState::Open
+        } else if evaluated_at < finalization_at {
+            CorrelationWindowState::ReadyToFinalize
+        } else {
+            CorrelationWindowState::Finalized
+        };
+        if self.state == CorrelationWindowState::Reopened {
+            if evaluated_at < finalization_at {
+                return Err(CorrelationError::InvalidWindow);
+            }
+        } else if self.state != expected_state {
+            return Err(CorrelationError::InvalidWindow);
+        }
+        if evaluated_at < start {
+            return Err(CorrelationError::InvalidWindow);
+        }
+        Ok(())
+    }
+}
+
+/// Explainable structural association categories used by correlation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CorrelationReasonKind {
+    #[serde(rename = "shared_resource")]
+    SharedResource,
+    #[serde(rename = "shared_service")]
+    SharedService,
+    #[serde(rename = "shared_deployment")]
+    SharedDeployment,
+    #[serde(rename = "topology_relation")]
+    TopologyRelation,
+}
+
+/// Confidence vocabulary for an association, deliberately excluding causality.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CorrelationQualification {
+    #[serde(rename = "exact_association")]
+    ExactAssociation,
+    #[serde(rename = "probable_structural")]
+    ProbableStructural,
+}
+
+/// Evidence-backed reason for connecting a set of Signals.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CorrelationReason {
+    pub kind: CorrelationReasonKind,
+    pub qualification: CorrelationQualification,
+    pub signal_ids: Vec<SignalId>,
+    pub target: Option<SignalTarget>,
+    pub topology_path_ids: Vec<String>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl CorrelationReason {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_signal_ids(&self.signal_ids, true)?;
+        validate_correlation_evidence_ids(&self.evidence_ids)?;
+        if let Some(target) = &self.target {
+            target.validate()?;
+        }
+        match self.kind {
+            CorrelationReasonKind::SharedResource
+            | CorrelationReasonKind::SharedService
+            | CorrelationReasonKind::SharedDeployment => {
+                let target = self
+                    .target
+                    .as_ref()
+                    .ok_or(CorrelationError::InvalidReason)?;
+                let expected_target_kind = match self.kind {
+                    CorrelationReasonKind::SharedResource => SignalTargetKind::Resource,
+                    CorrelationReasonKind::SharedService => SignalTargetKind::Service,
+                    CorrelationReasonKind::SharedDeployment => SignalTargetKind::Deployment,
+                    CorrelationReasonKind::TopologyRelation => unreachable!(),
+                };
+                if target.kind != expected_target_kind
+                    || !self.topology_path_ids.is_empty()
+                    || self.qualification != CorrelationQualification::ExactAssociation
+                {
+                    return Err(CorrelationError::InvalidReason);
+                }
+            }
+            CorrelationReasonKind::TopologyRelation => {
+                if self.target.is_some()
+                    || self.topology_path_ids.is_empty()
+                    || validate_sorted_identifiers(&self.topology_path_ids).is_err()
+                    || self.qualification != CorrelationQualification::ProbableStructural
+                {
+                    return Err(CorrelationError::InvalidReason);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Eligibility state of a correlation candidate.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CandidateStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "provisional")]
+    Provisional,
+    #[serde(rename = "suppressed")]
+    Suppressed,
+}
+
+/// Deterministic, read-only grouping of source-preserving Signals.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CorrelationCandidate {
+    pub id: String,
+    pub scope: ResourceScope,
+    pub window: CorrelationWindow,
+    pub signal_ids: Vec<SignalId>,
+    pub grouping_targets: Vec<SignalTarget>,
+    pub reasons: Vec<CorrelationReason>,
+    pub status: CandidateStatus,
+    pub late_signal_ids: Vec<SignalId>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+impl CorrelationCandidate {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_safe_identifier(&self.id)?;
+        self.window.validate()?;
+        validate_signal_ids(&self.signal_ids, true)?;
+        if self.signal_ids.len() < 2 {
+            return Err(CorrelationError::CandidateTooSmall);
+        }
+        validate_signal_ids(&self.late_signal_ids, false)?;
+        if !contains_all(&self.signal_ids, &self.late_signal_ids) {
+            return Err(CorrelationError::CandidateReferenceMissing);
+        }
+        validate_targets(&self.grouping_targets)?;
+        validate_correlation_evidence_ids(&self.evidence_ids)?;
+        if self.reasons.is_empty() {
+            return Err(CorrelationError::InvalidReason);
+        }
+        for reason in &self.reasons {
+            reason.validate()?;
+            if !contains_all(&self.signal_ids, &reason.signal_ids)
+                || !contains_all(&self.evidence_ids, &reason.evidence_ids)
+            {
+                return Err(CorrelationError::CandidateReferenceMissing);
+            }
+        }
+        validate_evidence_drill_down_for_correlation(
+            &self.drill_down,
+            &self.drill_down_reference,
+            &self.evidence_ids,
+        )?;
+        if !self.scope.contains(&self.drill_down_reference.scope) {
+            return Err(CorrelationError::ScopeMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Metric keys emitted by a correlation snapshot.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum CorrelationMetricKey {
+    #[serde(rename = "normalized_signals")]
+    NormalizedSignals,
+    #[serde(rename = "active_candidates")]
+    ActiveCandidates,
+    #[serde(rename = "suppressed_candidates")]
+    SuppressedCandidates,
+    #[serde(rename = "uncorrelated_signals")]
+    UncorrelatedSignals,
+}
+
+/// Finite evidence-backed correlation count.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CorrelationMetric {
+    pub key: CorrelationMetricKey,
+    pub value: f64,
+    pub unit: NumberUnit,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+impl CorrelationMetric {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_finite(self.value, CorrelationNumberField::MetricValue)?;
+        if self.value < 0.0 {
+            return Err(CorrelationError::MetricValueOutOfRange);
+        }
+        if self.unit != NumberUnit::Count {
+            return Err(CorrelationError::MetricUnitMismatch);
+        }
+        validate_correlation_evidence_ids(&self.evidence_ids)?;
+        validate_evidence_drill_down_for_correlation(
+            &self.drill_down,
+            &self.drill_down_reference,
+            &self.evidence_ids,
+        )
+    }
+}
+
+/// Collection of all emitted correlation metrics.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CorrelationSummary {
+    pub metrics: Vec<CorrelationMetric>,
+}
+
+impl CorrelationSummary {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        let mut keys = BTreeSet::new();
+        for metric in &self.metrics {
+            metric.validate()?;
+            if !keys.insert(metric.key) {
+                return Err(CorrelationError::DuplicateId);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Complete deterministic read-only correlation projection.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CorrelationSnapshot {
+    pub generated_at: String,
+    pub scope: ResourceScope,
+    pub request: CorrelationRequest,
+    pub window: CorrelationWindow,
+    pub summary: CorrelationSummary,
+    pub signals: Vec<Signal>,
+    pub candidates: Vec<CorrelationCandidate>,
+    pub topology_paths: Vec<TopologyPath>,
+    pub source_status: Vec<SourceStatus>,
+    pub evidence: Vec<EvidenceRef>,
+}
+
+impl CorrelationSnapshot {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        parse_correlation_timestamp(&self.generated_at)?;
+        self.request.validate()?;
+        self.window.validate()?;
+        if self.request.window != self.window.range
+            || self.request.evaluated_at != self.window.evaluated_at
+            || self.request.allowed_lateness_seconds != self.window.allowed_lateness_seconds
+        {
+            return Err(CorrelationError::WindowMismatch);
+        }
+        self.summary.validate()?;
+
+        let evidence_ids = self
+            .evidence
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<BTreeSet<_>>();
+        if evidence_ids.len() != self.evidence.len()
+            || self
+                .evidence
+                .iter()
+                .any(|item| validate_safe_identifier(&item.id).is_err())
+        {
+            return Err(CorrelationError::DuplicateId);
+        }
+        for evidence in &self.evidence {
+            if !evidence.redaction.classification_verified
+                || !evidence.redaction.redaction_verified
+                || (evidence.redaction.unparsed && evidence.redaction.masked)
+            {
+                return Err(CorrelationError::InvalidEvidence);
+            }
+            if !self.scope.contains(&evidence.scope) {
+                return Err(CorrelationError::ScopeMismatch);
+            }
+        }
+
+        let mut signal_ids = BTreeSet::new();
+        for signal in &self.signals {
+            signal.validate()?;
+            if !signal_ids.insert(signal.id) {
+                return Err(CorrelationError::DuplicateId);
+            }
+            if !self.scope.contains(&signal.scope) {
+                return Err(CorrelationError::ScopeMismatch);
+            }
+            ensure_known_evidence(&signal.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&signal.source_record.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&signal.drill_down.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&signal.drill_down_reference.evidence_ids, &evidence_ids)?;
+        }
+
+        let mut path_ids = BTreeSet::new();
+        for path in &self.topology_paths {
+            path.validate()
+                .map_err(|_| CorrelationError::InvalidTopologyPath)?;
+            if !path_ids.insert(path.id.clone()) {
+                return Err(CorrelationError::DuplicateId);
+            }
+            ensure_known_evidence(&path.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&path.drill_down.evidence_ids, &evidence_ids)?;
+        }
+
+        let mut candidate_ids = BTreeSet::new();
+        for candidate in &self.candidates {
+            candidate.validate()?;
+            if !candidate_ids.insert(candidate.id.clone()) {
+                return Err(CorrelationError::DuplicateId);
+            }
+            if candidate.scope != self.scope
+                || candidate.window != self.window
+                || !candidate
+                    .signal_ids
+                    .iter()
+                    .all(|signal_id| signal_ids.contains(signal_id))
+            {
+                return Err(CorrelationError::CandidateReferenceMissing);
+            }
+            ensure_known_evidence(&candidate.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&candidate.drill_down.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&candidate.drill_down_reference.evidence_ids, &evidence_ids)?;
+            for reason in &candidate.reasons {
+                if !reason
+                    .topology_path_ids
+                    .iter()
+                    .all(|path_id| path_ids.contains(path_id))
+                {
+                    return Err(CorrelationError::CandidateReferenceMissing);
+                }
+                for signal_id in &reason.signal_ids {
+                    let signal = self
+                        .signals
+                        .iter()
+                        .find(|signal| signal.id == *signal_id)
+                        .ok_or(CorrelationError::CandidateReferenceMissing)?;
+                    if !contains_all(&reason.evidence_ids, &signal.evidence_ids) {
+                        return Err(CorrelationError::EvidenceMissing);
+                    }
+                }
+                for path_id in &reason.topology_path_ids {
+                    let path = self
+                        .topology_paths
+                        .iter()
+                        .find(|path| path.id == *path_id)
+                        .ok_or(CorrelationError::CandidateReferenceMissing)?;
+                    if !contains_all(&reason.evidence_ids, &path.evidence_ids) {
+                        return Err(CorrelationError::EvidenceMissing);
+                    }
+                }
+            }
+            for signal_id in &candidate.signal_ids {
+                let signal = self
+                    .signals
+                    .iter()
+                    .find(|signal| signal.id == *signal_id)
+                    .ok_or(CorrelationError::CandidateReferenceMissing)?;
+                if !contains_all(&candidate.evidence_ids, &signal.evidence_ids) {
+                    return Err(CorrelationError::EvidenceMissing);
+                }
+            }
+        }
+
+        for metric in &self.summary.metrics {
+            ensure_known_evidence(&metric.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&metric.drill_down.evidence_ids, &evidence_ids)?;
+            ensure_known_evidence(&metric.drill_down_reference.evidence_ids, &evidence_ids)?;
+            if !self.scope.contains(&metric.drill_down_reference.scope) {
+                return Err(CorrelationError::ScopeMismatch);
+            }
+        }
+        for status in &self.source_status {
+            if status.source_key.trim().is_empty() {
+                return Err(CorrelationError::InvalidId);
+            }
+            ensure_known_evidence(&status.evidence_ids, &evidence_ids)?;
+        }
+        if self
+            .source_status
+            .iter()
+            .map(|status| status.source_key.as_str())
+            .collect::<BTreeSet<_>>()
+            .len()
+            != self.source_status.len()
+        {
+            return Err(CorrelationError::DuplicateId);
+        }
+        Ok(())
+    }
+}
+
+/// Evidence IDs already admitted to a correlation snapshot.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CorrelationEvidenceRequest {
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl CorrelationEvidenceRequest {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_correlation_evidence_ids(&self.evidence_ids)
+    }
+}
+
+/// How a Signal was suppressed for an evaluation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SuppressionKind {
+    #[serde(rename = "not_suppressed")]
+    NotSuppressed,
+    #[serde(rename = "rule")]
+    Rule,
+    #[serde(rename = "maintenance_window")]
+    MaintenanceWindow,
+    #[serde(rename = "rule_and_maintenance_window")]
+    RuleAndMaintenanceWindow,
+}
+
+/// Complete, retained suppression decision for one Signal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SuppressionState {
+    pub kind: SuppressionKind,
+    pub rule_ids: Vec<String>,
+    pub maintenance_window_ids: Vec<String>,
+    pub evaluated_at: String,
+    pub policy_version: u64,
+}
+
+impl SuppressionState {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        parse_correlation_timestamp(&self.evaluated_at)?;
+        validate_sorted_identifiers(&self.rule_ids)?;
+        validate_sorted_identifiers(&self.maintenance_window_ids)?;
+        let has_rules = !self.rule_ids.is_empty();
+        let has_windows = !self.maintenance_window_ids.is_empty();
+        let expected_kind = match (has_rules, has_windows) {
+            (false, false) => SuppressionKind::NotSuppressed,
+            (true, false) => SuppressionKind::Rule,
+            (false, true) => SuppressionKind::MaintenanceWindow,
+            (true, true) => SuppressionKind::RuleAndMaintenanceWindow,
+        };
+        if self.kind != expected_kind {
+            return Err(CorrelationError::SuppressionMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Internal policy selector for Signals.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SuppressionRule {
+    pub id: String,
+    pub enabled: bool,
+    pub scope: ResourceScope,
+    pub source: Option<EvidenceSourceKind>,
+    pub signal_kind: Option<SignalKind>,
+    pub target: Option<SignalTarget>,
+}
+
+impl SuppressionRule {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_safe_identifier(&self.id)?;
+        if let Some(target) = &self.target {
+            target.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Reason attached to a maintenance window.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum MaintenanceWindowReason {
+    #[serde(rename = "planned_change")]
+    PlannedChange,
+    #[serde(rename = "routine_maintenance")]
+    RoutineMaintenance,
+    #[serde(rename = "security_testing")]
+    SecurityTesting,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Internal policy maintenance interval used during suppression evaluation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MaintenanceWindow {
+    pub id: String,
+    pub enabled: bool,
+    pub scope: ResourceScope,
+    pub target: Option<SignalTarget>,
+    pub window: TimeWindow,
+    pub reason: MaintenanceWindowReason,
+    pub policy_version: u64,
+}
+
+impl MaintenanceWindow {
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        validate_safe_identifier(&self.id)?;
+        self.window.validate()?;
+        if let Some(target) = &self.target {
+            target.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Numeric fields that receive finite-value validation before serialization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CorrelationNumberField {
+    ObservedValue,
+    ComparisonValue,
+    CvssScore,
+    MetricValue,
+}
+
+/// Typed validation failures for source-preserving signal/correlation values.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum CorrelationError {
+    #[error("correlation identifier is empty or unsafe")]
+    InvalidId,
+    #[error("correlation timestamp is invalid")]
+    InvalidTimestamp,
+    #[error("correlation window is invalid")]
+    InvalidWindow,
+    #[error("correlation window exceeds the allowed bound")]
+    WindowOutOfRange,
+    #[error("correlation allowed lateness exceeds the allowed bound")]
+    LatenessOutOfRange,
+    #[error("correlation number is not finite: {0:?}")]
+    NonFiniteNumber(CorrelationNumberField),
+    #[error("CVSS score is outside 0.0..=10.0")]
+    CvssOutOfRange,
+    #[error("correlation evidence is missing")]
+    EvidenceMissing,
+    #[error("correlation evidence is invalid")]
+    InvalidEvidence,
+    #[error("signal payload and kind do not agree")]
+    PayloadKindMismatch,
+    #[error("signal source and source record/finding source do not agree")]
+    SourceMismatch,
+    #[error("finding source is not an initial security source")]
+    UnsupportedFindingSource,
+    #[error("correlation target is invalid or does not match its finding")]
+    TargetMismatch,
+    #[error("correlation reason is invalid")]
+    InvalidReason,
+    #[error("correlation candidate has fewer than two signals")]
+    CandidateTooSmall,
+    #[error("correlation candidate reference is missing")]
+    CandidateReferenceMissing,
+    #[error("correlation snapshot scope does not contain a child value")]
+    ScopeMismatch,
+    #[error("correlation snapshot window and request do not agree")]
+    WindowMismatch,
+    #[error("correlation metric must use count units")]
+    MetricUnitMismatch,
+    #[error("correlation metric value cannot be negative")]
+    MetricValueOutOfRange,
+    #[error("correlation suppression lists do not agree with kind")]
+    SuppressionMismatch,
+    #[error("correlation value is malformed")]
+    InvalidPayload,
+    #[error("topology path is invalid")]
+    InvalidTopologyPath,
+    #[error("correlation identifier is duplicated")]
+    DuplicateId,
+}
+
+pub const MAX_CORRELATION_WINDOW_SECONDS: i64 = 86_400;
+pub const MAX_CORRELATION_LATENESS_SECONDS: u64 = 21_600;
+
+impl TimeWindow {
+    /// Validate an RFC3339 half-open range and its 24-hour bound.
+    pub fn validate(&self) -> Result<(), CorrelationError> {
+        let start = parse_correlation_timestamp(&self.start)?;
+        let end = parse_correlation_timestamp(&self.end)?;
+        if start >= end {
+            return Err(CorrelationError::InvalidWindow);
+        }
+        if end - start > chrono::Duration::seconds(MAX_CORRELATION_WINDOW_SECONDS) {
+            return Err(CorrelationError::WindowOutOfRange);
+        }
+        Ok(())
+    }
+}
+
+fn parse_correlation_timestamp(value: &str) -> Result<DateTime<Utc>, CorrelationError> {
+    if value.trim().is_empty() {
+        return Err(CorrelationError::InvalidTimestamp);
+    }
+    DateTime::parse_from_rfc3339(value)
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+        .map_err(|_| CorrelationError::InvalidTimestamp)
+}
+
+fn validate_optional_timestamp(value: Option<&str>) -> Result<(), CorrelationError> {
+    if let Some(value) = value {
+        parse_correlation_timestamp(value)?;
+    }
+    Ok(())
+}
+
+fn validate_finite(value: f64, field: CorrelationNumberField) -> Result<(), CorrelationError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(CorrelationError::NonFiniteNumber(field))
+    }
+}
+
+fn validate_non_empty_text(value: &str) -> Result<(), CorrelationError> {
+    if value.trim().is_empty() {
+        Err(CorrelationError::InvalidId)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_safe_text(value: &str) -> Result<(), CorrelationError> {
+    validate_non_empty_text(value)?;
+    if value.chars().any(|character| character.is_control()) || contains_sensitive_marker(value) {
+        return Err(CorrelationError::InvalidId);
+    }
+    Ok(())
+}
+
+fn validate_safe_identifier(value: &str) -> Result<(), CorrelationError> {
+    validate_safe_text(value)?;
+    if value.chars().any(char::is_whitespace) {
+        return Err(CorrelationError::InvalidId);
+    }
+    Ok(())
+}
+
+fn contains_sensitive_marker(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "credential",
+        "authorization",
+        "bearer",
+        "api_key",
+        "access_key",
+        "private_key",
+        "arn:",
+        "/subscriptions/",
+        "subscription_id",
+        "account_id",
+        "pagination_cursor",
+        "next_link",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn validate_correlation_evidence_ids(ids: &[ConsoleEvidenceId]) -> Result<(), CorrelationError> {
+    if ids.is_empty()
+        || ids.iter().any(|id| validate_safe_identifier(id).is_err())
+        || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+    {
+        return Err(CorrelationError::EvidenceMissing);
+    }
+    if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(CorrelationError::DuplicateId);
+    }
+    Ok(())
+}
+
+fn validate_signal_ids(ids: &[SignalId], require_two: bool) -> Result<(), CorrelationError> {
+    if require_two && ids.len() < 2 {
+        return Err(CorrelationError::CandidateTooSmall);
+    }
+    if ids.iter().any(Uuid::is_nil) || ids.iter().collect::<BTreeSet<_>>().len() != ids.len() {
+        return Err(CorrelationError::InvalidId);
+    }
+    if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(CorrelationError::DuplicateId);
+    }
+    Ok(())
+}
+
+fn validate_targets(targets: &[SignalTarget]) -> Result<(), CorrelationError> {
+    let mut identities = BTreeSet::new();
+    for target in targets {
+        target.validate()?;
+        if !identities.insert((target.kind, target.id.as_str())) {
+            return Err(CorrelationError::DuplicateId);
+        }
+    }
+    Ok(())
+}
+
+fn validate_sorted_identifiers(ids: &[String]) -> Result<(), CorrelationError> {
+    let mut previous: Option<&str> = None;
+    for id in ids {
+        validate_safe_identifier(id)?;
+        if previous.is_some_and(|previous| previous >= id.as_str()) {
+            return Err(CorrelationError::DuplicateId);
+        }
+        previous = Some(id);
+    }
+    Ok(())
+}
+
+fn contains_all<T: PartialEq>(haystack: &[T], needles: &[T]) -> bool {
+    needles.iter().all(|needle| haystack.contains(needle))
+}
+
+fn ensure_known_evidence(
+    ids: &[ConsoleEvidenceId],
+    known_ids: &BTreeSet<String>,
+) -> Result<(), CorrelationError> {
+    if ids.iter().any(|id| !known_ids.contains(id)) {
+        Err(CorrelationError::EvidenceMissing)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_evidence_drill_down_for_correlation(
+    drill_down: &DrillDownTarget,
+    reference: &DrillDownReference,
+    evidence_ids: &[ConsoleEvidenceId],
+) -> Result<(), CorrelationError> {
+    if drill_down.destination != DrillDownDestination::Evidence
+        || drill_down.evidence_ids.is_empty()
+        || reference.source_query.trim().is_empty()
+        || reference.evidence_ids.is_empty()
+        || !contains_all(evidence_ids, &drill_down.evidence_ids)
+        || !contains_all(evidence_ids, &reference.evidence_ids)
+    {
+        return Err(CorrelationError::EvidenceMissing);
+    }
+    Ok(())
 }
 
 /// Closed, provider-neutral node kinds in the resource and service topology.

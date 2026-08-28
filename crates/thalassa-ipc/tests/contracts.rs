@@ -60,3 +60,18 @@ fn topology_commands_declare_their_read_only_capabilities() {
     assert_eq!(evidence.required_permission, Permission::Read);
     assert!(!evidence.scope.is_bounded());
 }
+
+#[test]
+fn correlation_commands_declare_their_read_only_capabilities() {
+    let snapshot = correlation_snapshot_descriptor();
+    assert_eq!(snapshot.name.to_string(), "correlation.snapshot");
+    assert_eq!(snapshot.required_capability, Capability::WorkspaceRead);
+    assert_eq!(snapshot.required_permission, Permission::Read);
+    assert!(!snapshot.scope.is_bounded());
+
+    let evidence = correlation_evidence_descriptor();
+    assert_eq!(evidence.name.to_string(), "correlation.evidence");
+    assert_eq!(evidence.required_capability, Capability::ResourceRead);
+    assert_eq!(evidence.required_permission, Permission::Read);
+    assert!(!evidence.scope.is_bounded());
+}

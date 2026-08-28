@@ -1,0 +1,20 @@
+{
+  "source": "falco-fixture",
+  "event_id": "falco-event-1",
+  "rule": "Write below binary directory",
+  "priority": "Critical",
+  "time": "2026-08-28T08:58:30Z",
+  "target": {
+    "namespace": "prod",
+    "pod": "checkout-7d9c",
+    "container": "checkout"
+  },
+  "output_fields": {
+    "proc.name": "checkout-worker",
+    "fd.name": "/srv/checkout/cache.marker"
+  },
+  "vendor_extension": {
+    "capture": "synthetic",
+    "revision_hint": "fixture-1"
+  }
+}

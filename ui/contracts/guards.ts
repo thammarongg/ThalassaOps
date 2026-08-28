@@ -45,7 +45,11 @@ const evidenceSources: EvidenceSourceKind[] = [
   "kubernetes",
   "cloud",
   "health_check",
-  "fixture"
+  "fixture",
+  "trivy",
+  "falco",
+  "kyverno",
+  "opa_gatekeeper"
 ];
 
 const sensitiveUrlMarkers = [

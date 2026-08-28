@@ -1,0 +1,18 @@
+{
+  "apiVersion": "wgpolicyk8s.io/v1alpha2",
+  "policy": "disallow-host-path",
+  "rule": "host-path",
+  "result": "fail",
+  "severity": "high",
+  "resource": {
+    "namespace": "prod",
+    "kind": "Deployment",
+    "name": "checkout"
+  },
+  "violation_path": "spec.template.spec.volumes[0].hostPath",
+  "message": "host path is not allowed for this workload",
+  "vendor_extension": {
+    "capture": "synthetic",
+    "revision_hint": "fixture-1"
+  }
+}

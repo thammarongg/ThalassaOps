@@ -178,7 +178,11 @@ export type EvidenceSourceKind =
   | "kubernetes"
   | "cloud"
   | "health_check"
-  | "fixture";
+  | "fixture"
+  | "trivy"
+  | "falco"
+  | "kyverno"
+  | "opa_gatekeeper";
 export type EvidenceRedaction = {
   classification_verified: boolean;
   redaction_verified: boolean;
@@ -211,6 +215,160 @@ export type DrillDownTarget = {
   filter_key: string | null;
 };
 export type TimeWindow = { start: string; end: string };
+
+export type SignalId = UUID;
+export type SignalKind = "alert" | "anomaly" | "security_finding" | "health_check";
+export type SignalState = "active" | "cleared" | "observed" | "unknown";
+export type SignalTargetKind = "resource" | "service" | "deployment" | "topology";
+export type SignalTarget = { kind: SignalTargetKind; id: string };
+export type SourceRecordRef = {
+  source_kind: EvidenceSourceKind;
+  native_id: string | null;
+  revision: string | null;
+  content_digest: string;
+  evidence_ids: ConsoleEvidenceId[];
+};
+
+export type FindingAssetKind =
+  "container_image" | "runtime_resource" | "kubernetes_resource" | "host" | "policy_subject";
+export type FindingAsset = {
+  kind: FindingAssetKind;
+  target: SignalTarget;
+  display_name: string | null;
+  artifact_digest: string | null;
+};
+export type FindingSeverity = "critical" | "high" | "medium" | "low" | "negligible" | "unknown";
+export type Exploitability =
+  "exploited" | "known_exploit" | "probable" | "possible" | "unlikely" | "none" | "unknown";
+export type VulnerabilityFinding = {
+  source: EvidenceSourceKind;
+  asset: FindingAsset;
+  severity: FindingSeverity | null;
+  exploitability: Exploitability | null;
+  cvss_score: number | null;
+  evidence_ids: ConsoleEvidenceId[];
+};
+
+export type SignalPayload =
+  | "alert"
+  | {
+      anomaly: {
+        observed_value: number;
+        comparison_value: number;
+        condition: AnomalyCondition;
+      };
+    }
+  | { security_finding: { finding: VulnerabilityFinding } }
+  | { health_check: { outcome: HealthCheckOutcome } };
+export type SuppressionKind =
+  "not_suppressed" | "rule" | "maintenance_window" | "rule_and_maintenance_window";
+export type SuppressionState = {
+  kind: SuppressionKind;
+  rule_ids: string[];
+  maintenance_window_ids: string[];
+  evaluated_at: string;
+  policy_version: number;
+};
+export type Signal = {
+  id: SignalId;
+  kind: SignalKind;
+  source: EvidenceSourceKind;
+  state: SignalState;
+  observed_at: string | null;
+  ingested_at: string | null;
+  scope: ResourceScope;
+  targets: SignalTarget[];
+  business_severity: ConsoleSeverity | null;
+  payload: SignalPayload;
+  source_record: SourceRecordRef;
+  dedup_key: string | null;
+  suppression: SuppressionState;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+
+export type CorrelationRequest = {
+  window: TimeWindow;
+  evaluated_at: string;
+  allowed_lateness_seconds: number;
+};
+export type CorrelationWindowState = "open" | "ready_to_finalize" | "finalized" | "reopened";
+export type CorrelationWindow = {
+  range: TimeWindow;
+  evaluated_at: string;
+  watermark: string;
+  allowed_lateness_seconds: number;
+  state: CorrelationWindowState;
+};
+export type CorrelationReasonKind =
+  "shared_resource" | "shared_service" | "shared_deployment" | "topology_relation";
+export type CorrelationQualification = "exact_association" | "probable_structural";
+export type CorrelationReason = {
+  kind: CorrelationReasonKind;
+  qualification: CorrelationQualification;
+  signal_ids: SignalId[];
+  target: SignalTarget | null;
+  topology_path_ids: string[];
+  evidence_ids: ConsoleEvidenceId[];
+};
+export type CandidateStatus = "active" | "provisional" | "suppressed";
+export type CorrelationCandidate = {
+  id: string;
+  scope: ResourceScope;
+  window: CorrelationWindow;
+  signal_ids: SignalId[];
+  grouping_targets: SignalTarget[];
+  reasons: CorrelationReason[];
+  status: CandidateStatus;
+  late_signal_ids: SignalId[];
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+export type CorrelationMetricKey =
+  "normalized_signals" | "active_candidates" | "suppressed_candidates" | "uncorrelated_signals";
+export type CorrelationMetric = {
+  key: CorrelationMetricKey;
+  value: number;
+  unit: NumberUnit;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+export type CorrelationSummary = { metrics: CorrelationMetric[] };
+export type CorrelationSnapshot = {
+  generated_at: string;
+  scope: ResourceScope;
+  request: CorrelationRequest;
+  window: CorrelationWindow;
+  summary: CorrelationSummary;
+  signals: Signal[];
+  candidates: CorrelationCandidate[];
+  topology_paths: TopologyPath[];
+  source_status: SourceStatus[];
+  evidence: EvidenceRef[];
+};
+export type CorrelationEvidenceRequest = { evidence_ids: ConsoleEvidenceId[] };
+export type SuppressionRule = {
+  id: string;
+  enabled: boolean;
+  scope: ResourceScope;
+  source: EvidenceSourceKind | null;
+  signal_kind: SignalKind | null;
+  target: SignalTarget | null;
+};
+export type MaintenanceWindowReason =
+  "planned_change" | "routine_maintenance" | "security_testing" | "unknown";
+export type MaintenanceWindow = {
+  id: string;
+  enabled: boolean;
+  scope: ResourceScope;
+  target: SignalTarget | null;
+  window: TimeWindow;
+  reason: MaintenanceWindowReason;
+  policy_version: number;
+};
 export type DrillDownReference = {
   source_query: string;
   scope: ResourceScope;
