@@ -356,8 +356,7 @@ it("renders bidirectional probable paths in their own group", async () => {
     [{ ...topologySnapshotFixture.paths[0], direction: "both" }]
   );
   const invoke = topologyInvoke({
-    snapshotFor: (request) =>
-      request.focus_node_id ? bothDirectionSnapshot : unfocusedSnapshot()
+    snapshotFor: (request) => (request.focus_node_id ? bothDirectionSnapshot : unfocusedSnapshot())
   });
   renderWorkspace(invoke);
 
@@ -406,6 +405,35 @@ it("re-reads the graph through IPC when the environment filter changes", async (
   expect(await screen.findByRole("button", { name: /^catalog,/ })).toBeInTheDocument();
   expect(screen.queryByText("checkout")).not.toBeInTheDocument();
   expect(screen.getByText("No probable paths start from this selection.")).toBeInTheDocument();
+});
+
+it("clears a focus node when an environment filter removes it", async () => {
+  const user = userEvent.setup();
+  const invoke = topologyInvoke({
+    snapshotFor: (request) =>
+      request.filter.environment_ids.length
+        ? restrictSnapshotTo((node) => node.environment_id === "env-gcp-staging")
+        : defaultSnapshotFor(request)
+  });
+  renderWorkspace(invoke);
+
+  await user.click(
+    await screen.findByRole("button", { name: "checkout, Service, Unknown, Platform" })
+  );
+  expect(await screen.findByRole("heading", { name: "Impact from checkout" })).toBeInTheDocument();
+
+  await user.selectOptions(
+    await screen.findByRole("combobox", { name: "Environment" }),
+    "env-gcp-staging"
+  );
+
+  await waitFor(() =>
+    expect(topologySnapshotCalls(invoke).at(-1)?.envelope.payload).toMatchObject({
+      filter: { environment_ids: ["env-gcp-staging"] },
+      focus_node_id: null
+    })
+  );
+  expect(screen.queryByRole("complementary", { name: "Resource detail" })).not.toBeInTheDocument();
 });
 
 it("re-reads the graph through IPC when the team filter changes", async () => {

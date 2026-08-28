@@ -298,6 +298,15 @@ export function TopologyWorkspace({
     [edgesById, selectedEdgeId]
   );
 
+  useEffect(() => {
+    if (selectedNodeId && !nodesById.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+    if (selectedEdgeId && !edgesById.has(selectedEdgeId)) {
+      setSelectedEdgeId(null);
+    }
+  }, [edgesById, nodesById, selectedEdgeId, selectedNodeId]);
+
   // The Incident filter lists the workspace queue, the same projection the
   // Operations Console renders.  A failure here degrades only the dropdown.
   useEffect(() => {
