@@ -11,6 +11,7 @@ pub mod dedup;
 pub mod fixtures;
 pub mod grouping;
 pub mod source_records;
+pub mod suppression;
 pub mod window;
 
 use thiserror::Error;
@@ -31,6 +32,11 @@ pub use aggregate::{aggregate_snapshot, assemble_snapshot, CorrelationInput};
 pub use grouping::{
     build_signal_groups, group_signals, group_signals_in_scope, CorrelationComponent,
     CorrelationTopologyResolver, GroupingResult,
+};
+pub use suppression::{
+    apply_signal_suppression, apply_suppression, evaluate_signal_suppression, evaluate_suppression,
+    maintenance_window_matches_signal, matches_maintenance_window, matches_rule,
+    rule_matches_signal,
 };
 
 pub use adapters::{SignalAdapter, SignalAdapterError};
@@ -59,8 +65,9 @@ pub use thalassa_domain::{
 };
 
 /// Errors returned while composing the Task 5 deduplication and window
-/// phases. Later grouping/suppression phases can add their own typed layers
-/// without changing either pure module's error contract.
+/// phases. Suppression is an annotation phase and returns the existing typed
+/// correlation errors directly without changing either pure module's error
+/// contract.
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum CorrelationPreparationError {
     #[error("correlation deduplication failed")]
@@ -140,6 +147,17 @@ fn correlate_signals_inner(
     records: Option<&SourceRecordStore>,
     resolver: &dyn TopologyCorrelationResolver,
 ) -> Result<CorrelationSnapshot, CorrelationError> {
+    input.request.validate()?;
+    // Suppression is an annotation phase over the retained Signal set.  Apply
+    // it before event-window grouping so grouped components carry the same
+    // complete Signal context that is ultimately emitted in the snapshot.
+    apply_suppression(
+        &mut input.signals,
+        &input.suppression_rules,
+        &input.maintenance_windows,
+        &input.request.evaluated_at,
+        input.policy_version,
+    )?;
     let preparation = prepare_correlation(
         input.signals.clone(),
         &input.request,

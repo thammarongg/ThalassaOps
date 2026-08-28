@@ -47,6 +47,6 @@ fn catalog_contains_operational_and_grouping_inputs() {
     assert!(keys.contains(&"shared-deployment-finding"));
     assert!(keys.contains(&"topology-left"));
     assert!(keys.contains(&"topology-right"));
-    assert_eq!(catalog.suppression_rules.len(), 1);
+    assert_eq!(catalog.suppression_rules.len(), 2);
     assert_eq!(catalog.maintenance_windows.len(), 1);
 }

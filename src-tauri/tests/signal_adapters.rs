@@ -415,8 +415,8 @@ fn every_existing_operational_fixture_normalizes_through_one_adapter() {
                 .unwrap_or_else(|error| panic!("{} failed: {error}", fixture.key)),
         );
     }
-    assert_eq!(normalized.len(), 8);
-    assert_eq!(records.len(), 8);
+    assert_eq!(normalized.len(), 15);
+    assert_eq!(records.len(), 15);
     assert!(normalized.iter().all(|signal| signal.validate().is_ok()));
 }
 

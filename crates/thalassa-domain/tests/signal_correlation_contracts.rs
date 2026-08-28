@@ -442,6 +442,31 @@ fn absent_source_values_are_explicit_nulls() {
 }
 
 #[test]
+fn suppression_state_keeps_sorted_policy_ids_and_rejects_kind_mismatch() {
+    let mut signal = security_signal(16, &["evidence-1"], "resource-checkout");
+    signal.suppression = SuppressionState {
+        kind: SuppressionKind::RuleAndMaintenanceWindow,
+        rule_ids: vec!["rule-a".into(), "rule-z".into()],
+        maintenance_window_ids: vec!["maintenance-a".into(), "maintenance-z".into()],
+        evaluated_at: "2026-08-28T09:00:00Z".into(),
+        policy_version: 13,
+    };
+    assert!(signal.validate().is_ok());
+    let encoded = serde_json::to_value(&signal).unwrap();
+    assert_eq!(
+        encoded["suppression"]["rule_ids"],
+        json!(["rule-a", "rule-z"])
+    );
+    assert_eq!(encoded["suppression"]["policy_version"], json!(13));
+
+    signal.suppression.kind = SuppressionKind::Rule;
+    assert_eq!(
+        signal.validate(),
+        Err(CorrelationError::SuppressionMismatch)
+    );
+}
+
+#[test]
 fn validation_rejects_non_finite_values_invalid_cvss_and_missing_evidence() {
     let mut snapshot = complete_snapshot();
     if let SignalPayload::Anomaly { observed_value, .. } = &mut snapshot.signals[1].payload {

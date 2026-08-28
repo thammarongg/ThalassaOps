@@ -114,11 +114,19 @@ impl CorrelationFixtureCatalog {
                 return Err(CorrelationError::DuplicateId);
             }
         }
+        let mut rule_ids = BTreeSet::new();
         for rule in &self.suppression_rules {
             rule.validate()?;
+            if !rule_ids.insert(rule.id.as_str()) {
+                return Err(CorrelationError::DuplicateId);
+            }
         }
+        let mut maintenance_window_ids = BTreeSet::new();
         for window in &self.maintenance_windows {
             window.validate()?;
+            if !maintenance_window_ids.insert(window.id.as_str()) {
+                return Err(CorrelationError::DuplicateId);
+            }
         }
         Ok(())
     }
@@ -319,6 +327,119 @@ pub fn correlation_fixture_catalog() -> CorrelationFixtureCatalog {
             "fixture://operational/prometheus",
             &scope,
         ),
+        // Suppression fixtures deliberately cover each policy outcome while
+        // retaining complete source records just like the operational and
+        // security replay inputs above.
+        operational_fixture(
+            "suppression-rule-only",
+            EvidenceSourceKind::Prometheus,
+            json!({
+                "rule_id": "rule-suppress-checkout-test",
+                "metric_key": "checkout_suppression_rule_only",
+                "target": {"kind": "service", "id": "service/checkout"},
+                "observed_value": 4.0,
+                "comparison_value": 1.0,
+                "condition": {"threshold": {"operator": "gte", "threshold": "1.0"}},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "rule_only"}
+            }),
+            "2026-08-28T08:56:10Z",
+            "evidence-suppression-rule-only",
+            "fixture://suppression/rule-only",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-maintenance-only",
+            EvidenceSourceKind::Alertmanager,
+            json!({
+                "fingerprint": "alert-suppression-maintenance-only",
+                "state": "firing",
+                "target": {"kind": "deployment", "id": "deployment/checkout"},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "maintenance_only"}
+            }),
+            "2026-08-28T08:56:20Z",
+            "evidence-suppression-maintenance-only",
+            "fixture://suppression/maintenance-only",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-both-match",
+            EvidenceSourceKind::Prometheus,
+            json!({
+                "rule_id": "rule-suppress-checkout-deployment",
+                "metric_key": "checkout_suppression_both",
+                "target": {"kind": "deployment", "id": "deployment/checkout"},
+                "observed_value": 8.0,
+                "comparison_value": 2.0,
+                "condition": {"threshold": {"operator": "gte", "threshold": "2.0"}},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "both"}
+            }),
+            "2026-08-28T08:56:30Z",
+            "evidence-suppression-both",
+            "fixture://suppression/both",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-mixed-alert",
+            EvidenceSourceKind::Alertmanager,
+            json!({
+                "fingerprint": "alert-suppression-mixed",
+                "state": "firing",
+                "target": {"kind": "service", "id": "service/checkout"},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "mixed"}
+            }),
+            "2026-08-28T08:56:40Z",
+            "evidence-suppression-mixed-alert",
+            "fixture://suppression/mixed",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-mixed-anomaly",
+            EvidenceSourceKind::Prometheus,
+            json!({
+                "rule_id": "rule-suppress-checkout-test",
+                "metric_key": "checkout_suppression_mixed",
+                "target": {"kind": "service", "id": "service/checkout"},
+                "observed_value": 6.0,
+                "comparison_value": 2.0,
+                "condition": {"threshold": {"operator": "gte", "threshold": "2.0"}},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "mixed"}
+            }),
+            "2026-08-28T08:56:50Z",
+            "evidence-suppression-mixed-anomaly",
+            "fixture://suppression/mixed",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-all-maintenance",
+            EvidenceSourceKind::Alertmanager,
+            json!({
+                "fingerprint": "alert-suppression-all",
+                "state": "firing",
+                "target": {"kind": "deployment", "id": "deployment/checkout"},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "all"}
+            }),
+            "2026-08-28T08:57:00Z",
+            "evidence-suppression-all-maintenance",
+            "fixture://suppression/all",
+            &scope,
+        ),
+        operational_fixture(
+            "suppression-all-both",
+            EvidenceSourceKind::Prometheus,
+            json!({
+                "rule_id": "rule-suppress-checkout-deployment",
+                "metric_key": "checkout_suppression_all",
+                "target": {"kind": "deployment", "id": "deployment/checkout"},
+                "observed_value": 9.0,
+                "comparison_value": 3.0,
+                "condition": {"threshold": {"operator": "gte", "threshold": "3.0"}},
+                "vendor_extension": {"capture": "synthetic", "suppression_case": "all"}
+            }),
+            "2026-08-28T08:57:10Z",
+            "evidence-suppression-all-both",
+            "fixture://suppression/all",
+            &scope,
+        ),
         operational_fixture(
             "shared-service-alert",
             EvidenceSourceKind::Alertmanager,
@@ -405,17 +526,30 @@ pub fn correlation_fixture_catalog() -> CorrelationFixtureCatalog {
 
     let catalog = CorrelationFixtureCatalog {
         fixtures,
-        suppression_rules: vec![SuppressionRule {
-            id: "rule-suppress-checkout-test".into(),
-            enabled: true,
-            scope: scope.clone(),
-            source: Some(EvidenceSourceKind::Prometheus),
-            signal_kind: Some(SignalKind::Anomaly),
-            target: Some(SignalTarget {
-                kind: SignalTargetKind::Service,
-                id: "service/checkout".into(),
-            }),
-        }],
+        suppression_rules: vec![
+            SuppressionRule {
+                id: "rule-suppress-checkout-test".into(),
+                enabled: true,
+                scope: scope.clone(),
+                source: Some(EvidenceSourceKind::Prometheus),
+                signal_kind: Some(SignalKind::Anomaly),
+                target: Some(SignalTarget {
+                    kind: SignalTargetKind::Service,
+                    id: "service/checkout".into(),
+                }),
+            },
+            SuppressionRule {
+                id: "rule-suppress-checkout-deployment".into(),
+                enabled: true,
+                scope: fixture_scope(),
+                source: Some(EvidenceSourceKind::Prometheus),
+                signal_kind: Some(SignalKind::Anomaly),
+                target: Some(SignalTarget {
+                    kind: SignalTargetKind::Deployment,
+                    id: "deployment/checkout".into(),
+                }),
+            },
+        ],
         maintenance_windows: vec![MaintenanceWindow {
             id: "maintenance-checkout-release".into(),
             enabled: true,

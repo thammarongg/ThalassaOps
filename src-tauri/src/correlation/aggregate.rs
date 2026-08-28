@@ -7,15 +7,17 @@ use thalassa_domain::{
     CandidateStatus, CorrelationCandidate, CorrelationError, CorrelationMetric,
     CorrelationMetricKey, CorrelationRequest, CorrelationSnapshot, CorrelationSummary,
     CorrelationWindow, CorrelationWindowState, DrillDownDestination, DrillDownReference,
-    DrillDownTarget, EvidenceRef, NumberUnit, ResourceScope, Signal, SignalId, SignalTargetKind,
-    SourceStatus, TimeWindow, TopologyPath,
+    DrillDownTarget, EvidenceRef, MaintenanceWindow, NumberUnit, ResourceScope, Signal, SignalId,
+    SignalTargetKind, SourceStatus, SuppressionKind, SuppressionRule, TimeWindow, TopologyPath,
 };
 
 use super::grouping::{CorrelationComponent, GroupingResult};
+use super::suppression::apply_suppression;
 
 /// Pure input to one correlation projection.  Signals and evidence are
-/// already admitted by source adapters; this type only carries the explicit
-/// evaluation request and current workspace scope into aggregation.
+/// already admitted by source adapters; this type carries the explicit
+/// evaluation request, current workspace scope and local suppression policy
+/// inputs into aggregation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CorrelationInput {
     pub generated_at: String,
@@ -25,12 +27,36 @@ pub struct CorrelationInput {
     pub source_status: Vec<SourceStatus>,
     pub evidence: Vec<EvidenceRef>,
     pub prior_window: Option<CorrelationWindow>,
+    pub suppression_rules: Vec<SuppressionRule>,
+    pub maintenance_windows: Vec<MaintenanceWindow>,
+    pub policy_version: u64,
 }
 
 /// Assemble a fully validated snapshot from an already evaluated window and
 /// grouped components.  No partial candidate is returned if closure or
 /// evidence validation fails.
 pub fn aggregate_snapshot(
+    input: &CorrelationInput,
+    window: &CorrelationWindow,
+    grouping: &GroupingResult,
+    late_signal_ids: &[SignalId],
+) -> Result<CorrelationSnapshot, CorrelationError> {
+    input.request.validate()?;
+    // Keep this public assembly seam safe for callers that do not use the
+    // higher-level orchestration function: suppression must be evaluated over
+    // the admitted Signal set before candidate status is projected.
+    let mut evaluated_input = input.clone();
+    apply_suppression(
+        &mut evaluated_input.signals,
+        &evaluated_input.suppression_rules,
+        &evaluated_input.maintenance_windows,
+        &evaluated_input.request.evaluated_at,
+        evaluated_input.policy_version,
+    )?;
+    aggregate_evaluated_snapshot(&evaluated_input, window, grouping, late_signal_ids)
+}
+
+fn aggregate_evaluated_snapshot(
     input: &CorrelationInput,
     window: &CorrelationWindow,
     grouping: &GroupingResult,
@@ -235,7 +261,16 @@ fn build_candidate(
         &reasons,
         signal_map,
     );
-    let status = if !late_ids.is_empty() || window.state == CorrelationWindowState::Reopened {
+    let all_suppressed = signal_ids.iter().all(|signal_id| {
+        signal_map
+            .get(signal_id)
+            .is_some_and(|signal| signal.suppression.kind != SuppressionKind::NotSuppressed)
+    });
+    let status = if all_suppressed {
+        // Suppression is the explainability-preserving top-level outcome; a
+        // late/reopened state must not hide that every member is suppressed.
+        CandidateStatus::Suppressed
+    } else if !late_ids.is_empty() || window.state == CorrelationWindowState::Reopened {
         CandidateStatus::Provisional
     } else {
         CandidateStatus::Active

@@ -62,6 +62,9 @@ fn input(
         source_status: Vec::new(),
         evidence,
         prior_window: None,
+        suppression_rules: Vec::new(),
+        maintenance_windows: Vec::new(),
+        policy_version: 0,
     }
 }
 
