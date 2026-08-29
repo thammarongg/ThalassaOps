@@ -265,16 +265,18 @@ git commit -m "feat(domain): add change intelligence contracts and replay fixtur
 
 **Files:**
 
-- Create: `src-tauri/migrations/0005_change_records.sql` — append-only change source records keyed by content digest, mirroring `0004_source_record_evidence.sql`.
-- Create: `src-tauri/src/change/records.rs` — policy evaluation, record admission, digest computation and ledger writes.
+- Create: `src-tauri/migrations/0005_change_records.sql` — append-only change source records keyed by content digest. Evidence rows are NOT duplicated here: change evidence reuses the existing `source_record_evidence` table from `0004_source_record_evidence.sql`.
+- Create: `src-tauri/src/change/records.rs` — policy evaluation, record admission, digest computation, evidence minting and ledger writes.
 - Create: `src-tauri/src/change/normalize.rs` — payload to `ChangeEvent` normalization with identity, link and timestamp safety.
 - Create: `src-tauri/tests/change_records.rs` — retention, restart survival, unknown-field preservation, rejection paths.
 - Modify: `src-tauri/src/change/mod.rs` — declare `records` and `normalize`.
 
 **Interfaces:**
 
-- Consumes: `change::fixtures::catalog()`, `ChangeEvent`, `SourceRecordRef`, the existing source-record ledger from Sprint 13 and the existing policy classification helpers.
-- Produces: `records::admit(payload: &str, source: EvidenceSourceKind, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value }`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<ChangeEvent, ChangeError>`.
+- Consumes: `change::fixtures::catalog()`, `ChangeEvent`, `SourceRecordRef`, `EvidenceRef`, the Sprint 13 ledger in `src-tauri/src/correlation/source_records.rs` (including its `source_record_evidence` storage and `evidence_for` lookup) and the existing policy classification helpers.
+- Produces: `records::admit(payload: &str, source: EvidenceSourceKind, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value, evidence: Vec<EvidenceRef> }`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<ChangeEvent, ChangeError>`.
+
+**Evidence decision (binding for Tasks 3, 7 and 8):** change evidence is minted by `records::admit` and stored through the existing Sprint 13 evidence store, writing to the existing `source_record_evidence` table. Migration `0005` therefore adds no evidence table. `ChangeEvent.evidence_ids` holds the IDs minted here, and `change.evidence` resolves them through the same `evidence_for` path Sprint 13's `correlation.evidence` uses. Do not create a second evidence store, a change-specific evidence ID format or a parallel lookup.
 
 - [ ] **Step 1: Write the failing retention test**
 
@@ -314,6 +316,21 @@ fn retained_records_survive_a_reopen_of_the_database() {
     // open the app database, admit every fixture, drop the handle,
     // reopen and assert every content digest is still readable
 }
+
+#[test]
+fn admitted_evidence_resolves_through_the_sprint_13_evidence_store() {
+    let fixture = fixtures::catalog().into_iter().next().expect("fixture present");
+    let admitted = records::admit(fixture.payload, fixture.source, fixtures::fixture_clock())
+        .expect("record admitted");
+
+    assert!(!admitted.evidence.is_empty());
+    for evidence in &admitted.evidence {
+        assert!(
+            records::resolve_evidence(&evidence.id).is_some(),
+            "evidence must resolve through the existing source_record_evidence store"
+        );
+    }
+}
 ```
 
 - [ ] **Step 2: Run it and confirm it fails**
@@ -343,7 +360,7 @@ The table is append-only: the implementation issues `INSERT OR IGNORE` and never
 
 - [ ] **Step 4: Implement admission and normalization**
 
-`records::admit` parses the payload to `serde_json::Value`, strips diff-body fields (`patch`, `diff`, `content`) before anything else, evaluates source and local-storage policy, computes the content digest over the post-policy body, writes the row and returns the `SourceRecordRef`.
+`records::admit` parses the payload to `serde_json::Value`, strips diff-body fields (`patch`, `diff`, `content`) before anything else, evaluates source and local-storage policy, computes the content digest over the post-policy body, writes the `change_source_record` row, mints one `EvidenceRef` per admitted record through the Sprint 13 evidence store, and returns the `SourceRecordRef` together with the minted evidence.
 
 `normalize::to_change_event` maps the retained body to a `ChangeEvent`, returning `ChangeError::MissingTimestamp` when no usable `occurred_at` exists, downgrading an unsafe actor to `ChangeActorKind::Unknown` with `handle: None`, dropping a link that fails `ChangeSourceLink::validate`, and dropping any changed path that fails safe-path validation. Each downgrade records a typed `SourceStatus` on the returned result rather than silently succeeding.
 
@@ -649,7 +666,8 @@ git commit -m "feat(change): associate changes with candidates as structural con
 - Modify: `src-tauri/src/operations/model.rs` — typed source field.
 - Create: `src-tauri/src/change/projection.rs` — `to_stream_item(event: &ChangeEvent) -> ChangeStreamItem`.
 - Modify: `src-tauri/tests/operations_aggregation.rs` — assert the derived stream.
-- Modify: `ui/src/operations/contractValidation.ts` — typed source validation.
+
+The matching frontend change to `ui/src/operations/contractValidation.ts` belongs to the React worker in Task 7, not here, so that no two workers edit `ui/src/operations` at once. Until Task 7 lands, the frontend validates the typed `source` field against the copied fixture from Task 1.
 
 **Interfaces:**
 
@@ -680,17 +698,17 @@ fn the_console_change_stream_no_longer_invents_items() {
 - [ ] **Step 2: Run it, confirm failure, implement the projection, run again**
 
 Run: `cargo test -p thalassaops --test operations_aggregation`
-Expected: FAIL, then PASS. `summary` is built in React from typed fields; the projection carries the source-supplied title only when one exists, and `None` otherwise.
+Expected: FAIL, then PASS. `ChangeStreamItem.summary` stays `String`, so the projection never invents English: it uses the source-supplied title when the record has one, otherwise the revision `short_id`, otherwise the `native_id`. All three are source-supplied identifiers, not generated prose. React renders the surrounding sentence from typed fields and locale keys as it does today.
 
-- [ ] **Step 3: Update the frontend contract validation and run the frontend gates**
+- [ ] **Step 3: Run the Rust gates**
 
-Run: `npm test -- operations`
-Expected: PASS with the typed `source` field; locale keys and layout unchanged.
+Run: `cargo test -p thalassaops; echo exit=$?`
+Expected: exit=0, with the Sprint 11 operations suite still green.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src-tauri/src/operations src-tauri/src/change/projection.rs src-tauri/tests/operations_aggregation.rs ui/src/operations
+git add src-tauri/src/operations src-tauri/src/change/projection.rs src-tauri/tests/operations_aggregation.rs
 git commit -m "refactor(operations): derive the change stream from canonical change events"
 ```
 
@@ -713,6 +731,7 @@ git commit -m "refactor(operations): derive the change stream from canonical cha
 - Create: `ui/src/change/ChangeTimeline.test.tsx`
 - Create: `ui/src/change/change.acceptance.test.tsx`
 - Modify: `ui/src/correlation/CandidateDetails.tsx` — render the change section.
+- Modify: `ui/src/operations/contractValidation.ts` — typed `source` validation for the derived change stream (handed over from Task 6; the React worker owns every file under `ui/`).
 
 **Interfaces:**
 
@@ -779,7 +798,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src-tauri/src/app src-tauri/tests/change_ipc.rs ui/src/change ui/src/correlation/CandidateDetails.tsx
+git add src-tauri/src/app src-tauri/src/change/metrics.rs src-tauri/tests/change_ipc.rs ui/src/change ui/src/correlation/CandidateDetails.tsx ui/src/operations/contractValidation.ts
 git commit -m "feat(change): expose read-only change intelligence IPC and console view"
 ```
 

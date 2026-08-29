@@ -143,7 +143,7 @@ committed fixtures (github/gitlab/argocd JSON)
 ```text
 crates/thalassa-domain/src/lib.rs        # ChangeEvent and association contracts
 crates/thalassa-ipc/src/lib.rs           # change.snapshot / change.evidence descriptors
-src-tauri/migrations/0005_change_records.sql
+src-tauri/migrations/0005_change_records.sql     # change records only; evidence reuses 0004
 src-tauri/src/change/mod.rs              # module surface, no second model
 src-tauri/src/change/fixtures.rs         # replay catalog and fixture clock
 src-tauri/src/change/adapters/github.rs
@@ -304,6 +304,12 @@ through the native link, which takes the user to the source diff.
 The source record ledger still retains the complete post-policy source payload
 for the core, and adapters therefore drop diff-body fields before the record is
 admitted, rather than after.
+
+Retention splits across two tables by design: migration `0005` adds
+`change_source_record` for change payloads, while evidence rows continue to use
+the existing `source_record_evidence` table from migration `0004`. There is one
+evidence store, one evidence ID format and one lookup path shared with Sprint 13
+correlation evidence.
 
 ### Native source links
 
