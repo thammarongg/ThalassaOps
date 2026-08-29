@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod fixtures;
 pub mod normalize;
 pub mod records;
+pub mod timeline;
 
 pub use normalize::NormalizationOutput;
 pub use records::AdmittedRecord;
