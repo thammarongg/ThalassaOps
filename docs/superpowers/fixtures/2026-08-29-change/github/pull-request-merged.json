@@ -5,7 +5,7 @@
     "number": 42,
     "merged": true,
     "merged_at": "2026-08-29T08:46:00Z",
-    "merge_commit_sha": "3333333333333333333333333333333333333333",
+    "merge_commit_sha": "7c3e9a1b5d8f2064e7a9c1b3d5f80e2a4c6b8d09",
     "title": "Tune checkout retry policy",
     "html_url": "https://github.com/acme/checkout/pull/42",
     "user": {
@@ -21,7 +21,7 @@
       }
     },
     "head": {
-      "sha": "4444444444444444444444444444444444444444"
+      "sha": "2d6f8b0a4c17e935b8d0f2a6c4e81b3d5079fa2c"
     }
   },
   "repository": {

@@ -274,11 +274,14 @@ git commit -m "feat(domain): add change intelligence contracts and replay fixtur
 - Create: `src-tauri/src/change/normalize.rs` — payload to `ChangeEvent` normalization with identity, link and timestamp safety.
 - Create: `src-tauri/tests/change_records.rs` — retention, restart survival, unknown-field preservation, rejection paths.
 - Modify: `src-tauri/src/change/mod.rs` — declare `records` and `normalize`.
+- Modify: `src-tauri/src/app/mod.rs` — apply migration 0005 after the Sprint 13 migrations.
 
 **Interfaces:**
 
 - Consumes: `change::fixtures::catalog()`, `ChangeEvent`, `SourceRecordRef`, `EvidenceRef`, the Sprint 13 ledger in `src-tauri/src/correlation/source_records.rs` (including its `source_record_evidence` storage and `evidence_for` lookup) and the existing policy classification helpers.
-- Produces: `records::admit(payload: &str, source: EvidenceSourceKind, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value, evidence: Vec<EvidenceRef> }`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<ChangeEvent, ChangeError>`.
+- Produces: `records::admit(store: &mut SourceRecordStore, payload: &str, source: EvidenceSourceKind, scope: &ResourceScope, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value, evidence: Vec<EvidenceRef> }`; `records::resolve_evidence(store: &SourceRecordStore, id: &ConsoleEvidenceId) -> Option<EvidenceRef>`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<NormalizedChange, ChangeError>` where `NormalizedChange { event: ChangeEvent, statuses: Vec<SourceStatus> }`.
+
+Admission receives a caller-owned, scoped `SourceRecordStore`; it never uses process-global mutable state or a default `ResourceScope`. Normalization returns typed source statuses alongside a successful event so safe downgrades are observable without turning a usable source record into an error.
 
 **Evidence decision (binding for Tasks 3, 7 and 8):** change evidence is minted by `records::admit` and stored through the existing Sprint 13 evidence store, writing to the existing `source_record_evidence` table. Migration `0005` therefore adds no evidence table. `ChangeEvent.evidence_ids` holds the IDs minted here, and `change.evidence` resolves them through the same `evidence_for` path Sprint 13's `correlation.evidence` uses. Do not create a second evidence store, a change-specific evidence ID format or a parallel lookup.
 
@@ -294,7 +297,9 @@ fn admitted_record_preserves_unknown_fields_and_drops_diff_bodies() {
         .into_iter()
         .find(|f| f.path.ends_with("argocd/sync-failed.json"))
         .expect("fixture present");
-    let admitted = records::admit(fixture.payload, fixture.source, fixtures::fixture_clock())
+    let mut store = SourceRecordStore::with_connection(Connection::open_in_memory().unwrap()).unwrap();
+    let scope = fixture_scope();
+    let admitted = records::admit(&mut store, fixture.payload, fixture.source, &scope, fixtures::fixture_clock())
         .expect("record admitted");
 
     assert!(admitted.body.get("unknownOperatorField").is_some());
@@ -307,7 +312,9 @@ fn diff_bodies_never_enter_the_retained_record() {
         .into_iter()
         .find(|f| f.path.ends_with("github/push.json"))
         .expect("fixture present");
-    let admitted = records::admit(fixture.payload, fixture.source, fixtures::fixture_clock())
+    let mut store = SourceRecordStore::with_connection(Connection::open_in_memory().unwrap()).unwrap();
+    let scope = fixture_scope();
+    let admitted = records::admit(&mut store, fixture.payload, fixture.source, &scope, fixtures::fixture_clock())
         .expect("record admitted");
 
     let serialized = serde_json::to_string(&admitted.body).unwrap();
@@ -324,13 +331,15 @@ fn retained_records_survive_a_reopen_of_the_database() {
 #[test]
 fn admitted_evidence_resolves_through_the_sprint_13_evidence_store() {
     let fixture = fixtures::catalog().into_iter().next().expect("fixture present");
-    let admitted = records::admit(fixture.payload, fixture.source, fixtures::fixture_clock())
+    let scope = fixture_scope();
+    let mut store = SourceRecordStore::with_connection(Connection::open_in_memory().unwrap()).unwrap();
+    let admitted = records::admit(&mut store, fixture.payload, fixture.source, &scope, fixtures::fixture_clock())
         .expect("record admitted");
 
     assert!(!admitted.evidence.is_empty());
     for evidence in &admitted.evidence {
         assert!(
-            records::resolve_evidence(&evidence.id).is_some(),
+            records::resolve_evidence(&store, &evidence.id).is_some(),
             "evidence must resolve through the existing source_record_evidence store"
         );
     }
@@ -364,9 +373,9 @@ The table is append-only: the implementation issues `INSERT OR IGNORE` and never
 
 - [ ] **Step 4: Implement admission and normalization**
 
-`records::admit` parses the payload to `serde_json::Value`, strips diff-body fields (`patch`, `diff`, `content`) before anything else, evaluates source and local-storage policy, computes the content digest over the post-policy body, writes the `change_source_record` row, mints one `EvidenceRef` per admitted record through the Sprint 13 evidence store, and returns the `SourceRecordRef` together with the minted evidence.
+`records::admit` parses the payload to `serde_json::Value`, strips diff-body fields (`patch`, `diff`, `content`) before anything else, evaluates source and local-storage policy, computes the content digest over the post-policy body, writes the `change_source_record` row, mints one `EvidenceRef` per admitted record through the Sprint 13 evidence store, and returns the `SourceRecordRef` together with the minted evidence. The caller supplies a scoped `SourceRecordStore`; admission never relies on process-global state or an implicit scope.
 
-`normalize::to_change_event` maps the retained body to a `ChangeEvent`, returning `ChangeError::MissingTimestamp` when no usable `occurred_at` exists, downgrading an unsafe actor to `ChangeActorKind::Unknown` with `handle: None`, dropping a link that fails `ChangeSourceLink::validate`, and dropping any changed path that fails safe-path validation. Each downgrade records a typed `SourceStatus` on the returned result rather than silently succeeding.
+`normalize::to_change_event` maps the retained body to a `NormalizedChange { event, statuses }`, returning `ChangeError::MissingTimestamp` when no usable `occurred_at` exists, downgrading an unsafe actor to `ChangeActorKind::Unknown` with `handle: None`, dropping a link that fails `ChangeSourceLink::validate`, and dropping any changed path that fails safe-path validation. Each downgrade records a typed `SourceStatus` in the successful result rather than silently succeeding.
 
 - [ ] **Step 5: Run the tests and confirm they pass**
 

@@ -2,7 +2,7 @@
   "event_type": "deployment_status",
   "deployment": {
     "id": 8801,
-    "sha": "5555555555555555555555555555555555555555",
+    "sha": "c5e7a1d9b3f02c6e8a4d7b1f9c3e5a0d2b6f8e14",
     "ref": "main",
     "environment": "production",
     "created_at": "2026-08-29T08:52:00Z",

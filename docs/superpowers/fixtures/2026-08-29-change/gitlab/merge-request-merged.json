@@ -16,7 +16,7 @@
     "state": "merged",
     "title": "Tune checkout retry policy",
     "merged_at": "2026-08-29T08:47:00Z",
-    "merge_commit_sha": "7777777777777777777777777777777777777777",
+    "merge_commit_sha": "e08b3d1f7a5c96204e8b1d3f5a7c09e26b4d8f13",
     "target_branch": "main",
     "url": "https://gitlab.com/acme/checkout/-/merge_requests/52"
   }

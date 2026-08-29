@@ -26,8 +26,7 @@ const CONNECTOR_MIGRATION: &str = include_str!("../../migrations/0002_connector_
 const SIGNAL_RECORDS_MIGRATION: &str = include_str!("../../migrations/0003_signal_records.sql");
 const SOURCE_RECORD_EVIDENCE_MIGRATION: &str =
     include_str!("../../migrations/0004_source_record_evidence.sql");
-const CHANGE_RECORDS_MIGRATION: &str =
-    include_str!("../../migrations/0005_change_records.sql");
+const CHANGE_RECORDS_MIGRATION: &str = include_str!("../../migrations/0005_change_records.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {

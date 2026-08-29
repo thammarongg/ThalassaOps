@@ -4,6 +4,11 @@
 //! re-exports them for backend callers and owns replay fixtures.
 
 pub mod fixtures;
+pub mod normalize;
+pub mod records;
+
+pub use normalize::NormalizedChange;
+pub use records::AdmittedRecord;
 
 pub use thalassa_domain::{
     ChangeActor, ChangeActorKind, ChangeAssociation, ChangeDiffStat, ChangeError, ChangeEvent,

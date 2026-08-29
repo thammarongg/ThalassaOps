@@ -480,6 +480,56 @@ impl SourceRecordStore {
         ))
     }
 
+    /// Compute the same stable digest used for a retained source payload.
+    ///
+    /// Change admission uses this before retaining the row so the evidence ID
+    /// can be minted deterministically and then checked by the existing
+    /// source-record evidence store.  The helper applies the established
+    /// masking semantics without mutating the caller's value.
+    pub(crate) fn content_digest_for(value: &Value) -> String {
+        let mut redacted = value.clone();
+        mask_source_value(&mut redacted);
+        content_digest(&redacted)
+    }
+
+    /// Persist one change payload in Sprint 14's append-only table.
+    ///
+    /// Evidence remains owned by [`SourceRecordStore::retain`].  This method
+    /// only writes the change payload row and deliberately uses INSERT OR
+    /// IGNORE: a replay can never update or delete a previously retained row.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn persist_change_record(
+        &mut self,
+        content_digest: &str,
+        source_kind: EvidenceSourceKind,
+        native_id: Option<&str>,
+        revision: Option<&str>,
+        occurred_at: &str,
+        admitted_at: &str,
+        body: &Value,
+    ) -> Result<(), SourceRecordError> {
+        let Some(connection) = self.connection.as_mut() else {
+            return Ok(());
+        };
+        let body_json = serde_json::to_string(body).map_err(database_serde_error)?;
+        let transaction = connection.transaction().map_err(database_error)?;
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO change_source_record (content_digest, source_kind, native_id, revision, occurred_at, admitted_at, body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    content_digest,
+                    source_kind_wire(source_kind),
+                    native_id,
+                    revision,
+                    occurred_at,
+                    admitted_at,
+                    body_json,
+                ],
+            )
+            .map_err(database_error)?;
+        transaction.commit().map_err(database_error)
+    }
+
     fn prepare(
         &self,
         input: SourceRecordInput,

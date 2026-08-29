@@ -307,6 +307,12 @@ The source record ledger still retains the complete post-policy source payload
 for the core, and adapters therefore drop diff-body fields before the record is
 admitted, rather than after.
 
+Task 2 admission receives a caller-owned `SourceRecordStore` and an explicit
+`ResourceScope`; it never relies on process-global mutable state or an implicit
+workspace. The store owns the SQLite connection, policy evaluation, digest and
+evidence writes, so change retention uses the same workspace isolation and
+`source_record_evidence` lookup path as Sprint 13.
+
 Retention splits across two tables by design: migration `0005` adds
 `change_source_record` for change payloads, while evidence rows continue to use
 the existing `source_record_evidence` table from migration `0004`. There is one
@@ -507,6 +513,11 @@ permitted in any committed fixture; one carries a URL with a query string that
 must be dropped, one carries a diff body that must never reach a contract, and one carries unknown
 fields that must survive in the retained record.
 
+Fixture revision and native commit identifiers use realistic 40-character
+lowercase hexadecimal values and contain no run of 12 or more consecutive
+digits. This keeps committed replay data compatible with the live safe-identity
+control that rejects bare long digit runs as possible account identifiers.
+
 ## Data flow and determinism
 
 For one `change.snapshot` request:
@@ -515,9 +526,10 @@ For one `change.snapshot` request:
 2. Load fixture payloads through the injected fixture clock.
 3. Evaluate source and local-storage policy, then admit each post-policy record
    to the append-only ledger with a content digest.
-4. Normalize each record into a `ChangeEvent`, rejecting unsafe identities,
-   unparsable timestamps and invalid links with typed errors and source
-   statuses.
+4. Normalize each record into a `NormalizedChange { event, statuses }`,
+   rejecting missing or unparsable timestamps with typed errors while recording
+   safe identity, link and path downgrades as source statuses. A successful
+   downgrade therefore remains inspectable without silently losing its status.
 5. Build the timeline over the half-open window with `(occurred_at, id)`
    ordering.
 6. Compute the Sprint 13 correlation snapshot for the same evaluation time,

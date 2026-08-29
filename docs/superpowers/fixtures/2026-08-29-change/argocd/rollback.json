@@ -21,12 +21,12 @@
     "startedAt": "2026-08-29T08:59:20Z",
     "finishedAt": "2026-08-29T08:59:50Z",
     "syncResult": {
-      "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      "revision": "0a3c8e64b91d57f2a0c63e18b4d95f07a2c8e63d"
     }
   },
   "rollback": {
-    "fromRevision": "9999999999999999999999999999999999999999",
-    "toRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    "fromRevision": "c19e4a7f30b58d26a4c81e09f7b35d62a8c04e19",
+    "toRevision": "0a3c8e64b91d57f2a0c63e18b4d95f07a2c8e63d"
   },
   "health": {
     "status": "Healthy"
