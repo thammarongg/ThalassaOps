@@ -46,8 +46,8 @@ describe("change intelligence IPC contract", () => {
       ...changeSnapshotFixture.metrics.map((metric) => metric.value)
     ];
 
-    expect(numericValues.every((value) => typeof value === "number" && Number.isFinite(value))).toBe(
-      true
-    );
+    expect(
+      numericValues.every((value) => typeof value === "number" && Number.isFinite(value))
+    ).toBe(true);
   });
 });
