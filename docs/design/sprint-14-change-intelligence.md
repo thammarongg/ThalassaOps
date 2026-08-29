@@ -480,8 +480,10 @@ shapes:
 
 Every fixture is written to exercise the safety paths as well as the happy
 path: at least one record carries an email-shaped actor field that must be
-rejected, one carries a URL with a query string that must be dropped, one
-carries a diff body that must never reach a contract, and one carries unknown
+rejected using the reserved-TLD marker
+`sprint14-fixture-actor@example.invalid`, which is the only email-shaped string
+permitted in any committed fixture; one carries a URL with a query string that
+must be dropped, one carries a diff body that must never reach a contract, and one carries unknown
 fields that must survive in the retained record.
 
 ## Data flow and determinism

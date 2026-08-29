@@ -1,0 +1,13 @@
+//! Change intelligence module surface.
+//!
+//! The canonical change contracts live in `thalassa_domain`; this module only
+//! re-exports them for backend callers and owns replay fixtures.
+
+pub mod fixtures;
+
+pub use thalassa_domain::{
+    ChangeActor, ChangeActorKind, ChangeAssociation, ChangeDiffStat, ChangeError, ChangeEvent,
+    ChangeEventId, ChangeEvidenceRequest, ChangeKind, ChangeLinkKind, ChangeMetric,
+    ChangeMetricKey, ChangeOutcome, ChangeRepositoryRef, ChangeRequest, ChangeRevision,
+    ChangeSnapshot, ChangeSourceLink, ChangeTimeline,
+};

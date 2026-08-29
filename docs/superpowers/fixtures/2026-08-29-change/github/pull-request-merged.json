@@ -1,0 +1,35 @@
+{
+  "event_type": "pull_request",
+  "action": "closed",
+  "pull_request": {
+    "number": 42,
+    "merged": true,
+    "merged_at": "2026-08-29T08:46:00Z",
+    "merge_commit_sha": "3333333333333333333333333333333333333333",
+    "title": "Tune checkout retry policy",
+    "html_url": "https://github.com/acme/checkout/pull/42",
+    "user": {
+      "login": "merge-helper",
+      "email": "sprint14-fixture-actor@example.invalid"
+    },
+    "base": {
+      "ref": "main",
+      "repo": {
+        "full_name": "acme/checkout",
+        "name": "checkout",
+        "html_url": "https://github.com/acme/checkout"
+      }
+    },
+    "head": {
+      "sha": "4444444444444444444444444444444444444444"
+    }
+  },
+  "repository": {
+    "full_name": "acme/checkout",
+    "name": "checkout",
+    "html_url": "https://github.com/acme/checkout"
+  },
+  "sender": {
+    "login": "merge-helper"
+  }
+}

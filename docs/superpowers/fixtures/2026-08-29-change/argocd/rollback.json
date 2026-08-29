@@ -1,0 +1,35 @@
+{
+  "type": "rollback",
+  "application": {
+    "metadata": {
+      "name": "checkout",
+      "namespace": "argocd"
+    },
+    "spec": {
+      "destination": {
+        "name": "prod-cluster",
+        "namespace": "checkout"
+      },
+      "source": {
+        "repoURL": "https://github.com/acme/checkout",
+        "targetRevision": "previous-stable"
+      }
+    }
+  },
+  "operationState": {
+    "phase": "Succeeded",
+    "startedAt": "2026-08-29T08:59:20Z",
+    "finishedAt": "2026-08-29T08:59:50Z",
+    "syncResult": {
+      "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "rollback": {
+    "fromRevision": "9999999999999999999999999999999999999999",
+    "toRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "health": {
+    "status": "Healthy"
+  },
+  "url": "https://argocd.example.invalid/applications/checkout"
+}

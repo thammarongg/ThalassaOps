@@ -75,3 +75,18 @@ fn correlation_commands_declare_their_read_only_capabilities() {
     assert_eq!(evidence.required_permission, Permission::Read);
     assert!(!evidence.scope.is_bounded());
 }
+
+#[test]
+fn change_commands_expose_read_only_descriptors() {
+    let snapshot = change_snapshot_descriptor();
+    assert_eq!(snapshot.name.to_string(), "change.snapshot");
+    assert_eq!(snapshot.required_capability, Capability::WorkspaceRead);
+    assert_eq!(snapshot.required_permission, Permission::Read);
+    assert!(!snapshot.scope.is_bounded());
+
+    let evidence = change_evidence_descriptor();
+    assert_eq!(evidence.name.to_string(), "change.evidence");
+    assert_eq!(evidence.required_capability, Capability::ResourceRead);
+    assert_eq!(evidence.required_permission, Permission::Read);
+    assert!(!evidence.scope.is_bounded());
+}

@@ -484,7 +484,7 @@ fn fixture_change(
 ) -> ChangeStreamItem {
     ChangeStreamItem {
         id: id.into(),
-        source: Some("fixture-changes".into()),
+        source: EvidenceSourceKind::Fixture,
         occurred_at: occurred_at.into(),
         kind,
         summary: summary.into(),

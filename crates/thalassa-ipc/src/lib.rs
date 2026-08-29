@@ -170,6 +170,26 @@ pub fn correlation_evidence_descriptor() -> CommandDescriptor {
     )
 }
 
+/// Stable command descriptor for the read-only change snapshot projection.
+pub fn change_snapshot_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "change",
+        "snapshot",
+        Capability::WorkspaceRead,
+        Permission::Read,
+    )
+}
+
+/// Stable command descriptor for workspace-scoped change evidence lookup.
+pub fn change_evidence_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "change",
+        "evidence",
+        Capability::ResourceRead,
+        Permission::Read,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,

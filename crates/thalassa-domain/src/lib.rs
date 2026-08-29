@@ -669,6 +669,12 @@ pub enum EvidenceSourceKind {
     Kyverno,
     #[serde(rename = "opa_gatekeeper")]
     OpaGatekeeper,
+    #[serde(rename = "github")]
+    GitHub,
+    #[serde(rename = "gitlab")]
+    GitLab,
+    #[serde(rename = "argo_cd")]
+    ArgoCd,
 }
 
 /// Redaction and classification assertions attached to evidence.
@@ -1353,13 +1359,21 @@ pub enum ChangeKind {
     Maintenance,
     #[serde(rename = "connector")]
     Connector,
+    #[serde(rename = "code_commit")]
+    CodeCommit,
+    #[serde(rename = "code_merge")]
+    CodeMerge,
+    #[serde(rename = "sync")]
+    Sync,
+    #[serde(rename = "rollback")]
+    Rollback,
 }
 
 /// Evidence-backed change shown in the recent change stream.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ChangeStreamItem {
     pub id: String,
-    pub source: Option<String>,
+    pub source: EvidenceSourceKind,
     pub occurred_at: String,
     pub kind: ChangeKind,
     pub summary: String,
@@ -1370,6 +1384,586 @@ pub struct ChangeStreamItem {
     pub evidence_ids: Vec<ConsoleEvidenceId>,
     pub drill_down: DrillDownTarget,
 }
+
+/// Stable identifier for a normalized source-backed change.
+pub type ChangeEventId = Uuid;
+
+/// Outcome reported by a change source.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChangeOutcome {
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "in_progress")]
+    InProgress,
+    #[serde(rename = "reverted")]
+    Reverted,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Safe category for the actor reported by a change source.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChangeActorKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "automation")]
+    Automation,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// Source-scoped actor handle.  Display names and email addresses are not
+/// retained in this contract.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeActor {
+    pub kind: ChangeActorKind,
+    pub handle: Option<String>,
+}
+
+impl ChangeActor {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        if self.kind == ChangeActorKind::Unknown && self.handle.is_some() {
+            return Err(ChangeError::InvalidActor);
+        }
+        if let Some(handle) = &self.handle {
+            validate_safe_identifier(handle).map_err(|_| ChangeError::UnsafeIdentity)?;
+            if looks_like_email(handle) {
+                return Err(ChangeError::UnsafeIdentity);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Source revision identifiers associated with a change.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeRevision {
+    pub id: String,
+    pub short_id: Option<String>,
+    pub parent_ids: Vec<String>,
+}
+
+impl ChangeRevision {
+    fn validate(&self) -> Result<(), ChangeError> {
+        validate_safe_identifier(&self.id).map_err(|_| ChangeError::InvalidRevision)?;
+        if let Some(short_id) = &self.short_id {
+            validate_safe_identifier(short_id).map_err(|_| ChangeError::InvalidRevision)?;
+        }
+        if self.parent_ids.iter().any(|id| {
+            validate_safe_identifier(id).is_err()
+                || self
+                    .parent_ids
+                    .iter()
+                    .filter(|candidate| *candidate == id)
+                    .count()
+                    > 1
+        }) {
+            return Err(ChangeError::InvalidRevision);
+        }
+        Ok(())
+    }
+}
+
+/// Typed repository identity.  A repository is not represented as a URL.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeRepositoryRef {
+    pub host: String,
+    pub namespace: String,
+    pub name: String,
+    pub reference: Option<String>,
+}
+
+impl ChangeRepositoryRef {
+    fn validate(&self) -> Result<(), ChangeError> {
+        for value in [&self.host, &self.namespace, &self.name] {
+            validate_safe_identifier(value).map_err(|_| ChangeError::InvalidRepository)?;
+        }
+        if let Some(reference) = &self.reference {
+            validate_safe_identifier(reference).map_err(|_| ChangeError::InvalidRepository)?;
+        }
+        Ok(())
+    }
+}
+
+/// Finite, non-negative changed-file statistics.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeDiffStat {
+    pub files_changed: f64,
+    pub insertions: f64,
+    pub deletions: f64,
+    pub unit: NumberUnit,
+}
+
+impl ChangeDiffStat {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        if self.unit != NumberUnit::Count {
+            return Err(ChangeError::InvalidUnit);
+        }
+        for value in [self.files_changed, self.insertions, self.deletions] {
+            if !value.is_finite() {
+                return Err(ChangeError::NonFiniteNumber);
+            }
+            if value < 0.0 {
+                return Err(ChangeError::NegativeNumber);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Native source link categories supported by change providers.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChangeLinkKind {
+    #[serde(rename = "commit")]
+    Commit,
+    #[serde(rename = "pull_request")]
+    PullRequest,
+    #[serde(rename = "compare")]
+    Compare,
+    #[serde(rename = "deployment")]
+    Deployment,
+    #[serde(rename = "application")]
+    Application,
+}
+
+/// A validated native source URL.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeSourceLink {
+    pub kind: ChangeLinkKind,
+    pub url: String,
+}
+
+impl ChangeSourceLink {
+    pub fn validate(&self, source: EvidenceSourceKind) -> Result<(), ChangeError> {
+        let host = parse_https_host(&self.url).ok_or(ChangeError::InvalidLink)?;
+        let host_is_allowed = match source {
+            EvidenceSourceKind::GitHub => host == "github.com",
+            EvidenceSourceKind::GitLab => host == "gitlab.com",
+            EvidenceSourceKind::ArgoCd => !host.is_empty(),
+            _ => false,
+        };
+        if host_is_allowed {
+            Ok(())
+        } else {
+            Err(ChangeError::InvalidLink)
+        }
+    }
+}
+
+/// Canonical, source-preserving normalized change record.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeEvent {
+    pub id: ChangeEventId,
+    pub source: EvidenceSourceKind,
+    pub kind: ChangeKind,
+    pub outcome: ChangeOutcome,
+    pub occurred_at: String,
+    pub ingested_at: Option<String>,
+    pub scope: ResourceScope,
+    pub targets: Vec<SignalTarget>,
+    pub revision: Option<ChangeRevision>,
+    pub actor: ChangeActor,
+    pub repository: Option<ChangeRepositoryRef>,
+    pub environment: Option<String>,
+    pub diff_stat: Option<ChangeDiffStat>,
+    pub changed_paths: Vec<String>,
+    pub source_link: Option<ChangeSourceLink>,
+    pub source_record: SourceRecordRef,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+impl ChangeEvent {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        if self.id.is_nil() {
+            return Err(ChangeError::InvalidId);
+        }
+        parse_change_timestamp(&self.occurred_at)?;
+        if let Some(ingested_at) = &self.ingested_at {
+            parse_change_timestamp(ingested_at)?;
+        }
+        validate_targets(&self.targets).map_err(|_| ChangeError::InvalidTarget)?;
+        self.actor.validate()?;
+        if let Some(revision) = &self.revision {
+            revision.validate()?;
+        }
+        if let Some(repository) = &self.repository {
+            repository.validate()?;
+        }
+        if let Some(environment) = &self.environment {
+            validate_safe_identifier(environment).map_err(|_| ChangeError::InvalidId)?;
+        }
+        if let Some(diff_stat) = &self.diff_stat {
+            diff_stat.validate()?;
+        }
+        for path in &self.changed_paths {
+            validate_change_path(path)?;
+        }
+        if let Some(link) = &self.source_link {
+            link.validate(self.source)?;
+        }
+        self.source_record
+            .validate()
+            .map_err(|_| ChangeError::InvalidSourceRecord)?;
+        if self.source_record.source_kind != self.source {
+            return Err(ChangeError::SourceMismatch);
+        }
+        validate_change_evidence_ids(&self.evidence_ids)?;
+        if !contains_all(&self.evidence_ids, &self.source_record.evidence_ids) {
+            return Err(ChangeError::EvidenceMissing);
+        }
+        validate_change_drill_down(
+            &self.drill_down,
+            &self.drill_down_reference,
+            &self.evidence_ids,
+            &self.scope,
+        )?;
+        Ok(())
+    }
+}
+
+/// Bounded, deterministic ordering of change event IDs.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeTimeline {
+    pub window: TimeWindow,
+    pub entry_ids: Vec<ChangeEventId>,
+    pub truncated: bool,
+}
+
+impl ChangeTimeline {
+    fn validate(&self) -> Result<(), ChangeError> {
+        self.window
+            .validate()
+            .map_err(|_| ChangeError::InvalidWindow)?;
+        if self.entry_ids.iter().any(Uuid::is_nil)
+            || self.entry_ids.iter().collect::<BTreeSet<_>>().len() != self.entry_ids.len()
+        {
+            return Err(ChangeError::DuplicateId);
+        }
+        Ok(())
+    }
+}
+
+/// Structural context connecting a change to a correlation candidate.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeAssociation {
+    pub change_id: ChangeEventId,
+    pub candidate_id: String,
+    pub qualification: CorrelationQualification,
+    pub lead_time_seconds: f64,
+    pub target: Option<SignalTarget>,
+    pub topology_path_ids: Vec<String>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl ChangeAssociation {
+    fn validate(&self) -> Result<(), ChangeError> {
+        if self.change_id.is_nil() {
+            return Err(ChangeError::InvalidId);
+        }
+        validate_safe_identifier(&self.candidate_id).map_err(|_| ChangeError::InvalidId)?;
+        if self.qualification != CorrelationQualification::ProbableStructural {
+            return Err(ChangeError::InvalidAssociation);
+        }
+        if !self.lead_time_seconds.is_finite() {
+            return Err(ChangeError::NonFiniteNumber);
+        }
+        if self.lead_time_seconds < 0.0 {
+            return Err(ChangeError::NegativeNumber);
+        }
+        if let Some(target) = &self.target {
+            target.validate().map_err(|_| ChangeError::InvalidTarget)?;
+        }
+        validate_sorted_change_identifiers(&self.topology_path_ids)?;
+        validate_change_evidence_ids(&self.evidence_ids)
+    }
+}
+
+/// Metric keys emitted by a change snapshot.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ChangeMetricKey {
+    #[serde(rename = "changes_in_window")]
+    ChangesInWindow,
+    #[serde(rename = "associated_changes")]
+    AssociatedChanges,
+    #[serde(rename = "changes_by_source")]
+    ChangesBySource,
+}
+
+/// Finite, evidence-backed change metric.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeMetric {
+    pub key: ChangeMetricKey,
+    pub source: Option<EvidenceSourceKind>,
+    pub value: f64,
+    pub unit: NumberUnit,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub drill_down: DrillDownTarget,
+    pub drill_down_reference: DrillDownReference,
+}
+
+impl ChangeMetric {
+    fn validate(&self, scope: &ResourceScope) -> Result<(), ChangeError> {
+        if !self.value.is_finite() {
+            return Err(ChangeError::NonFiniteNumber);
+        }
+        if self.value < 0.0 {
+            return Err(ChangeError::NegativeNumber);
+        }
+        if self.unit != NumberUnit::Count {
+            return Err(ChangeError::InvalidUnit);
+        }
+        if (self.key == ChangeMetricKey::ChangesBySource) != self.source.is_some() {
+            return Err(ChangeError::InvalidMetric);
+        }
+        validate_change_drill_down(
+            &self.drill_down,
+            &self.drill_down_reference,
+            &self.evidence_ids,
+            scope,
+        )
+    }
+}
+
+/// Request for one explicit, deterministic change snapshot evaluation.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeRequest {
+    pub window: TimeWindow,
+    pub evaluated_at: String,
+    pub lookback_seconds: f64,
+    pub limit: usize,
+}
+
+impl ChangeRequest {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        self.window
+            .validate()
+            .map_err(|_| ChangeError::InvalidWindow)?;
+        let evaluated_at = parse_change_timestamp(&self.evaluated_at)?;
+        let start = parse_change_timestamp(&self.window.start)?;
+        if evaluated_at < start {
+            return Err(ChangeError::InvalidWindow);
+        }
+        validate_change_lookback(self.lookback_seconds)?;
+        if self.limit == 0 || self.limit > MAX_CHANGE_LIMIT {
+            return Err(ChangeError::InvalidLimit);
+        }
+        Ok(())
+    }
+}
+
+/// Request for evidence IDs already admitted to a change snapshot.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeEvidenceRequest {
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl ChangeEvidenceRequest {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        validate_change_evidence_ids(&self.evidence_ids)
+    }
+}
+
+/// Complete deterministic read-only change projection.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChangeSnapshot {
+    pub generated_at: String,
+    pub scope: ResourceScope,
+    pub request_window: TimeWindow,
+    pub lookback_seconds: f64,
+    pub events: Vec<ChangeEvent>,
+    pub timeline: ChangeTimeline,
+    pub associations: Vec<ChangeAssociation>,
+    pub metrics: Vec<ChangeMetric>,
+    pub source_statuses: Vec<SourceStatus>,
+}
+
+impl ChangeSnapshot {
+    pub fn validate(&self) -> Result<(), ChangeError> {
+        parse_change_timestamp(&self.generated_at)?;
+        self.request_window
+            .validate()
+            .map_err(|_| ChangeError::InvalidWindow)?;
+        validate_change_lookback(self.lookback_seconds)?;
+        self.timeline.validate()?;
+        if self.timeline.window != self.request_window {
+            return Err(ChangeError::WindowMismatch);
+        }
+
+        let mut event_ids = BTreeSet::new();
+        for event in &self.events {
+            event.validate()?;
+            if !event_ids.insert(event.id) {
+                return Err(ChangeError::DuplicateId);
+            }
+            if !self.scope.contains(&event.scope) {
+                return Err(ChangeError::ScopeMismatch);
+            }
+        }
+        for entry_id in &self.timeline.entry_ids {
+            let event = self
+                .events
+                .iter()
+                .find(|event| event.id == *entry_id)
+                .ok_or(ChangeError::CandidateReferenceMissing)?;
+            let occurred_at = parse_change_timestamp(&event.occurred_at)?;
+            let start = parse_change_timestamp(&self.timeline.window.start)?;
+            let end = parse_change_timestamp(&self.timeline.window.end)?;
+            if occurred_at < start || occurred_at >= end {
+                return Err(ChangeError::InvalidWindow);
+            }
+        }
+        for pair in self.timeline.entry_ids.windows(2) {
+            let left = self
+                .events
+                .iter()
+                .find(|event| event.id == pair[0])
+                .ok_or(ChangeError::CandidateReferenceMissing)?;
+            let right = self
+                .events
+                .iter()
+                .find(|event| event.id == pair[1])
+                .ok_or(ChangeError::CandidateReferenceMissing)?;
+            let left_key = (parse_change_timestamp(&left.occurred_at)?, left.id);
+            let right_key = (parse_change_timestamp(&right.occurred_at)?, right.id);
+            if left_key > right_key {
+                return Err(ChangeError::InvalidTimeline);
+            }
+        }
+
+        let mut association_ids = BTreeSet::new();
+        for association in &self.associations {
+            association.validate()?;
+            if !association_ids.insert((association.candidate_id.as_str(), association.change_id)) {
+                return Err(ChangeError::DuplicateId);
+            }
+            if !event_ids.contains(&association.change_id) {
+                return Err(ChangeError::CandidateReferenceMissing);
+            }
+        }
+
+        let mut metric_keys = BTreeSet::new();
+        for metric in &self.metrics {
+            metric.validate(&self.scope)?;
+            let metric_identity = (metric.key, metric.source);
+            if !metric_keys.insert(metric_identity) {
+                return Err(ChangeError::DuplicateId);
+            }
+        }
+        let mut status_keys = BTreeSet::new();
+        for status in &self.source_statuses {
+            validate_safe_identifier(&status.source_key).map_err(|_| ChangeError::InvalidId)?;
+            if !status_keys.insert(status.source_key.as_str()) {
+                return Err(ChangeError::DuplicateId);
+            }
+            if let Some(observed_at) = &status.observed_at {
+                parse_change_timestamp(observed_at)?;
+            }
+            validate_change_evidence_ids_allow_empty(&status.evidence_ids)?;
+        }
+        self.validate_evidence_closure()
+    }
+
+    /// Verify that all evidence references resolve through the event records
+    /// included in this snapshot.
+    pub fn validate_evidence_closure(&self) -> Result<(), ChangeError> {
+        let known_ids = self
+            .events
+            .iter()
+            .flat_map(|event| event.source_record.evidence_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        for event in &self.events {
+            ensure_change_known_evidence(&event.evidence_ids, &known_ids)?;
+            ensure_change_known_evidence(&event.source_record.evidence_ids, &known_ids)?;
+            ensure_change_known_evidence(&event.drill_down.evidence_ids, &known_ids)?;
+            ensure_change_known_evidence(&event.drill_down_reference.evidence_ids, &known_ids)?;
+        }
+        for association in &self.associations {
+            ensure_change_known_evidence(&association.evidence_ids, &known_ids)?;
+        }
+        for metric in &self.metrics {
+            ensure_change_known_evidence(&metric.evidence_ids, &known_ids)?;
+            ensure_change_known_evidence(&metric.drill_down.evidence_ids, &known_ids)?;
+            ensure_change_known_evidence(&metric.drill_down_reference.evidence_ids, &known_ids)?;
+        }
+        for status in &self.source_statuses {
+            ensure_change_known_evidence(&status.evidence_ids, &known_ids)?;
+        }
+        Ok(())
+    }
+}
+
+/// Typed validation failures for change contracts and replay inputs.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum ChangeError {
+    #[error("change identifier is empty, unsafe or duplicated")]
+    InvalidId,
+    #[error("change timestamp is invalid")]
+    InvalidTimestamp,
+    #[error("change timestamp is missing")]
+    MissingTimestamp,
+    #[error("change window is invalid")]
+    InvalidWindow,
+    #[error("change window and timeline do not agree")]
+    WindowMismatch,
+    #[error("change lookback is outside 0.0..=86400.0")]
+    InvalidLookback,
+    #[error("change limit is outside the permitted range")]
+    InvalidLimit,
+    #[error("change number is not finite")]
+    NonFiniteNumber,
+    #[error("change number cannot be negative")]
+    NegativeNumber,
+    #[error("change metric or diff statistic uses an invalid unit")]
+    InvalidUnit,
+    #[error("change source link is invalid")]
+    InvalidLink,
+    #[error("change actor is invalid")]
+    InvalidActor,
+    #[error("change actor identity is unsafe")]
+    UnsafeIdentity,
+    #[error("change revision is invalid")]
+    InvalidRevision,
+    #[error("change repository is invalid")]
+    InvalidRepository,
+    #[error("change path is invalid")]
+    InvalidPath,
+    #[error("change target is invalid")]
+    InvalidTarget,
+    #[error("change source record is invalid")]
+    InvalidSourceRecord,
+    #[error("change source does not match its source record")]
+    SourceMismatch,
+    #[error("change evidence is missing or invalid")]
+    EvidenceMissing,
+    #[error("change evidence is invalid")]
+    InvalidEvidence,
+    #[error("change scope does not contain a child value")]
+    ScopeMismatch,
+    #[error("change association is invalid")]
+    InvalidAssociation,
+    #[error("change metric is invalid")]
+    InvalidMetric,
+    #[error("change timeline is invalid")]
+    InvalidTimeline,
+    #[error("change reference is missing")]
+    CandidateReferenceMissing,
+    #[error("change identifier is duplicated")]
+    DuplicateId,
+    #[error("change request payload is malformed")]
+    MalformedPayload,
+    #[error("change source status is invalid")]
+    InvalidSourceStatus,
+    #[error("change policy denied the source record")]
+    PolicyDenied,
+}
+
+pub const MAX_CHANGE_LOOKBACK_SECONDS: f64 = 86_400.0;
+pub const DEFAULT_CHANGE_LOOKBACK_SECONDS: f64 = 3_600.0;
+pub const MAX_CHANGE_LIMIT: usize = 1_000;
 
 /// Typed reason for a source or projection status that is not healthy/fresh.
 ///
@@ -1923,6 +2517,8 @@ pub enum CorrelationReasonKind {
     SharedDeployment,
     #[serde(rename = "topology_relation")]
     TopologyRelation,
+    #[serde(rename = "preceding_change")]
+    PrecedingChange,
 }
 
 /// Confidence vocabulary for an association, deliberately excluding causality.
@@ -1964,7 +2560,8 @@ impl CorrelationReason {
                     CorrelationReasonKind::SharedResource => SignalTargetKind::Resource,
                     CorrelationReasonKind::SharedService => SignalTargetKind::Service,
                     CorrelationReasonKind::SharedDeployment => SignalTargetKind::Deployment,
-                    CorrelationReasonKind::TopologyRelation => unreachable!(),
+                    CorrelationReasonKind::TopologyRelation
+                    | CorrelationReasonKind::PrecedingChange => unreachable!(),
                 };
                 if target.kind != expected_target_kind
                     || !self.topology_path_ids.is_empty()
@@ -1979,6 +2576,11 @@ impl CorrelationReason {
                     || validate_sorted_identifiers(&self.topology_path_ids).is_err()
                     || self.qualification != CorrelationQualification::ProbableStructural
                 {
+                    return Err(CorrelationError::InvalidReason);
+                }
+            }
+            CorrelationReasonKind::PrecedingChange => {
+                if self.qualification != CorrelationQualification::ProbableStructural {
                     return Err(CorrelationError::InvalidReason);
                 }
             }
@@ -2553,6 +3155,181 @@ fn parse_correlation_timestamp(value: &str) -> Result<DateTime<Utc>, Correlation
     DateTime::parse_from_rfc3339(value)
         .map(|timestamp| timestamp.with_timezone(&Utc))
         .map_err(|_| CorrelationError::InvalidTimestamp)
+}
+
+fn parse_change_timestamp(value: &str) -> Result<DateTime<Utc>, ChangeError> {
+    if value.trim().is_empty() {
+        return Err(ChangeError::InvalidTimestamp);
+    }
+    DateTime::parse_from_rfc3339(value)
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+        .map_err(|_| ChangeError::InvalidTimestamp)
+}
+
+fn validate_change_lookback(value: f64) -> Result<(), ChangeError> {
+    if !value.is_finite() {
+        return Err(ChangeError::NonFiniteNumber);
+    }
+    if !(0.0..=MAX_CHANGE_LOOKBACK_SECONDS).contains(&value) {
+        return Err(ChangeError::InvalidLookback);
+    }
+    Ok(())
+}
+
+fn looks_like_email(value: &str) -> bool {
+    value.split_once('@').is_some_and(|(local, domain)| {
+        !local.is_empty() && !domain.is_empty() && !domain.chars().any(char::is_whitespace)
+    })
+}
+
+/// Parse only the URL properties that the change contract admits.  This is
+/// intentionally small and strict: a query or fragment is never accepted,
+/// because provider URLs commonly place credentials and cursors there.
+fn parse_https_host(value: &str) -> Option<String> {
+    if value.is_empty()
+        || value
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return None;
+    }
+    let (scheme, remainder) = value.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("https") || remainder.is_empty() {
+        return None;
+    }
+    if remainder.contains('?') || remainder.contains('#') {
+        return None;
+    }
+
+    let authority_end = remainder.find('/').unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+
+    let host = if let Some(stripped) = authority.strip_prefix('[') {
+        let end = stripped.find(']')?;
+        let host = &stripped[..end];
+        let suffix = &stripped[end + 1..];
+        if host.is_empty()
+            || (!suffix.is_empty()
+                && (!suffix.starts_with(':')
+                    || suffix[1..].is_empty()
+                    || !suffix[1..]
+                        .chars()
+                        .all(|character| character.is_ascii_digit())))
+        {
+            return None;
+        }
+        host
+    } else {
+        let colon_count = authority
+            .chars()
+            .filter(|character| *character == ':')
+            .count();
+        if colon_count > 1 {
+            return None;
+        }
+        if let Some((host, port)) = authority.split_once(':') {
+            if port.is_empty() || !port.chars().all(|character| character.is_ascii_digit()) {
+                return None;
+            }
+            host
+        } else {
+            authority
+        }
+    };
+    if host.is_empty() || host.contains('.') && host.starts_with('.') {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
+}
+
+fn validate_change_path(path: &str) -> Result<(), ChangeError> {
+    validate_safe_identifier(path).map_err(|_| ChangeError::InvalidPath)?;
+    if path.starts_with('/')
+        || path.contains('\\')
+        || path.contains(':')
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(ChangeError::InvalidPath);
+    }
+    Ok(())
+}
+
+fn validate_change_evidence_ids(ids: &[ConsoleEvidenceId]) -> Result<(), ChangeError> {
+    if ids.is_empty() {
+        return Err(ChangeError::EvidenceMissing);
+    }
+    validate_change_evidence_ids_allow_empty(ids)
+}
+
+fn validate_change_evidence_ids_allow_empty(ids: &[ConsoleEvidenceId]) -> Result<(), ChangeError> {
+    if ids.iter().any(|id| validate_safe_identifier(id).is_err())
+        || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+        || ids.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(ChangeError::InvalidEvidence);
+    }
+    Ok(())
+}
+
+fn validate_sorted_change_identifiers(ids: &[String]) -> Result<(), ChangeError> {
+    if ids.iter().any(|id| validate_safe_identifier(id).is_err())
+        || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+        || ids.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(ChangeError::InvalidId);
+    }
+    Ok(())
+}
+
+fn ensure_change_known_evidence(
+    ids: &[ConsoleEvidenceId],
+    known_ids: &BTreeSet<ConsoleEvidenceId>,
+) -> Result<(), ChangeError> {
+    if ids.iter().any(|id| !known_ids.contains(id)) {
+        Err(ChangeError::EvidenceMissing)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_change_drill_down(
+    drill_down: &DrillDownTarget,
+    reference: &DrillDownReference,
+    evidence_ids: &[ConsoleEvidenceId],
+    scope: &ResourceScope,
+) -> Result<(), ChangeError> {
+    if drill_down.destination != DrillDownDestination::Evidence
+        || drill_down.evidence_ids.is_empty()
+        || reference.source_query.trim().is_empty()
+        || reference.source_query.chars().any(char::is_control)
+        || reference.evidence_ids.is_empty()
+    {
+        return Err(ChangeError::InvalidEvidence);
+    }
+    validate_change_evidence_ids(&drill_down.evidence_ids)?;
+    validate_change_evidence_ids(&reference.evidence_ids)?;
+    if !contains_all(evidence_ids, &drill_down.evidence_ids)
+        || !contains_all(evidence_ids, &reference.evidence_ids)
+    {
+        return Err(ChangeError::EvidenceMissing);
+    }
+    if !scope.contains(&reference.scope) {
+        return Err(ChangeError::ScopeMismatch);
+    }
+    if let Some(filter_key) = &drill_down.filter_key {
+        validate_safe_identifier(filter_key).map_err(|_| ChangeError::InvalidId)?;
+    }
+    if let Some(time_window) = &reference.time_window {
+        time_window
+            .validate()
+            .map_err(|_| ChangeError::InvalidWindow)?;
+    }
+    Ok(())
 }
 
 fn validate_optional_timestamp(value: Option<&str>) -> Result<(), CorrelationError> {

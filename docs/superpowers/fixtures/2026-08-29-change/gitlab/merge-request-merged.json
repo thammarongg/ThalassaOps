@@ -1,0 +1,23 @@
+{
+  "object_kind": "merge_request",
+  "event_type": "merge_request",
+  "user": {
+    "username": "merge-helper"
+  },
+  "project": {
+    "id": 2401,
+    "path": "checkout",
+    "path_with_namespace": "acme/checkout",
+    "web_url": "https://gitlab.com/acme/checkout"
+  },
+  "object_attributes": {
+    "id": 52,
+    "action": "merge",
+    "state": "merged",
+    "title": "Tune checkout retry policy",
+    "merged_at": "2026-08-29T08:47:00Z",
+    "merge_commit_sha": "7777777777777777777777777777777777777777",
+    "target_branch": "main",
+    "url": "https://gitlab.com/acme/checkout/-/merge_requests/52"
+  }
+}

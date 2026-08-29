@@ -188,7 +188,7 @@ fn operations_contracts_round_trip_through_json() {
     };
     let change = ChangeStreamItem {
         id: "change-1".into(),
-        source: Some("argocd".into()),
+        source: EvidenceSourceKind::ArgoCd,
         occurred_at: "2026-08-28T08:50:00Z".into(),
         kind: ChangeKind::Deployment,
         summary: "Deploy checkout 2026.08.28.1".into(),
