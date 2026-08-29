@@ -745,5 +745,6 @@ fn reason_kind_rank(kind: thalassa_domain::CorrelationReasonKind) -> u8 {
         thalassa_domain::CorrelationReasonKind::SharedService => 1,
         thalassa_domain::CorrelationReasonKind::SharedDeployment => 2,
         thalassa_domain::CorrelationReasonKind::TopologyRelation => 3,
+        thalassa_domain::CorrelationReasonKind::PrecedingChange => 4,
     }
 }

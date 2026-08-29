@@ -988,7 +988,6 @@ fn project_changes(
         }
         change.evidence_ids = unique_ids(ids.iter());
         change.id = safe_id_component(&change.id);
-        change.source = change.source.and_then(|value| safe_detail(&value));
         change.summary = safe_text(&change.summary, "Operational change");
         change.actor = change.actor.and_then(|value| safe_detail(&value));
         change.target_resource = change.target_resource.and_then(|value| safe_detail(&value));

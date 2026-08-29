@@ -1023,6 +1023,9 @@ fn source_kind_wire(source_kind: EvidenceSourceKind) -> &'static str {
         EvidenceSourceKind::Falco => "falco",
         EvidenceSourceKind::Kyverno => "kyverno",
         EvidenceSourceKind::OpaGatekeeper => "opa_gatekeeper",
+        EvidenceSourceKind::GitHub => "github",
+        EvidenceSourceKind::GitLab => "gitlab",
+        EvidenceSourceKind::ArgoCd => "argo_cd",
     }
 }
 

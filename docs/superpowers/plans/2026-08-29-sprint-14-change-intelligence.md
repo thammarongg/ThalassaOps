@@ -69,6 +69,10 @@ No worker changes a field name, enum wire value, nullability rule, identity rule
 - Create: `ui/src/change/change-fixtures.ts` — copied, typed fixture snapshot for frontend work.
 - Create: `ui/src/change/change-contracts.test.ts` — copied-fixture field, enum, nullability and finite-number assertions.
 
+Task 1 compatibility updates required by the extended source and reason enums:
+
+- Modify: `src-tauri/src/operations/aggregate.rs`, `src-tauri/src/app/correlation.rs`, `src-tauri/src/correlation/adapters/operational.rs`, `src-tauri/src/correlation/adapters/mod.rs`, `src-tauri/src/correlation/dedup.rs`, `src-tauri/src/correlation/source_records.rs`, `src-tauri/src/correlation/window.rs`, `src-tauri/src/correlation/aggregate.rs`, `src-tauri/src/correlation/grouping.rs` and `src-tauri/src/topology/derive.rs` — add explicit wire/projection arms and reconcile the typed change-stream source. Extending `EvidenceSourceKind` forces explicit arms at every exhaustive site; wildcard arms are forbidden.
+
 **Interfaces:**
 
 - Consumes: existing `ResourceScope`, `SignalTarget`, `SourceRecordRef`, `ConsoleEvidenceId`, `DrillDownTarget`, `DrillDownReference`, `TimeWindow`, `NumberUnit`, `SourceStatus`, `CorrelationQualification`, `CorrelationReasonKind`, `CorrelationCandidate`.

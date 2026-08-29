@@ -401,6 +401,7 @@ fn reason_kind_rank(kind: CorrelationReasonKind) -> u8 {
         CorrelationReasonKind::SharedService => 1,
         CorrelationReasonKind::SharedDeployment => 2,
         CorrelationReasonKind::TopologyRelation => 3,
+        CorrelationReasonKind::PrecedingChange => 4,
     }
 }
 
