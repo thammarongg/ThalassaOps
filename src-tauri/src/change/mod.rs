@@ -4,6 +4,7 @@
 //! re-exports them for backend callers and owns replay fixtures.
 
 pub mod adapters;
+pub mod association;
 pub mod fixtures;
 pub mod normalize;
 pub mod records;
