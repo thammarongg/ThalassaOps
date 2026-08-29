@@ -19,14 +19,14 @@ use super::records::{occurred_at_for, revision_for, AdmittedRecord};
 /// A normalized event and the typed source statuses produced while safely
 /// downgrading source fields.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NormalizedChange {
+pub struct NormalizationOutput {
     pub event: ChangeEvent,
     pub statuses: Vec<SourceStatus>,
 }
 
 /// Normalize one retained source record without substituting ingestion time
 /// for a missing source timestamp.
-pub fn to_change_event(record: &AdmittedRecord) -> Result<NormalizedChange, ChangeError> {
+pub fn to_change_event(record: &AdmittedRecord) -> Result<NormalizationOutput, ChangeError> {
     let scope = record
         .evidence
         .first()
@@ -86,7 +86,7 @@ pub fn to_change_event(record: &AdmittedRecord) -> Result<NormalizedChange, Chan
         },
     };
     event.validate()?;
-    Ok(NormalizedChange { event, statuses })
+    Ok(NormalizationOutput { event, statuses })
 }
 
 fn event_id(reference: &SourceRecordRef) -> Result<Uuid, ChangeError> {

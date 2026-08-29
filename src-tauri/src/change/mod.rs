@@ -3,11 +3,12 @@
 //! The canonical change contracts live in `thalassa_domain`; this module only
 //! re-exports them for backend callers and owns replay fixtures.
 
+pub mod adapters;
 pub mod fixtures;
 pub mod normalize;
 pub mod records;
 
-pub use normalize::NormalizedChange;
+pub use normalize::NormalizationOutput;
 pub use records::AdmittedRecord;
 
 pub use thalassa_domain::{

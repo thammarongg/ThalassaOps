@@ -4,20 +4,9 @@ use thalassa_domain::{ChangeActorKind, ResourceScope, SourceState};
 use thalassaops::app::AppState;
 use thalassaops::change::{fixtures, normalize, records};
 use thalassaops::correlation::SourceRecordStore;
-use uuid::Uuid;
+mod change_support;
 
-fn fixture_scope() -> ResourceScope {
-    ResourceScope::workspace(Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3))
-}
-
-fn memory_store(scope: ResourceScope) -> SourceRecordStore {
-    let connection = Connection::open_in_memory().expect("in-memory database");
-    connection
-        .execute_batch(include_str!("../migrations/0005_change_records.sql"))
-        .expect("change-record migration applies");
-    SourceRecordStore::with_connection_and_scope(connection, scope)
-        .expect("source-record store opens")
-}
+use change_support::{fixture_scope, memory_store};
 
 fn admit_fixture(store: &mut SourceRecordStore, path_suffix: &str) -> records::AdmittedRecord {
     let fixture = fixtures::catalog()

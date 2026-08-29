@@ -526,7 +526,7 @@ For one `change.snapshot` request:
 2. Load fixture payloads through the injected fixture clock.
 3. Evaluate source and local-storage policy, then admit each post-policy record
    to the append-only ledger with a content digest.
-4. Normalize each record into a `NormalizedChange { event, statuses }`,
+4. Normalize each record into a `NormalizationOutput { event, statuses }`,
    rejecting missing or unparsable timestamps with typed errors while recording
    safe identity, link and path downgrades as source statuses. A successful
    downgrade therefore remains inspectable without silently losing its status.

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- There is one type per concept. `thalassa_domain::ChangeEvent` is the canonical change record. Do not create `NormalizedChange`, `ChangeRecord`, a provider-specific change struct, a second timeline type or a UI-only change model. Reuse `ResourceScope`, `SignalTarget`, `EvidenceRef`, `ConsoleEvidenceId`, `SourceRecordRef`, `DrillDownTarget`, `DrillDownReference`, `TimeWindow`, `NumberUnit`, `SourceStatus` and the Sprint 12 topology types.
+- There is one type per concept. `thalassa_domain::ChangeEvent` is the canonical change record. Do not create a second change model: no `ChangeRecord`, no provider-specific change struct, no second timeline type, no UI-only change model and no alternative normalized representation of a change that competes with `ChangeEvent`. Function result wrappers that carry a `ChangeEvent` alongside typed statuses, such as `NormalizationOutput` and `AdapterOutput`, are not second models and are expected. Reuse `ResourceScope`, `SignalTarget`, `EvidenceRef`, `ConsoleEvidenceId`, `SourceRecordRef`, `DrillDownTarget`, `DrillDownReference`, `TimeWindow`, `NumberUnit`, `SourceStatus` and the Sprint 12 topology types.
 - Extend the existing `EvidenceSourceKind` with exactly the wire values `github`, `gitlab` and `argo_cd`. Extend the existing `ChangeKind` with exactly `code_commit`, `code_merge`, `sync` and `rollback`, leaving `deployment`, `configuration`, `maintenance` and `connector` unchanged. Do not create a private source or kind enum and do not use a free-form source string anywhere.
 - A `ChangeEvent` is never a member of a `CorrelationCandidate`. Changes attach through `ChangeAssociation` only. `CorrelationReasonKind::PrecedingChange` always carries `CorrelationQualification::ProbableStructural`. Never add or render `root_cause`, `caused_by`, `triggered_by`, `blast_radius` or a probability score in any contract, wire value, locale key or string.
 - Temporal precedence alone never creates an association. A change must also share an exact `SignalTarget` with the candidate or connect through at least one Sprint 12 topology path. Both conditions are required.
@@ -279,7 +279,7 @@ git commit -m "feat(domain): add change intelligence contracts and replay fixtur
 **Interfaces:**
 
 - Consumes: `change::fixtures::catalog()`, `ChangeEvent`, `SourceRecordRef`, `EvidenceRef`, the Sprint 13 ledger in `src-tauri/src/correlation/source_records.rs` (including its `source_record_evidence` storage and `evidence_for` lookup) and the existing policy classification helpers.
-- Produces: `records::admit(store: &mut SourceRecordStore, payload: &str, source: EvidenceSourceKind, scope: &ResourceScope, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value, evidence: Vec<EvidenceRef> }`; `records::resolve_evidence(store: &SourceRecordStore, id: &ConsoleEvidenceId) -> Option<EvidenceRef>`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<NormalizedChange, ChangeError>` where `NormalizedChange { event: ChangeEvent, statuses: Vec<SourceStatus> }`.
+- Produces: `records::admit(store: &mut SourceRecordStore, payload: &str, source: EvidenceSourceKind, scope: &ResourceScope, clock: DateTime<Utc>) -> Result<AdmittedRecord, ChangeError>` where `AdmittedRecord { record_ref: SourceRecordRef, body: serde_json::Value, evidence: Vec<EvidenceRef> }`; `records::resolve_evidence(store: &SourceRecordStore, id: &ConsoleEvidenceId) -> Option<EvidenceRef>`; `normalize::to_change_event(record: &AdmittedRecord) -> Result<NormalizationOutput, ChangeError>` where `NormalizationOutput { event: ChangeEvent, statuses: Vec<SourceStatus> }`.
 
 Admission receives a caller-owned, scoped `SourceRecordStore`; it never uses process-global mutable state or a default `ResourceScope`. Normalization returns typed source statuses alongside a successful event so safe downgrades are observable without turning a usable source record into an error.
 
@@ -375,7 +375,7 @@ The table is append-only: the implementation issues `INSERT OR IGNORE` and never
 
 `records::admit` parses the payload to `serde_json::Value`, strips diff-body fields (`patch`, `diff`, `content`) before anything else, evaluates source and local-storage policy, computes the content digest over the post-policy body, writes the `change_source_record` row, mints one `EvidenceRef` per admitted record through the Sprint 13 evidence store, and returns the `SourceRecordRef` together with the minted evidence. The caller supplies a scoped `SourceRecordStore`; admission never relies on process-global state or an implicit scope.
 
-`normalize::to_change_event` maps the retained body to a `NormalizedChange { event, statuses }`, returning `ChangeError::MissingTimestamp` when no usable `occurred_at` exists, downgrading an unsafe actor to `ChangeActorKind::Unknown` with `handle: None`, dropping a link that fails `ChangeSourceLink::validate`, and dropping any changed path that fails safe-path validation. Each downgrade records a typed `SourceStatus` in the successful result rather than silently succeeding.
+`normalize::to_change_event` maps the retained body to a `NormalizationOutput { event, statuses }`, returning `ChangeError::MissingTimestamp` when no usable `occurred_at` exists, downgrading an unsafe actor to `ChangeActorKind::Unknown` with `handle: None`, dropping a link that fails `ChangeSourceLink::validate`, and dropping any changed path that fails safe-path validation. Each downgrade records a typed `SourceStatus` in the successful result rather than silently succeeding.
 
 - [ ] **Step 5: Run the tests and confirm they pass**
 
@@ -400,28 +400,39 @@ git commit -m "feat(change): retain post-policy change records and normalize the
 - Create: `src-tauri/src/change/adapters/gitlab.rs`
 - Create: `src-tauri/src/change/adapters/argocd.rs`
 - Create: `src-tauri/tests/change_adapters.rs` — one assertion group per fixture plus the safety cases.
+- Create: `src-tauri/tests/change_support.rs` — shared scoped in-memory store and fixture-scope helper for change integration tests.
+- Modify: `src-tauri/tests/change_records.rs` — consume the shared change test helper.
 
 **Interfaces:**
 
 - Consumes: `records::admit`, `normalize::to_change_event`, `fixtures::catalog()`.
-- Produces: `adapters::replay_all(clock: DateTime<Utc>) -> Result<AdapterOutput, ChangeError>` and `adapters::replay_from(fixtures: Vec<ChangeFixture>, clock: DateTime<Utc>) -> Result<AdapterOutput, ChangeError>`, where `AdapterOutput { events: Vec<ChangeEvent>, statuses: Vec<SourceStatus> }` and `events` is sorted by `(occurred_at, id)`.
+- Produces: `adapters::replay_all(store: &mut SourceRecordStore, scope: &ResourceScope, clock: DateTime<Utc>) -> Result<AdapterOutput, ChangeError>` and `adapters::replay_from(fixtures: Vec<ChangeFixture>, store: &mut SourceRecordStore, scope: &ResourceScope, clock: DateTime<Utc>) -> Result<AdapterOutput, ChangeError>`, where `AdapterOutput { events: Vec<ChangeEvent>, statuses: Vec<SourceStatus> }` and `events` is sorted by `(occurred_at, id)`. The caller owns and supplies the scoped store; adapters never acquire a store or scope from ambient state.
 
 - [ ] **Step 1: Write the failing adapter test**
 
 ```rust
 // src-tauri/tests/change_adapters.rs
 use thalassaops::change::{adapters, fixtures};
+use thalassaops::change::adapters::AdapterOutput;
 use thalassa_domain::{ChangeActorKind, ChangeKind, ChangeOutcome, EvidenceSourceKind, SourceState};
+mod change_support;
+use change_support::{fixture_scope, memory_store};
+
+fn replay_all() -> AdapterOutput {
+    let scope = fixture_scope();
+    let mut store = memory_store(scope.clone());
+    adapters::replay_all(&mut store, &scope, fixtures::fixture_clock()).expect("replay succeeds")
+}
 
 #[test]
 fn every_fixture_normalizes_to_exactly_one_event() {
-    let output = adapters::replay_all(fixtures::fixture_clock()).expect("replay succeeds");
+    let output = replay_all();
     assert_eq!(output.events.len(), 9);
 }
 
 #[test]
 fn merged_pull_request_maps_to_code_merge_with_rejected_email_actor() {
-    let output = adapters::replay_all(fixtures::fixture_clock()).unwrap();
+    let output = replay_all();
     let event = output
         .events
         .iter()
@@ -438,7 +449,7 @@ fn merged_pull_request_maps_to_code_merge_with_rejected_email_actor() {
 
 #[test]
 fn credentialed_link_is_dropped_not_emitted() {
-    let output = adapters::replay_all(fixtures::fixture_clock()).unwrap();
+    let output = replay_all();
     let event = output
         .events
         .iter()
@@ -450,7 +461,7 @@ fn credentialed_link_is_dropped_not_emitted() {
 
 #[test]
 fn failed_argo_sync_maps_to_failed_outcome_and_rollback_to_rollback_kind() {
-    let output = adapters::replay_all(fixtures::fixture_clock()).unwrap();
+    let output = replay_all();
     assert!(output.events.iter().any(|e| e.source == EvidenceSourceKind::ArgoCd
         && e.kind == ChangeKind::Sync
         && e.outcome == ChangeOutcome::Failed));
@@ -462,10 +473,18 @@ fn failed_argo_sync_maps_to_failed_outcome_and_rollback_to_rollback_kind() {
 
 #[test]
 fn replay_is_order_independent() {
-    let first = adapters::replay_all(fixtures::fixture_clock()).unwrap();
+    let first = replay_all();
     let mut shuffled = fixtures::catalog();
     shuffled.reverse();
-    let second = adapters::replay_from(shuffled, fixtures::fixture_clock()).unwrap();
+    let scope = fixture_scope();
+    let mut store = memory_store(scope.clone());
+    let second = adapters::replay_from(
+        shuffled,
+        &mut store,
+        &scope,
+        fixtures::fixture_clock(),
+    )
+    .unwrap();
     assert_eq!(
         serde_json::to_string(&first.events).unwrap(),
         serde_json::to_string(&second.events).unwrap()
@@ -480,7 +499,7 @@ Expected: FAIL — `adapters` does not exist.
 
 - [ ] **Step 3: Implement the three adapters**
 
-Each adapter maps its own payload shape onto the shared normalization path: GitHub push to `CodeCommit`, merged pull request to `CodeMerge`, deployment status to `Deployment`; GitLab push to `CodeCommit`, merged merge request to `CodeMerge`, pipeline deployment to `Deployment`; Argo CD sync to `Sync` and rollback to `Rollback`. Targets are built as `SignalTarget` values using the same identifier convention the Sprint 13 adapters use for deployment and service targets, so exact comparison holds. `replay_all` calls `replay_from(fixtures::catalog(), clock)` and sorts by `(occurred_at, id)`.
+Each adapter maps its own payload shape onto the shared normalization path: GitHub push to `CodeCommit`, merged pull request to `CodeMerge`, deployment status to `Deployment`; GitLab push to `CodeCommit`, merged merge request to `CodeMerge`, pipeline deployment to `Deployment`; Argo CD sync to `Sync` and rollback to `Rollback`. Targets are built as `SignalTarget` values using the same identifier convention the Sprint 13 adapters use for deployment and service targets, so exact comparison holds. `replay_all` calls `replay_from(fixtures::catalog(), store, scope, clock)` and sorts by `(occurred_at, id)`.
 
 - [ ] **Step 4: Run the tests and confirm they pass**
 
@@ -490,7 +509,7 @@ Expected: PASS, 5 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src-tauri/src/change/adapters src-tauri/tests/change_adapters.rs
+git add src-tauri/src/change/adapters src-tauri/src/change/normalize.rs src-tauri/src/change/mod.rs src-tauri/tests/change_adapters.rs src-tauri/tests/change_support.rs src-tauri/tests/change_records.rs docs/design/sprint-14-change-intelligence.md docs/superpowers/plans/2026-08-29-sprint-14-change-intelligence.md
 git commit -m "feat(change): add replayable GitHub, GitLab and Argo CD adapters"
 ```
 
@@ -693,7 +712,9 @@ The matching frontend change to `ui/src/operations/contractValidation.ts` belong
 // src-tauri/tests/operations_aggregation.rs (append)
 #[test]
 fn change_stream_items_are_projected_from_canonical_change_events() {
-    let output = adapters::replay_all(fixtures::fixture_clock()).unwrap();
+    let scope = change_support::fixture_scope();
+    let mut store = change_support::memory_store(scope.clone());
+    let output = adapters::replay_all(&mut store, &scope, fixtures::fixture_clock()).unwrap();
     let item = change::projection::to_stream_item(&output.events[0]);
 
     assert_eq!(item.source, output.events[0].source);
