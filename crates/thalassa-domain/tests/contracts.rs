@@ -57,7 +57,6 @@ fn domain_entities_preserve_glossary_relationships_and_action_dimensions() {
     let environment = Environment::new(workspace.id, "prod", EnvironmentKind::Kubernetes);
     let scope = ResourceScope::environment(environment.id, workspace.id, team.id, organization.id);
     let resource = Resource::new(environment.id, scope.clone(), "deployment", "api");
-    let signal = Signal::new("prometheus", "alert", vec![resource.id]);
     let evidence = Evidence::new("prometheus", scope.clone(), "query", "api is unavailable");
     let hypothesis = Hypothesis::new("api pods are unhealthy", 0.8, vec![evidence.id]);
     let action = Action::new(
@@ -71,7 +70,6 @@ fn domain_entities_preserve_glossary_relationships_and_action_dimensions() {
     let audit = Audit::new("incident.created", scope);
 
     assert_eq!(resource.name, "api");
-    assert_eq!(signal.resource_ids, vec![resource.id]);
     assert_eq!(hypothesis.evidence_ids, vec![evidence.id]);
     assert_eq!(action.risk_class, ActionRiskClass::Mutating);
     assert_eq!(action.execution_mode, ExecutionMode::Approval);

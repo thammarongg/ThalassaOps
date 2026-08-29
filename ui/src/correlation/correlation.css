@@ -1,0 +1,376 @@
+/* Sprint 13 signal correlation read-only workspace. */
+
+.correlation-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.correlation-workspace__header,
+.correlation-section-heading,
+.correlation-candidate-details__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.correlation-workspace__header {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  padding-bottom: var(--space-1);
+}
+
+.correlation-workspace__subtitle,
+.correlation-candidates .correlation-section-heading > span,
+.correlation-summary__window,
+.correlation-workspace__sync {
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  margin: 0;
+}
+
+.correlation-workspace__sync,
+.correlation-summary__window {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.correlation-workspace__state {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-inline-start: 3px solid var(--color-reef-cyan);
+  background: color-mix(in srgb, var(--color-deep-water) 80%, var(--color-abyss));
+}
+
+.correlation-workspace__state--error {
+  border-inline-start-color: var(--color-coral);
+}
+
+.correlation-source-notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.correlation-source-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-amber) 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+}
+
+.correlation-summary,
+.correlation-sources,
+.correlation-candidates,
+.correlation-candidate-details {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-radius: 0.75rem;
+  background: var(--color-deep-water);
+  padding: var(--space-2);
+}
+
+.correlation-section-heading h2,
+.correlation-candidate-details h2,
+.correlation-candidate-details h3,
+.correlation-sources h2 {
+  margin: 0;
+}
+
+.correlation-section-heading h2,
+.correlation-sources h2 {
+  color: var(--color-reef-cyan);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.correlation-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.correlation-metric {
+  display: grid;
+  gap: 0.2rem;
+  min-height: 5.5rem;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  text-align: left;
+  cursor: pointer;
+}
+
+.correlation-metric:hover,
+.correlation-metric:focus-visible,
+.correlation-candidate:hover,
+.correlation-candidate:focus-visible {
+  border-color: var(--color-reef-cyan);
+}
+
+.correlation-metric--unavailable {
+  cursor: default;
+}
+
+.correlation-metric__value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.correlation-metric__label {
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+.correlation-metric__affordance {
+  color: var(--color-reef-cyan);
+  justify-self: end;
+}
+
+.correlation-sources ul,
+.correlation-candidate-list,
+.correlation-reason-list,
+.correlation-signal-list {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+}
+
+.correlation-sources ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.correlation-sources li {
+  border: 1px solid color-mix(in srgb, var(--color-reef-cyan) 40%, transparent);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+}
+
+.correlation-workspace__main {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.8fr) minmax(0, 1.6fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+
+.correlation-candidate-list {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.correlation-candidate {
+  display: grid;
+  width: 100%;
+  gap: 0.35rem;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border-radius: 6px;
+  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  text-align: left;
+  cursor: pointer;
+}
+
+.correlation-candidate[aria-pressed="true"] {
+  border-color: var(--color-reef-cyan);
+  box-shadow: inset 0 0 0 1px var(--color-reef-cyan);
+}
+
+.correlation-candidate__id,
+.correlation-signal__heading strong,
+.correlation-evidence__entry-id {
+  font-family: var(--font-mono);
+}
+
+.correlation-candidate__reason,
+.correlation-signal__heading > span,
+.correlation-reason > span,
+.correlation-signal__suppression {
+  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  font-size: 0.85rem;
+}
+
+.correlation-candidate-details__header {
+  align-items: flex-start;
+}
+
+.correlation-candidate-details__status {
+  margin: 0;
+  text-align: right;
+}
+
+.correlation-candidate-details__section {
+  margin-top: var(--space-2);
+}
+
+.correlation-candidate-details__section h3 {
+  color: var(--color-reef-cyan);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.correlation-reason-list,
+.correlation-signal-list {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.correlation-reason,
+.correlation-signal {
+  display: grid;
+  gap: 0.4rem;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 13%, transparent);
+  border-radius: 6px;
+}
+
+.correlation-reason {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.correlation-signal__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.correlation-signal__summary {
+  cursor: pointer;
+}
+
+.correlation-signal__body {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.correlation-signal__evidence {
+  justify-self: start;
+}
+
+.correlation-signal dl,
+.correlation-evidence dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.correlation-signal dl > div,
+.correlation-evidence dl > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.45fr) minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.correlation-signal dt,
+.correlation-evidence dt {
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.correlation-signal dd,
+.correlation-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.correlation-signal__suppression {
+  margin: 0;
+}
+
+.correlation-candidate-details__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.correlation-candidate-details__footer p {
+  margin: 0;
+  color: var(--color-amber);
+}
+
+.correlation-candidate-details__footer button,
+.correlation-evidence__native-link {
+  border: 1px solid var(--color-reef-cyan);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--color-sea-glass);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+
+.correlation-evidence {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.correlation-evidence__context {
+  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+}
+
+.correlation-evidence__error {
+  border-inline-start: 3px solid var(--color-coral);
+  padding-inline-start: var(--space-1);
+}
+
+.correlation-evidence__list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.correlation-evidence__entry {
+  display: grid;
+  gap: var(--space-1);
+  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 15%, transparent);
+  padding-top: var(--space-1);
+}
+
+.correlation-evidence__entry-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.correlation-evidence__entry-header h3 {
+  margin: 0;
+}
+
+.correlation-evidence__entry-id {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.correlation-evidence__redaction {
+  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 800px) {
+  .correlation-workspace__main {
+    grid-template-columns: 1fr;
+  }
+
+  .correlation-workspace__header,
+  .correlation-section-heading,
+  .correlation-candidate-details__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .correlation-reason {
+    grid-template-columns: 1fr;
+  }
+}

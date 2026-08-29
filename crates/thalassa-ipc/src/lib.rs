@@ -150,6 +150,26 @@ pub fn topology_evidence_descriptor() -> CommandDescriptor {
     )
 }
 
+/// Stable command descriptor for the read-only correlation snapshot projection.
+pub fn correlation_snapshot_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "correlation",
+        "snapshot",
+        Capability::WorkspaceRead,
+        Permission::Read,
+    )
+}
+
+/// Stable command descriptor for workspace-scoped correlation evidence lookup.
+pub fn correlation_evidence_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "correlation",
+        "evidence",
+        Capability::ResourceRead,
+        Permission::Read,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,

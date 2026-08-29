@@ -44,6 +44,7 @@ const th = {
     incidents: "เหตุการณ์",
     environments: "สภาพแวดล้อม",
     observability: "การสังเกตการณ์",
+    correlation: "การเชื่อมโยงสัญญาณ",
     topology: "โทโพโลยีทรัพยากร",
     changes: "การเปลี่ยนแปลง",
     vulnerability: "ช่องโหว่",
@@ -306,6 +307,7 @@ const th = {
     unknownProvider: "ไม่ทราบผู้ให้บริการ",
     lastObserved: "พบข้อมูลล่าสุด",
     lastSync: "ซิงค์ล่าสุด: {{timestamp}}",
+    openCorrelation: "เปิดการเชื่อมโยงสัญญาณ",
     customizeConsole: "ปรับแต่งคอนโซล",
     customizeHint: "เลือกจากวิดเจ็ตที่คัดสรร แล้วกำหนดลำดับหรือรูปแบบการแสดงผล",
     showWidget: "แสดง {{widget}}",
@@ -407,6 +409,203 @@ const th = {
       stale: "ประสิทธิภาพลดลง",
       unavailable: "ไม่พร้อมใช้งาน",
       unverified: "ยังไม่ยืนยัน"
+    }
+  },
+  correlation: {
+    eyebrow: "การเชื่อมโยงสัญญาณ / โมเดลอ่านอย่างเดียว",
+    title: "การเชื่อมโยงสัญญาณ",
+    subtitle: "ตรวจสอบกลุ่มสัญญาณที่อธิบายได้ และติดตามทุกข้อสรุปกลับไปยังหลักฐาน",
+    loading: "กำลังโหลดการเชื่อมโยง…",
+    lastSync: "สร้างเมื่อ {{timestamp}}",
+    sourceNotice: "{{source}} อยู่ในสถานะ{{state}} ({{reason}})",
+    sourcesTitle: "แหล่งสัญญาณ",
+    sourceStates: {
+      fresh: "เป็นข้อมูลใหม่",
+      stale: "ประสิทธิภาพลดลง",
+      unavailable: "ไม่พร้อมใช้งาน",
+      unverified: "ยังไม่ยืนยัน"
+    },
+    windowStates: {
+      open: "เปิดอยู่",
+      ready_to_finalize: "พร้อมสรุปผล",
+      finalized: "สรุปผลแล้ว",
+      reopened: "เปิดใหม่"
+    },
+    sources: {
+      alertmanager: "Alertmanager",
+      prometheus: "Prometheus",
+      kubernetes: "Kubernetes",
+      cloud: "คลาวด์",
+      health_check: "การตรวจสอบสุขภาพ",
+      fixture: "ข้อมูลตัวอย่าง",
+      trivy: "Trivy",
+      falco: "Falco",
+      kyverno: "Kyverno",
+      opa_gatekeeper: "OPA Gatekeeper",
+      topology: "โทโพโลยี",
+      unknown: "แหล่งที่มาไม่ทราบชื่อ"
+    },
+    summary: {
+      eyebrow: "สรุปที่อ้างอิงหลักฐาน",
+      title: "สรุปการเชื่อมโยง",
+      window: "{{start}} → {{end}}"
+    },
+    metrics: {
+      normalized_signals: "สัญญาณที่ปรับรูปแบบแล้ว",
+      active_candidates: "กลุ่มที่กำลังทำงาน",
+      suppressed_candidates: "กลุ่มที่ถูกระงับ",
+      uncorrelated_signals: "สัญญาณที่ยังไม่เชื่อมโยง",
+      unavailable: "หมายเลขไม่พร้อมใช้งาน ไม่สามารถยืนยันหลักฐานได้",
+      openEvidence: "ดู{{label}} ({{value}}) พร้อมหลักฐาน"
+    },
+    units: {
+      count: "",
+      percentage: "%",
+      milliseconds: " มิลลิวินาที",
+      seconds: " วินาที"
+    },
+    candidates: {
+      title: "กลุ่มสัญญาณที่เชื่อมโยง",
+      description: "แต่ละกลุ่มมีเหตุผลเชิงโครงสร้างและสัญญาณที่เกี่ยวข้อง",
+      empty: "ไม่พบกลุ่มสัญญาณสำหรับช่วงเวลานี้",
+      select: "เลือกกลุ่ม {{id}} ({{reason}})"
+    },
+    candidateStatus: {
+      active: "กำลังทำงาน",
+      provisional: "เบื้องต้น",
+      suppressed: "ถูกระงับ"
+    },
+    reasons: {
+      shared_resource: "ใช้ทรัพยากรร่วมกัน",
+      shared_service: "ใช้บริการร่วมกัน",
+      shared_deployment: "ใช้การนำไปใช้งานร่วมกัน",
+      topology_relation: "ความสัมพันธ์ในโทโพโลยี",
+      not_configured: "ยังไม่ได้ตั้งค่า",
+      unreachable: "ติดต่อไม่ได้",
+      timed_out: "หมดเวลา",
+      policy_denied: "ถูกบล็อกโดยนโยบาย",
+      no_data_in_window: "ไม่มีข้อมูลในช่วงเวลานี้",
+      unknown: "ไม่พร้อมใช้งาน"
+    },
+    qualifications: {
+      exact_association: "ความสัมพันธ์ที่ตรงกัน",
+      probable_structural: "ความสัมพันธ์เชิงโครงสร้างที่คาดว่าน่าจะเป็น"
+    },
+    findingSeverities: {
+      critical: "วิกฤต",
+      high: "สูง",
+      medium: "ปานกลาง",
+      low: "ต่ำ",
+      negligible: "เล็กน้อยมาก",
+      unknown: "ไม่ทราบ"
+    },
+    exploitability: {
+      exploited: "ถูกใช้ประโยชน์แล้ว",
+      known_exploit: "มีช่องโหว่ที่รู้จัก",
+      probable: "มีแนวโน้ม",
+      possible: "เป็นไปได้",
+      unlikely: "ไม่น่าจะเป็นไปได้",
+      none: "ไม่มี",
+      unknown: "ไม่ทราบ"
+    },
+    assetKinds: {
+      container_image: "อิมเมจคอนเทนเนอร์",
+      runtime_resource: "ทรัพยากรขณะทำงาน",
+      kubernetes_resource: "ทรัพยากร Kubernetes",
+      host: "โฮสต์",
+      policy_subject: "ทรัพยากรตามนโยบาย"
+    },
+    healthOutcomes: {
+      healthy: "ปกติ",
+      degraded: "ประสิทธิภาพลดลง",
+      unavailable: "ไม่พร้อมใช้งาน",
+      timed_out: "หมดเวลา",
+      skipped_not_due: "ข้าม: ยังไม่ถึงกำหนด",
+      skipped_cooldown: "ข้าม: ช่วงพัก",
+      skipped_disabled: "ข้าม: ปิดใช้งาน"
+    },
+    signalKinds: {
+      alert: "การแจ้งเตือน",
+      anomaly: "ความผิดปกติ",
+      security_finding: "ผลการตรวจสอบความปลอดภัย",
+      health_check: "การตรวจสอบสุขภาพ"
+    },
+    signalStates: {
+      active: "กำลังทำงาน",
+      cleared: "ล้างแล้ว",
+      observed: "ตรวจพบ",
+      unknown: "ไม่ทราบสถานะ"
+    },
+    targetKinds: {
+      resource: "ทรัพยากร",
+      service: "บริการ",
+      deployment: "การนำไปใช้งาน",
+      topology: "โทโพโลยี"
+    },
+    suppression: {
+      notSuppressed: "ไม่ได้ระงับ",
+      rule: "ระงับโดยกฎการเชื่อมโยง",
+      maintenance_window: "ระงับโดยช่วงบำรุงรักษา",
+      rule_and_maintenance_window: "ระงับโดยกฎและช่วงบำรุงรักษา"
+    },
+    details: {
+      title: "รายละเอียดกลุ่ม",
+      eyebrow: "กลุ่มที่อธิบายได้",
+      reasons: "เหตุผลที่จัดกลุ่มสัญญาณเหล่านี้",
+      members: "สัญญาณสมาชิก",
+      membersUnavailable: "รายละเอียดสัญญาณสมาชิกไม่พร้อมใช้งาน",
+      nativeId: "ข้อมูลระบุตัวตนจากแหล่งที่มา",
+      revision: "รุ่น",
+      target: "เป้าหมาย",
+      targetLabel: "เป้าหมาย: {{target}}",
+      noTarget: "ไม่มีเป้าหมายที่ตรงกัน",
+      signalId: "รหัสสัญญาณ",
+      lateSignals: "กลุ่มนี้มีสัญญาณที่มาช้าหรือเปิดช่วงเวลาใหม่",
+      windowState: "สถานะช่วงเวลา: {{state}}",
+      topologyPath: "เส้นทางโทโพโลยี: {{id}}",
+      businessSeverity: "ความรุนแรงทางธุรกิจ",
+      findingSeverity: "ความรุนแรงของผลการตรวจสอบ",
+      exploitability: "ความสามารถในการถูกใช้ประโยชน์",
+      cvssScore: "คะแนน CVSS",
+      assetKind: "ชนิดทรัพย์สิน",
+      assetName: "ชื่อทรัพย์สิน",
+      artifactDigest: "ไดเจสต์อาร์ติแฟกต์",
+      observedValue: "ค่าที่สังเกตได้",
+      comparisonValue: "ค่าเปรียบเทียบ",
+      outcome: "ผลลัพธ์",
+      suppression: "การระงับ",
+      suppressionIds: "รหัสการระงับ: {{ids}}",
+      policyVersion: "นโยบายรุ่น: {{version}}",
+      notProvided: "ไม่ได้ระบุ",
+      selectCandidate: "เลือกกลุ่มเพื่อดูสัญญาณสมาชิก",
+      openEvidence: "เปิดหลักฐาน",
+      openSignalEvidence: "เปิดหลักฐานของสัญญาณ {{id}}",
+      openEvidenceFor: "เปิดหลักฐานของกลุ่ม {{id}}"
+    },
+    evidence: {
+      title: "หลักฐานการเชื่อมโยง",
+      context: "หลักฐานสำหรับ{{subject}}",
+      loading: "กำลังโหลดหลักฐาน…",
+      empty: "ไม่มีหลักฐานที่ยืนยันแล้ว",
+      connector: "ตัวเชื่อมต่อ",
+      endpoint: "ปลายทาง",
+      query: "คำสั่ง",
+      observedAt: "เวลาที่พบ",
+      excerpt: "ข้อความตัดตอน",
+      masked: "ปกปิดข้อมูลสำคัญแล้ว",
+      notMasked: "ไม่มีการปกปิดข้อมูล",
+      unparsed: "แหล่งข้อมูลที่ยังแยกวิเคราะห์ไม่ได้",
+      parsed: "แหล่งข้อมูลที่แยกวิเคราะห์แล้ว",
+      openNative: "เปิดแหล่งข้อมูลที่เชื่อถือได้"
+    },
+    errors: {
+      invalidRequest: "คำขอการเชื่อมโยงไม่ถูกต้อง",
+      notFound: "ไม่พบหลักฐานการเชื่อมโยงที่ร้องขอ",
+      permissionDenied: "คุณไม่มีสิทธิ์ดูข้อมูลการเชื่อมโยง",
+      policyDenied: "มุมมองการเชื่อมโยงนี้ถูกบล็อกโดยนโยบาย",
+      connectorUnavailable: "แหล่งการเชื่อมโยงไม่พร้อมใช้งาน",
+      malformedResponse: "ไม่สามารถยืนยันคำตอบการเชื่อมโยงได้",
+      internalError: "มุมมองการเชื่อมโยงไม่พร้อมใช้งาน"
     }
   },
   topology: {

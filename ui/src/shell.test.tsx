@@ -39,6 +39,20 @@ it("navigates product areas from the command palette with keyboard and closes it
   expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
 });
 
+it("opens the read-only signal correlation workspace from navigation", async () => {
+  const user = userEvent.setup();
+  const invoke = vi.fn().mockResolvedValue({ ok: true, value: context });
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Signal correlation" }));
+  expect(await screen.findByRole("heading", { name: "Signal correlation" })).toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledWith("correlation_snapshot", expect.anything());
+});
+
 it("pins a navigation item and opens the honest terminal placeholder", async () => {
   const user = userEvent.setup();
   render(

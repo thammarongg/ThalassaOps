@@ -186,8 +186,9 @@ async fn grafana_link(
 }
 
 // These read-only Tauri commands are intentionally synchronous because their
-// work is pure in-memory fixture aggregation with no I/O. Do not add a
-// blocking source call inside them; an I/O-backed source needs an async path.
+// work is bounded local aggregation and ledger I/O with no remote source call.
+// Do not add a blocking remote source call inside them; an I/O-backed source
+// needs an async path.
 #[tauri::command]
 fn operations_snapshot(
     envelope: CommandEnvelope<serde_json::Value>,
@@ -218,6 +219,22 @@ fn topology_evidence(
     state: tauri::State<'_, thalassaops::app::AppState>,
 ) -> thalassaops::app::IpcResult<Vec<thalassa_domain::EvidenceRef>> {
     state.topology_evidence(envelope)
+}
+
+#[tauri::command]
+fn correlation_snapshot(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::CorrelationSnapshot> {
+    state.correlation_snapshot(envelope)
+}
+
+#[tauri::command]
+fn correlation_evidence(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<thalassa_domain::EvidenceRef>> {
+    state.correlation_evidence(envelope)
 }
 
 fn main() {
@@ -255,6 +272,8 @@ fn main() {
             operations_evidence,
             topology_snapshot,
             topology_evidence,
+            correlation_snapshot,
+            correlation_evidence,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,

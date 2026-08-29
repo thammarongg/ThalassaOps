@@ -1,0 +1,27 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "checkout:2026.08.28.1",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "checkout:2026.08.28.1",
+      "Class": "lang-pkgs",
+      "Type": "os-pkgs",
+      "VulnerabilityID": "CVE-2024-1234",
+      "PkgName": "libcheckout",
+      "InstalledVersion": "1.2.3",
+      "FixedVersion": "1.2.4",
+      "Severity": "HIGH",
+      "CVSS": {
+        "nvd": {
+          "V3Score": 8.1
+        }
+      },
+      "PrimaryURL": "https://security.example/cve/CVE-2024-1234",
+      "vendor_extension": {
+        "capture": "synthetic",
+        "revision_hint": "fixture-1"
+      }
+    }
+  ]
+}

@@ -819,10 +819,12 @@ function EvidencePanel({
 
 export function OperationsConsole({
   invoke,
-  onOpenIncidentTopology
+  onOpenIncidentTopology,
+  onOpenCorrelation
 }: {
   invoke: Invoke;
   onOpenIncidentTopology?: (incidentId: string) => void;
+  onOpenCorrelation?: () => void;
 }) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<OperationsSnapshot>();
@@ -998,6 +1000,11 @@ export function OperationsConsole({
             <p className="operations-console__sync">
               {t("operations.lastSync", { timestamp: snapshot.generated_at })}
             </p>
+          )}
+          {onOpenCorrelation && (
+            <button type="button" onClick={onOpenCorrelation}>
+              {t("operations.openCorrelation")}
+            </button>
           )}
           <button type="button" onClick={() => setLayoutOpen(true)}>
             {t("operations.customizeConsole")}

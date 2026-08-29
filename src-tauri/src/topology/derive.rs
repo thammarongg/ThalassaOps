@@ -1800,6 +1800,10 @@ fn evidence_source_status_key(source_kind: EvidenceSourceKind) -> &'static str {
         EvidenceSourceKind::Cloud => "cloud",
         EvidenceSourceKind::Alertmanager | EvidenceSourceKind::Prometheus => "observability",
         EvidenceSourceKind::HealthCheck | EvidenceSourceKind::Fixture => "fixtures",
+        EvidenceSourceKind::Trivy
+        | EvidenceSourceKind::Falco
+        | EvidenceSourceKind::Kyverno
+        | EvidenceSourceKind::OpaGatekeeper => "security",
     }
 }
 
