@@ -49,5 +49,15 @@ describe("change intelligence IPC contract", () => {
     expect(
       numericValues.every((value) => typeof value === "number" && Number.isFinite(value))
     ).toBe(true);
+    expect(Number.isInteger(changeSnapshotFixture.lookback_seconds)).toBe(true);
+    expect(changeSnapshotFixture.lookback_seconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it("treats request control values as non-negative integers", () => {
+    const request = { lookback_seconds: 3600, limit: 100 };
+    expect(Number.isInteger(request.lookback_seconds)).toBe(true);
+    expect(Number.isInteger(request.limit)).toBe(true);
+    expect(request.lookback_seconds).toBeGreaterThanOrEqual(0);
+    expect(request.limit).toBeGreaterThan(0);
   });
 });

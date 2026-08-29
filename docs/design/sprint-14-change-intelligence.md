@@ -68,8 +68,10 @@ These are unchanged and bind every task in this sprint:
   type and no provider-specific change struct.
 - One source enum. `EvidenceSourceKind` gains `github`, `gitlab` and `argo_cd`.
   No adapter introduces a private source enum or a stringly typed source field.
-- Rust numeric fields are `f64`, TypeScript numeric fields are `number`, and
-  NaN and both infinities are rejected with typed errors before serialization.
+- Measured or displayed Rust numeric fields are `f64`, TypeScript numeric fields
+  are `number`, and NaN and both infinities are rejected with typed errors
+  before serialization. Request control parameters such as limits, bounds and
+  caller-supplied durations use unsigned integer types with range validation.
 - Absent source data is `Option`/`null`, an explicit unavailable
   `SourceStatus`, or an omitted record. Empty strings are never placeholders.
   Fabricated timestamps, actors, revisions, targets and links are forbidden.
@@ -373,6 +375,25 @@ pub struct ChangeAssociation {
 }
 ```
 
+Request control parameters use unsigned integer types for cardinality and
+caller-supplied duration bounds. Measured or displayed values remain finite
+`f64` values at the Rust boundary and `number` values in TypeScript.
+
+```rust
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeRequest {
+    pub window: TimeWindow,
+    pub evaluated_at: String,
+    pub lookback_seconds: u64,
+    pub limit: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeEvidenceRequest {
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+```
+
 `candidate_id` is the existing `CorrelationCandidate.id` string; Sprint 14 does
 not change that field's type.
 
@@ -417,7 +438,7 @@ pub struct ChangeSnapshot {
     pub generated_at: String,
     pub scope: ResourceScope,
     pub request_window: TimeWindow,
-    pub lookback_seconds: f64,
+    pub lookback_seconds: u64,
     pub events: Vec<ChangeEvent>,
     pub timeline: ChangeTimeline,
     pub associations: Vec<ChangeAssociation>,

@@ -102,3 +102,20 @@ fn change_event_requires_occurred_at_and_serializes_optional_fields_as_null() {
     assert!(value.get("environment").unwrap().is_null());
     assert_eq!(event.outcome, ChangeOutcome::Succeeded);
 }
+
+#[test]
+fn change_request_uses_unsigned_control_parameters() {
+    let request = thalassa_domain::ChangeRequest {
+        window: thalassa_domain::TimeWindow {
+            start: "2026-08-29T08:00:00Z".into(),
+            end: "2026-08-29T09:00:00Z".into(),
+        },
+        evaluated_at: "2026-08-29T09:00:00Z".into(),
+        lookback_seconds: 3_600,
+        limit: 100,
+    };
+    let lookback_seconds: u64 = request.lookback_seconds;
+    let limit: u64 = request.limit;
+    assert_eq!(lookback_seconds, 3_600);
+    assert_eq!(limit, 100);
+}

@@ -1729,12 +1729,12 @@ impl ChangeMetric {
 }
 
 /// Request for one explicit, deterministic change snapshot evaluation.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ChangeRequest {
     pub window: TimeWindow,
     pub evaluated_at: String,
-    pub lookback_seconds: f64,
-    pub limit: usize,
+    pub lookback_seconds: u64,
+    pub limit: u64,
 }
 
 impl ChangeRequest {
@@ -1773,7 +1773,7 @@ pub struct ChangeSnapshot {
     pub generated_at: String,
     pub scope: ResourceScope,
     pub request_window: TimeWindow,
-    pub lookback_seconds: f64,
+    pub lookback_seconds: u64,
     pub events: Vec<ChangeEvent>,
     pub timeline: ChangeTimeline,
     pub associations: Vec<ChangeAssociation>,
@@ -1961,9 +1961,9 @@ pub enum ChangeError {
     PolicyDenied,
 }
 
-pub const MAX_CHANGE_LOOKBACK_SECONDS: f64 = 86_400.0;
-pub const DEFAULT_CHANGE_LOOKBACK_SECONDS: f64 = 3_600.0;
-pub const MAX_CHANGE_LIMIT: usize = 1_000;
+pub const MAX_CHANGE_LOOKBACK_SECONDS: u64 = 86_400;
+pub const DEFAULT_CHANGE_LOOKBACK_SECONDS: u64 = 3_600;
+pub const MAX_CHANGE_LIMIT: u64 = 1_000;
 
 /// Typed reason for a source or projection status that is not healthy/fresh.
 ///
@@ -3166,11 +3166,8 @@ fn parse_change_timestamp(value: &str) -> Result<DateTime<Utc>, ChangeError> {
         .map_err(|_| ChangeError::InvalidTimestamp)
 }
 
-fn validate_change_lookback(value: f64) -> Result<(), ChangeError> {
-    if !value.is_finite() {
-        return Err(ChangeError::NonFiniteNumber);
-    }
-    if !(0.0..=MAX_CHANGE_LOOKBACK_SECONDS).contains(&value) {
+fn validate_change_lookback(value: u64) -> Result<(), ChangeError> {
+    if value > MAX_CHANGE_LOOKBACK_SECONDS {
         return Err(ChangeError::InvalidLookback);
     }
     Ok(())
