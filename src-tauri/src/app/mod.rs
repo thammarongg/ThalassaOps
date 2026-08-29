@@ -26,6 +26,8 @@ const CONNECTOR_MIGRATION: &str = include_str!("../../migrations/0002_connector_
 const SIGNAL_RECORDS_MIGRATION: &str = include_str!("../../migrations/0003_signal_records.sql");
 const SOURCE_RECORD_EVIDENCE_MIGRATION: &str =
     include_str!("../../migrations/0004_source_record_evidence.sql");
+const CHANGE_RECORDS_MIGRATION: &str =
+    include_str!("../../migrations/0005_change_records.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -306,6 +308,20 @@ pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateEr
     if source_record_evidence_migration.is_none() {
         connection.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
+    connection.execute_batch(CHANGE_RECORDS_MIGRATION)?;
+    let change_records_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 5",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if change_records_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?1)",
             [Utc::now().to_rfc3339()],
         )?;
     }
