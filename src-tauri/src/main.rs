@@ -253,6 +253,70 @@ fn change_evidence(
     state.change_evidence(envelope)
 }
 
+#[tauri::command]
+fn incident_create(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_create(envelope)
+}
+
+#[tauri::command]
+fn incident_get(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::Incident> {
+    state.incident_get(envelope)
+}
+
+#[tauri::command]
+fn incident_list(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentPage> {
+    state.incident_list(envelope)
+}
+
+#[tauri::command]
+fn incident_timeline(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentTimelinePage> {
+    state.incident_timeline(envelope)
+}
+
+#[tauri::command]
+fn incident_transition(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_transition(envelope)
+}
+
+#[tauri::command]
+fn incident_set_severity(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_set_severity(envelope)
+}
+
+#[tauri::command]
+fn incident_set_disposition(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_set_disposition(envelope)
+}
+
+#[tauri::command]
+fn incident_assign_role(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_assign_role(envelope)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -292,6 +356,14 @@ fn main() {
             correlation_evidence,
             change_snapshot,
             change_evidence,
+            incident_create,
+            incident_get,
+            incident_list,
+            incident_timeline,
+            incident_transition,
+            incident_set_severity,
+            incident_set_disposition,
+            incident_assign_role,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,

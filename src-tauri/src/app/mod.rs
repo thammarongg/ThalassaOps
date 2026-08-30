@@ -2,6 +2,7 @@ pub(crate) mod change;
 pub(crate) mod cloud;
 mod connectors;
 mod correlation;
+mod incident;
 mod kubernetes;
 mod observability;
 mod operations;
@@ -247,6 +248,7 @@ fn membership_role_grants_permission(role: &MembershipRole, permission: &Permiss
             permission,
             Permission::Read
                 | Permission::Investigate
+                | Permission::ManageIncident
                 | Permission::RecommendAction
                 | Permission::ExecuteAction
         ),
