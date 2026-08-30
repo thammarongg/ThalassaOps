@@ -1120,8 +1120,9 @@ fn severity_changes_recalculate_override_and_close_evidence() {
         override_payload.previous_impact,
         override_payload.current_impact
     );
+    assert_eq!(override_payload.previous_override, None);
     assert_eq!(
-        override_payload.override_detail,
+        override_payload.current_override,
         Some(override_detail.clone())
     );
 
@@ -1288,7 +1289,7 @@ fn creation_requires_workspace_bounded_scopes_with_valid_ids() {
     fixture.command.triggers = vec![teamless];
     assert!(matches!(
         create_result(fixture),
-        Err(IncidentError::InvalidScope)
+        Err(IncidentError::InvalidId)
     ));
 
     let mut nil_resource = trigger();
@@ -1357,7 +1358,11 @@ fn triage_replaces_assessment_and_clears_stale_override() {
     };
     assert_eq!(payload.previous_severity, IncidentSeverity::S1);
     assert_eq!(payload.current_severity, IncidentSeverity::S3);
-    assert_eq!(payload.override_detail, None);
+    assert_eq!(
+        payload.previous_override.as_ref().unwrap().selected,
+        IncidentSeverity::S1
+    );
+    assert_eq!(payload.current_override, None);
     assert_eq!(payload.previous_impact.level, ImpactLevel::High);
     assert_eq!(payload.current_impact.level, ImpactLevel::Medium);
     assert!(mutation
@@ -1368,6 +1373,115 @@ fn triage_replaces_assessment_and_clears_stale_override() {
         .incident
         .evidence_ids
         .contains(&"evidence-triage".to_string()));
+}
+
+#[test]
+fn rejects_override_matching_the_derived_severity() {
+    let incident = created();
+    let override_command = IncidentSeverityCommand::Override {
+        selected: IncidentSeverity::S2,
+        reason: "identical to the derived severity".into(),
+        evidence_ids: vec!["evidence-severity".into()],
+    };
+    assert!(matches!(
+        incident.set_severity(1, 3, override_command, ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidSeverityOverride)
+    ));
+}
+
+#[test]
+fn triage_emits_severity_change_when_only_the_override_clears() {
+    let incident = created();
+    let override_command = IncidentSeverityCommand::Override {
+        selected: IncidentSeverity::S1,
+        reason: "worse than assessed".into(),
+        evidence_ids: vec!["evidence-override".into()],
+    };
+    let overridden = incident
+        .set_severity(1, 3, override_command, ACTOR, REQUEST, 7, now())
+        .unwrap();
+    assert_eq!(overridden.incident.current_severity(), IncidentSeverity::S1);
+
+    let triage = IncidentTransition::Triage(TriageContext {
+        business_impact: business_impact(),
+        owner: ACTOR,
+        duplicate_checked: true,
+    });
+    let mutation = overridden
+        .incident
+        .transition(2, 4, triage, ACTOR, REQUEST, 7, now())
+        .unwrap();
+
+    let kinds: Vec<IncidentEventKind> = mutation.events.iter().map(|e| e.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            IncidentEventKind::StatusTransitioned,
+            IncidentEventKind::SeverityChanged
+        ]
+    );
+    let thalassa_domain::IncidentTimelinePayload::SeverityChanged(payload) =
+        &mutation.events[1].payload
+    else {
+        panic!("expected severity payload");
+    };
+    assert_eq!(payload.previous_impact, payload.current_impact);
+    assert_eq!(payload.previous_severity, IncidentSeverity::S1);
+    assert_eq!(payload.current_severity, IncidentSeverity::S2);
+    assert!(payload.previous_override.is_some());
+    assert_eq!(payload.current_override, None);
+    assert_eq!(mutation.incident.severity_override, None);
+    assert_eq!(mutation.incident.derived_severity, IncidentSeverity::S2);
+}
+
+#[test]
+fn creation_rejects_mismatched_or_nil_trigger_workspace_ids() {
+    let mut nil_organization = trigger();
+    nil_organization.scope.organization_id = Some(uuid::Uuid::nil());
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![nil_organization];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut nil_team = trigger();
+    nil_team.scope.team_id = Some(uuid::Uuid::nil());
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![nil_team];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut nil_workspace = trigger();
+    nil_workspace.scope.workspace_id = Some(uuid::Uuid::nil());
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![nil_workspace];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut other_environment = trigger();
+    other_environment.scope.environment_id = Some(uuid::Uuid::from_u128(0x230));
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.environment_id = Some(uuid::Uuid::from_u128(0x220));
+    fixture.command.triggers = vec![other_environment];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidScope)
+    ));
+
+    let mut other_resource = trigger();
+    other_resource.scope.resource_ids = vec![uuid::Uuid::from_u128(0x231)];
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.resource_ids = vec![uuid::Uuid::from_u128(0x230)];
+    fixture.command.triggers = vec![other_resource];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidScope)
+    ));
 }
 
 #[test]

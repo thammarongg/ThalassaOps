@@ -660,6 +660,9 @@ impl IncidentReport {
 impl IncidentSeverityOverride {
     /// Validates the bounded override reason and evidence references.
     pub fn validate(&self) -> Result<(), IncidentError> {
+        if self.selected == self.derived {
+            return Err(IncidentError::InvalidSeverityOverride);
+        }
         validate_incident_text(&self.reason, INCIDENT_NOTE_MAXIMUM)?;
         validate_incident_evidence_ids(&self.evidence_ids)
     }
@@ -911,14 +914,15 @@ pub struct StatusTransitionedPayload {
     pub transition: IncidentTransition,
 }
 
-/// Severity and Business Impact before/after including any explicit override.
+/// Severity, Business Impact and override state before/after a change.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SeverityChangedPayload {
     pub previous_impact: BusinessImpact,
     pub current_impact: BusinessImpact,
     pub previous_severity: IncidentSeverity,
     pub current_severity: IncidentSeverity,
-    pub override_detail: Option<IncidentSeverityOverride>,
+    pub previous_override: Option<IncidentSeverityOverride>,
+    pub current_override: Option<IncidentSeverityOverride>,
 }
 
 /// Disposition before/after with the duplicate reference when present.
@@ -1103,9 +1107,19 @@ impl Incident {
             if let Some(signal_id) = trigger.signal_id {
                 ensure_id(signal_id)?;
             }
-            if trigger.scope.organization_id != Some(organization_id)
-                || trigger.scope.team_id != Some(scope_team_id)
-                || trigger.scope.workspace_id != Some(workspace_id)
+            let trigger_organization = trigger
+                .scope
+                .organization_id
+                .ok_or(IncidentError::InvalidId)?;
+            let trigger_team = trigger.scope.team_id.ok_or(IncidentError::InvalidId)?;
+            let trigger_workspace = trigger.scope.workspace_id.ok_or(IncidentError::InvalidId)?;
+            ensure_id(trigger_organization)?;
+            ensure_id(trigger_team)?;
+            ensure_id(trigger_workspace)?;
+            if trigger_organization != organization_id
+                || trigger_team != scope_team_id
+                || trigger_workspace != workspace_id
+                || !command.scope.contains(&trigger.scope)
             {
                 return Err(IncidentError::InvalidScope);
             }
@@ -1237,6 +1251,7 @@ impl Incident {
                 }
                 let previous_impact = next.business_impact.clone();
                 let previous_severity = next.current_severity();
+                let previous_override = next.severity_override.clone();
                 next.severity_override = None;
                 next.business_impact = context.business_impact.clone();
                 next.derived_severity = derived;
@@ -1244,6 +1259,7 @@ impl Incident {
                     merge_evidence(&next.evidence_ids, &context.business_impact.evidence_ids);
                 if context.business_impact != previous_impact
                     || next.current_severity() != previous_severity
+                    || previous_override.is_some()
                 {
                     appended.push(PendingEvent {
                         kind: IncidentEventKind::SeverityChanged,
@@ -1253,7 +1269,8 @@ impl Incident {
                             current_impact: next.business_impact.clone(),
                             previous_severity,
                             current_severity: next.current_severity(),
-                            override_detail: next.severity_override.clone(),
+                            previous_override,
+                            current_override: None,
                         }),
                     });
                 }
@@ -1404,6 +1421,7 @@ impl Incident {
         let previous_impact = self.business_impact.clone();
         let previous_severity = self.current_severity();
         let mut next = self.clone();
+        let previous_override = self.severity_override.clone();
         let payload = match &command {
             IncidentSeverityCommand::Reassess {
                 business_impact, ..
@@ -1415,11 +1433,12 @@ impl Incident {
                 next.evidence_ids =
                     merge_evidence(&next.evidence_ids, &business_impact.evidence_ids);
                 SeverityChangedPayload {
-                    previous_impact,
+                    previous_impact: previous_impact.clone(),
                     current_impact: next.business_impact.clone(),
                     previous_severity,
                     current_severity: next.current_severity(),
-                    override_detail: None,
+                    previous_override: previous_override.clone(),
+                    current_override: None,
                 }
             }
             IncidentSeverityCommand::Override {
@@ -1427,6 +1446,9 @@ impl Incident {
                 evidence_ids,
                 ..
             } => {
+                if selected == &next.derived_severity {
+                    return Err(IncidentError::InvalidSeverityOverride);
+                }
                 if evidence_ids.is_empty() {
                     return Err(IncidentError::InvalidSeverityOverride);
                 }
@@ -1445,7 +1467,8 @@ impl Incident {
                     current_impact: next.business_impact.clone(),
                     previous_severity,
                     current_severity: selected.clone(),
-                    override_detail: Some(detail),
+                    previous_override,
+                    current_override: Some(detail),
                 }
             }
         };
