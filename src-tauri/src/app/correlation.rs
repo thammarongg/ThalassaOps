@@ -237,6 +237,13 @@ impl AppState {
         self.build_correlation_snapshot(&default_correlation_request())
     }
 
+    /// Correlation snapshot used as the structural context for change
+    /// association, computed from the same deterministic fixture request the
+    /// read-only correlation workspace uses.
+    pub(super) fn correlation_context(&self) -> Result<CorrelationSnapshot, IpcError> {
+        self.build_correlation_snapshot(&default_correlation_request())
+    }
+
     fn build_correlation_snapshot(
         &self,
         request: &CorrelationRequest,

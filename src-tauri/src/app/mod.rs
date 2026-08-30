@@ -1,3 +1,4 @@
+pub(crate) mod change;
 pub(crate) mod cloud;
 mod connectors;
 mod correlation;
