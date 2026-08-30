@@ -1,6 +1,6 @@
 # Sprint 15 — Incident Domain and Lifecycle
 
-**Status:** Awaiting written-spec review
+**Status:** Approved
 
 **Date:** 2026-08-30
 
