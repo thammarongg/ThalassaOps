@@ -65,7 +65,18 @@ const operationsSnapshotFixture: OperationsSnapshot = {
       summary: "No active business impact",
       customer_scope: "none",
       service_criticality: "none",
-      trajectory: "improving"
+      trajectory: "improving",
+      dimensions: {
+        availability: "none",
+        customer_reach: "none",
+        business_criticality: "none",
+        data_integrity: "none",
+        security_privacy: "none",
+        financial_contractual: "none",
+        trajectory: "improving",
+        production: true
+      },
+      evidence_ids: [evidence.id]
     },
     attention: number,
     impacted_services: number,
@@ -87,7 +98,18 @@ const operationsSnapshotFixture: OperationsSnapshot = {
         summary: "Fixture attention",
         customer_scope: "fixture customers",
         service_criticality: "tier-0",
-        trajectory: "unknown"
+        trajectory: "unknown",
+        dimensions: {
+          availability: "critical",
+          customer_reach: "none",
+          business_criticality: "none",
+          data_integrity: "none",
+          security_privacy: "none",
+          financial_contractual: "none",
+          trajectory: "unknown",
+          production: true
+        },
+        evidence_ids: [evidence.id]
       },
       scope,
       detected_at: "2026-08-28T09:00:00Z",

@@ -1720,6 +1720,119 @@ impl Incident {
     }
 }
 
+/// Untrusted creation input for one incident trigger.  Task 5 resolution
+/// turns these into validated [`IncidentTrigger`] values before any write.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind")]
+pub enum IncidentTriggerInput {
+    #[serde(rename = "alert")]
+    Alert { source_id: String },
+    #[serde(rename = "anomaly")]
+    Anomaly { source_id: String },
+    #[serde(rename = "scheduled_health_check")]
+    ScheduledHealthCheck { source_id: String },
+    #[serde(rename = "vulnerability_finding")]
+    VulnerabilityFinding { source_id: String },
+    #[serde(rename = "user_report")]
+    UserReport {
+        reporter_id: PrincipalId,
+        observed_at: DateTime<Utc>,
+        summary: String,
+        scope: ResourceScope,
+    },
+    #[serde(rename = "manual_report")]
+    ManualReport {
+        observed_at: DateTime<Utc>,
+        summary: String,
+        scope: ResourceScope,
+    },
+}
+
+/// Untrusted creation input for one initial responder-role assignment.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentRoleAssignmentInput {
+    pub role: IncidentRole,
+    pub principal_id: PrincipalId,
+}
+
+/// Untrusted IPC input for `incident.create`; resolution happens in the
+/// application layer before [`Incident::create`] consumes a command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentCreateRequest {
+    pub summary: String,
+    pub triggers: Vec<IncidentTriggerInput>,
+    pub business_impact: BusinessImpact,
+    pub initial_roles: Vec<IncidentRoleAssignmentInput>,
+}
+
+/// Untrusted IPC input for `incident.get`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentGetRequest {
+    pub incident_id: IncidentId,
+}
+
+/// Untrusted IPC input for `incident.list`; limits are validated in 1..=100.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentListRequest {
+    pub cursor: Option<String>,
+    pub limit: u16,
+}
+
+/// Untrusted IPC input for `incident.timeline`; paging is sequence-based.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentTimelineRequest {
+    pub incident_id: IncidentId,
+    pub after_sequence: Option<u64>,
+    pub limit: u16,
+}
+
+/// Untrusted IPC input for `incident.transition`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentTransitionRequest {
+    pub incident_id: IncidentId,
+    pub expected_version: u64,
+    pub transition: IncidentTransition,
+}
+
+/// Untrusted IPC input for `incident.set_severity`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentSeverityRequest {
+    pub incident_id: IncidentId,
+    pub expected_version: u64,
+    pub command: IncidentSeverityCommand,
+}
+
+/// Untrusted IPC input for `incident.set_disposition`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentDispositionRequest {
+    pub incident_id: IncidentId,
+    pub expected_version: u64,
+    pub command: IncidentDispositionCommand,
+}
+
+/// Untrusted IPC input for `incident.assign_role`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentRoleRequest {
+    pub incident_id: IncidentId,
+    pub expected_version: u64,
+    pub command: IncidentRoleCommand,
+}
+
+/// One page of the incident list with an opaque continuation cursor.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentPage {
+    pub items: Vec<Incident>,
+    pub next_cursor: Option<String>,
+}
+
+/// One page of an incident timeline paged by event sequence.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentTimelinePage {
+    pub incident_id: IncidentId,
+    pub events: Vec<IncidentTimelineEvent>,
+    pub next_sequence: Option<u64>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TimeRange {
     pub start: DateTime<Utc>,
@@ -1902,6 +2015,7 @@ pub enum Permission {
     ExecuteAction,
     ManagePolicy,
     ManageMembership,
+    ManageIncident,
     AuditRead,
 }
 

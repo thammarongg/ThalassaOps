@@ -30,6 +30,7 @@ export type Permission =
   | "ExecuteAction"
   | "ManagePolicy"
   | "ManageMembership"
+  | "ManageIncident"
   | "AuditRead";
 
 export type CommandName = `${string}.${string}`;
@@ -49,6 +50,8 @@ export type IpcErrorCode =
   | "POLICY_DENIED"
   | "CONNECTOR_UNAVAILABLE"
   | "MALFORMED_RESPONSE"
+  | "INVALID_EVENT_SEQUENCE"
+  | "INVALID_SEVERITY_OVERRIDE"
   | "INTERNAL_ERROR";
 
 export type IpcError = {
@@ -403,6 +406,18 @@ export type BusinessImpact = {
   customer_scope: string;
   service_criticality: string;
   trajectory: ImpactTrajectory;
+  dimensions: ImpactDimensions;
+  evidence_ids: ConsoleEvidenceId[];
+};
+export type ImpactDimensions = {
+  availability: ImpactLevel;
+  customer_reach: ImpactLevel;
+  business_criticality: ImpactLevel;
+  data_integrity: ImpactLevel;
+  security_privacy: ImpactLevel;
+  financial_contractual: ImpactLevel;
+  trajectory: ImpactTrajectory;
+  production: boolean;
 };
 export type ContributingScope = {
   scope: ResourceScope;
@@ -887,6 +902,286 @@ export type TopologySnapshot = {
 };
 
 export type TopologyEvidenceRequest = { evidence_ids: ConsoleEvidenceId[] };
+
+/*
+ * Sprint 15 incident write model.  These shapes mirror
+ * `thalassa_domain::Incident`, its timeline events, and the request/page
+ * contracts frozen for the `incident.*` command surface.
+ */
+
+export type IncidentStatus =
+  | "detected"
+  | "triage"
+  | "investigating"
+  | "mitigating"
+  | "monitoring"
+  | "resolved"
+  | "closed"
+  | "reopened";
+export type IncidentDisposition =
+  | "duplicate"
+  | "false_positive"
+  | "suppressed"
+  | "cancelled"
+  | "informational";
+export type IncidentSeverity = ConsoleSeverity;
+export type IncidentRole =
+  | "owner"
+  | "incident_commander"
+  | "technical_lead"
+  | "communications_lead"
+  | "approver"
+  | "change_owner"
+  | "stakeholder";
+export type IncidentSourceKind =
+  | "alert"
+  | "anomaly"
+  | "user_report"
+  | "scheduled_health_check"
+  | "vulnerability_finding"
+  | "manual_report";
+export type IncidentEventKind =
+  | "incident_created"
+  | "triggers_attached"
+  | "status_transitioned"
+  | "severity_changed"
+  | "disposition_changed"
+  | "role_changed";
+
+export type IncidentSeverityOverride = {
+  derived: IncidentSeverity;
+  selected: IncidentSeverity;
+  actor_id: UUID;
+  reason: string;
+  evidence_ids: ConsoleEvidenceId[];
+};
+
+export type IncidentRoleAssignment = {
+  role: IncidentRole;
+  principal_id: UUID;
+  assigned_by: UUID;
+  assigned_at: string;
+};
+
+export type IncidentReport = { reporter_id: UUID | null; summary: string };
+
+export type IncidentTrigger = {
+  id: UUID;
+  source_kind: IncidentSourceKind;
+  source_id: string;
+  source_record_digest: string | null;
+  scope: ResourceScope;
+  observed_at: string;
+  signal_id: UUID | null;
+  evidence_ids: ConsoleEvidenceId[];
+  report: IncidentReport | null;
+};
+
+export type Incident = {
+  id: UUID;
+  summary: string;
+  scope: ResourceScope;
+  owning_team_id: UUID;
+  business_impact: BusinessImpact;
+  derived_severity: IncidentSeverity;
+  severity_override: IncidentSeverityOverride | null;
+  status: IncidentStatus;
+  disposition: IncidentDisposition | null;
+  duplicate_of_incident_id: UUID | null;
+  trigger_ids: UUID[];
+  signal_ids: UUID[];
+  evidence_ids: ConsoleEvidenceId[];
+  hypothesis_ids: UUID[];
+  action_ids: UUID[];
+  roles: IncidentRoleAssignment[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TriageContext = {
+  business_impact: BusinessImpact;
+  owner: UUID;
+  duplicate_checked: boolean;
+};
+export type InvestigatingContext = {
+  note: string;
+  evidence_ids: ConsoleEvidenceId[];
+};
+export type MitigatingContext = {
+  action_description: string;
+  executor: UUID;
+  expected_impact: string;
+};
+export type MonitoringContext = {
+  verification_seconds: number;
+  success_criteria: string;
+  watch_owner: UUID;
+};
+export type ResolvedContext = {
+  resolution_summary: string;
+  evidence_ids: ConsoleEvidenceId[];
+  impact_ended_at: string;
+};
+export type ClosedContext = { closure_notes: string; follow_up_ids: string[] };
+export type ReopenedContext = {
+  reason: string;
+  evidence_ids: ConsoleEvidenceId[];
+  recurrence_signal_id: UUID | null;
+};
+
+export type IncidentTransition =
+  | { target: "triage"; context: TriageContext }
+  | { target: "investigating"; context: InvestigatingContext }
+  | { target: "mitigating"; context: MitigatingContext }
+  | { target: "monitoring"; context: MonitoringContext }
+  | { target: "resolved"; context: ResolvedContext }
+  | { target: "closed"; context: ClosedContext }
+  | { target: "reopened"; context: ReopenedContext };
+
+export type CreatedPayload = {
+  summary: string;
+  scope: ResourceScope;
+  owning_team_id: UUID;
+  derived_severity: IncidentSeverity;
+  trigger_ids: UUID[];
+  initial_roles: IncidentRoleAssignment[];
+};
+export type TriggersAttachedPayload = { trigger_ids: UUID[] };
+export type StatusTransitionedPayload = {
+  from: IncidentStatus;
+  to: IncidentStatus;
+  transition: IncidentTransition;
+};
+export type SeverityChangedPayload = {
+  previous_impact: BusinessImpact;
+  current_impact: BusinessImpact;
+  previous_severity: IncidentSeverity;
+  current_severity: IncidentSeverity;
+  previous_override: IncidentSeverityOverride | null;
+  current_override: IncidentSeverityOverride | null;
+};
+export type DispositionChangedPayload = {
+  previous: IncidentDisposition | null;
+  current: IncidentDisposition | null;
+  duplicate_of_incident_id: UUID | null;
+};
+export type RoleChangedPayload = {
+  role: IncidentRole;
+  previous_principal_ids: UUID[];
+  current_principal_id: UUID | null;
+};
+
+export type IncidentTimelinePayload =
+  | { kind: "created"; data: CreatedPayload }
+  | { kind: "triggers_attached"; data: TriggersAttachedPayload }
+  | { kind: "status_transitioned"; data: StatusTransitionedPayload }
+  | { kind: "severity_changed"; data: SeverityChangedPayload }
+  | { kind: "disposition_changed"; data: DispositionChangedPayload }
+  | { kind: "role_changed"; data: RoleChangedPayload };
+
+export type IncidentTimelineEvent = {
+  id: UUID;
+  incident_id: UUID;
+  sequence: number;
+  kind: IncidentEventKind;
+  actor_id: UUID;
+  reason: string | null;
+  occurred_at: string;
+  request_id: UUID;
+  policy_version: number;
+  payload: IncidentTimelinePayload;
+};
+
+export type IncidentTriggerInput =
+  | { kind: "alert"; source_id: string }
+  | { kind: "anomaly"; source_id: string }
+  | { kind: "scheduled_health_check"; source_id: string }
+  | { kind: "vulnerability_finding"; source_id: string }
+  | {
+      kind: "user_report";
+      reporter_id: UUID;
+      observed_at: string;
+      summary: string;
+      scope: ResourceScope;
+    }
+  | {
+      kind: "manual_report";
+      observed_at: string;
+      summary: string;
+      scope: ResourceScope;
+    };
+
+export type IncidentRoleAssignmentInput = {
+  role: IncidentRole;
+  principal_id: UUID;
+};
+
+export type IncidentCreateRequest = {
+  summary: string;
+  triggers: IncidentTriggerInput[];
+  business_impact: BusinessImpact;
+  initial_roles: IncidentRoleAssignmentInput[];
+};
+export type IncidentGetRequest = { incident_id: UUID };
+export type IncidentListRequest = { cursor: string | null; limit: number };
+export type IncidentTimelineRequest = {
+  incident_id: UUID;
+  after_sequence: number | null;
+  limit: number;
+};
+export type IncidentTransitionRequest = {
+  incident_id: UUID;
+  expected_version: number;
+  transition: IncidentTransition;
+};
+export type IncidentSeverityCommand =
+  | {
+      action: "reassess";
+      details: { business_impact: BusinessImpact; reason: string };
+    }
+  | {
+      action: "override";
+      details: {
+        selected: IncidentSeverity;
+        reason: string;
+        evidence_ids: ConsoleEvidenceId[];
+      };
+    };
+export type IncidentSeverityRequest = {
+  incident_id: UUID;
+  expected_version: number;
+  command: IncidentSeverityCommand;
+};
+export type IncidentDispositionCommand = {
+  disposition: IncidentDisposition | null;
+  duplicate_of_incident_id: UUID | null;
+  reason: string;
+};
+export type IncidentDispositionRequest = {
+  incident_id: UUID;
+  expected_version: number;
+  command: IncidentDispositionCommand;
+};
+export type IncidentRoleCommand =
+  | { action: "assign"; details: { role: IncidentRole; principal_id: UUID } }
+  | { action: "replace"; details: { role: IncidentRole; principal_id: UUID } }
+  | { action: "release"; details: { role: IncidentRole; principal_id: UUID } };
+export type IncidentRoleRequest = {
+  incident_id: UUID;
+  expected_version: number;
+  command: IncidentRoleCommand;
+};
+
+export type IncidentPage = {
+  items: Incident[];
+  next_cursor: string | null;
+};
+export type IncidentTimelinePage = {
+  incident_id: UUID;
+  events: IncidentTimelineEvent[];
+  next_sequence: number | null;
+};
 
 export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;
 

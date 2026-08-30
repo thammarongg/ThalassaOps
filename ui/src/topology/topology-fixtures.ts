@@ -1159,7 +1159,18 @@ export const topologyIncidentsFixture: IncidentQueueItem[] = [
       summary: "Checkout requests are failing",
       customer_scope: "production checkout customers",
       service_criticality: "tier-0",
-      trajectory: "expanding"
+      trajectory: "expanding",
+      dimensions: {
+        availability: "critical",
+        customer_reach: "none",
+        business_criticality: "none",
+        data_integrity: "none",
+        security_privacy: "none",
+        financial_contractual: "none",
+        trajectory: "expanding",
+        production: true
+      },
+      evidence_ids: [evidence.incidentCheckout]
     },
     scope,
     detected_at: "2026-08-28T08:55:00Z",
