@@ -117,9 +117,11 @@ secure capability-scoped IPC, local SQLite workspace state, connector
 management, Kubernetes read-only workflows, the first observability
 integrations, read-only cross-cloud inventory for AWS, Azure and GCP, the
 Operations Console home experience, the resource and service topology
-workspace and signal normalization with security findings and correlation.
+workspace, signal normalization with security findings and correlation, and
+read-only change intelligence that shows what changed before a correlated
+problem.
 
-The latest approved design is [Sprint 13 — signal normalization and correlation](docs/design/sprint-13-signal-correlation.md).
+The latest approved design is [Sprint 14 — change intelligence](docs/design/sprint-14-change-intelligence.md).
 The complete product sequence is tracked in the [product sprint plan](docs/planning/sprint-plan.md).
 For the full source of truth, see the [requirements summary](docs/requirements/requirements-summary.md)
 and the [working system requirements](docs/requirements/system-requirements.md).
