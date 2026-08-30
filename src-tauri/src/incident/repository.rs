@@ -306,6 +306,16 @@ impl SqliteIncidentRepository {
         Ok(mutation)
     }
 
+    /// Total stored incidents.  Read-only proof that a rejected command, a
+    /// replay or a projection wrote nothing.
+    pub fn incident_count(&self) -> Result<u64, IncidentStoreError> {
+        let count: i64 = self
+            .connection
+            .query_row("SELECT COUNT(*) FROM incident", [], |row| row.get(0))
+            .map_err(database_error)?;
+        u64::try_from(count).map_err(|_| corruption("incident count"))
+    }
+
     /// Reads one incident, scoped to the caller's workspace.
     pub fn get(
         &self,

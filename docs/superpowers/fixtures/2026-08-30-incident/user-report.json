@@ -1,0 +1,12 @@
+{
+  "reporter_id": "00000000-0000-0000-0000-0000000000a2",
+  "observed_at": "2026-08-28T08:56:00Z",
+  "summary": "Checkout page returns an error after payment confirmation",
+  "scope": {
+    "organization_id": "00000000-0000-0000-0000-000000000011",
+    "team_id": "00000000-0000-0000-0000-000000000012",
+    "workspace_id": "00000000-0000-0000-0000-000000000013",
+    "environment_id": "00000000-0000-0000-0000-000000000014",
+    "resource_ids": []
+  }
+}
