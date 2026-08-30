@@ -3,6 +3,7 @@ pub mod change;
 pub mod cloud;
 pub mod connectors;
 pub mod correlation;
+pub mod incident;
 pub mod kubernetes;
 pub mod observability;
 pub mod operations;

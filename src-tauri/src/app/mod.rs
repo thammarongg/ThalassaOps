@@ -28,6 +28,7 @@ const SIGNAL_RECORDS_MIGRATION: &str = include_str!("../../migrations/0003_signa
 const SOURCE_RECORD_EVIDENCE_MIGRATION: &str =
     include_str!("../../migrations/0004_source_record_evidence.sql");
 const CHANGE_RECORDS_MIGRATION: &str = include_str!("../../migrations/0005_change_records.sql");
+const INCIDENT_MIGRATION: &str = include_str!("../../migrations/0006_incidents.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -322,6 +323,20 @@ pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateEr
     if change_records_migration.is_none() {
         connection.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
+    connection.execute_batch(INCIDENT_MIGRATION)?;
+    let incident_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 6",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if incident_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?1)",
             [Utc::now().to_rfc3339()],
         )?;
     }
@@ -628,6 +643,49 @@ mod tests {
             thalassa_domain::MembershipStatus::Active
         );
         assert_eq!(state.policy.document().id, "system-baseline");
+    }
+
+    #[test]
+    fn migrations_are_idempotent_and_create_the_incident_schema() {
+        let connection = Connection::open_in_memory().unwrap();
+        apply_migrations(&connection).unwrap();
+        apply_migrations(&connection).unwrap();
+
+        for table in [
+            "incident",
+            "incident_trigger",
+            "incident_role_assignment",
+            "incident_timeline_event",
+        ] {
+            let found: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "{table} should exist exactly once");
+        }
+
+        for trigger in ["incident_timeline_no_update", "incident_timeline_no_delete"] {
+            let found: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+                    [trigger],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "{trigger} should exist exactly once");
+        }
+
+        let recorded: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 6",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recorded, 1, "migration 6 is recorded exactly once");
     }
 
     #[test]
