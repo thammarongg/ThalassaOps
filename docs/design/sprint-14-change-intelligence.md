@@ -206,7 +206,8 @@ pub struct ChangeEvent {
 `targets` reuses the Sprint 13 `SignalTarget` verbatim. This is the mechanism
 that makes association exact: a change and a signal that name the same
 deployment produce byte-identical target values, so the association is a
-comparison, not a heuristic string match.
+comparison, not a heuristic string match. A change adapter therefore emits the
+Sprint 13 identifier form, `deployment/<name>`, not the bare source name.
 
 `occurred_at` is required because a change without a source-supplied timestamp
 cannot participate in a timeline or a precedence test. An adapter that finds no
@@ -512,6 +513,11 @@ rejected using the reserved-TLD marker
 permitted in any committed fixture; one carries a URL with a query string that
 must be dropped, one carries a diff body that must never reach a contract, and one carries unknown
 fields that must survive in the retained record.
+
+Fixture change timestamps sit on the same fixture day as the Sprint 11 console
+and Sprint 13 correlation fixtures (2026-08-28), so a committed change can
+precede a correlated signal and the exit criterion is reachable from committed
+data alone.
 
 Fixture revision and native commit identifiers use realistic 40-character
 lowercase hexadecimal values and contain no run of 12 or more consecutive

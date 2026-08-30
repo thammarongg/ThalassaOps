@@ -1,5 +1,6 @@
 use thalassa_domain::{
-    ChangeActorKind, ChangeKind, ChangeOutcome, EvidenceSourceKind, SourceState,
+    ChangeActorKind, ChangeKind, ChangeOutcome, EvidenceSourceKind, SignalTarget, SignalTargetKind,
+    SourceState,
 };
 use thalassaops::change::{adapters, fixtures};
 mod change_support;
@@ -82,4 +83,29 @@ fn replay_is_order_independent() {
         serde_json::to_string(&first.events).unwrap(),
         serde_json::to_string(&second.events).unwrap()
     );
+}
+
+#[test]
+fn change_targets_use_the_correlation_deployment_naming_convention() {
+    let scope = fixture_scope();
+    let mut store = memory_store(scope.clone());
+    let output = adapters::replay_all(&mut store, &scope, fixtures::fixture_clock()).unwrap();
+
+    let targets: Vec<&SignalTarget> = output
+        .events
+        .iter()
+        .flat_map(|event| event.targets.iter())
+        .collect();
+    assert!(!targets.is_empty());
+    for target in targets {
+        // Sprint 13 signals name a deployment `deployment/<name>`; a change
+        // that names the same deployment must produce the identical value or
+        // association degrades into a string heuristic.
+        assert_eq!(target.kind, SignalTargetKind::Deployment);
+        assert!(
+            target.id.starts_with("deployment/"),
+            "unexpected change target id {}",
+            target.id
+        );
+    }
 }

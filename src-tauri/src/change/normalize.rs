@@ -281,15 +281,18 @@ fn targets_for(
     record: &AdmittedRecord,
     repository: &Option<ChangeRepositoryRef>,
 ) -> Vec<SignalTarget> {
-    let id = repository
+    let name = repository
         .as_ref()
         .map(|repository| repository.name.clone())
         .or_else(|| string_at_path(&record.body, &["application", "metadata", "name"]));
-    id.filter(|value| safe_identity(value))
-        .map(|id| {
+    name.filter(|value| safe_identity(value))
+        .map(|name| {
+            // Sprint 13 names a deployment target `deployment/<name>`. Emitting
+            // the same value is what makes association an exact comparison
+            // instead of a heuristic match on a bare name.
             vec![SignalTarget {
                 kind: SignalTargetKind::Deployment,
-                id,
+                id: format!("deployment/{name}"),
             }]
         })
         .unwrap_or_default()
