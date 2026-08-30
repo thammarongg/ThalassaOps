@@ -1229,7 +1229,26 @@ const isIncidentSeverity = (value: unknown): value is IncidentSeverity =>
   isEnum(value, incidentSeverities);
 
 const isSafeBoundedText = (value: unknown, maximum: number): value is string =>
-  isSafeDisplayText(value) && value.length <= maximum;
+  isSafeDisplayText(value) && [...value].length <= maximum;
+
+/*
+ * Evidence references follow the Rust rule: unique regardless of order, at
+ * most 200 Unicode scalar values, and free of whitespace and control
+ * characters.
+ */
+const isIncidentEvidenceIds = (value: unknown): value is string[] =>
+  isSafeStringArray(value) &&
+  value.every(
+    (id) =>
+      isSafeDisplayText(id) &&
+      [...id].length <= 200 &&
+      !/\s/.test(id) &&
+      ![...id].some((character) => {
+        const code = character.charCodeAt(0);
+        return code <= 0x1f || code === 0x7f;
+      })
+  ) &&
+  new Set(value).size === value.length;
 
 const isImpactDimensions = (value: unknown): value is ImpactDimensions =>
   hasExactKeys(value, [
@@ -1273,6 +1292,42 @@ const highestConfirmedImpact = (dimensions: ImpactDimensions): ImpactLevel =>
     "unknown"
   );
 
+const severityRank: Record<IncidentSeverity, number> = {
+  S1: 5,
+  S2: 4,
+  S3: 3,
+  S4: 2,
+  S5: 1
+};
+
+/*
+ * Exact mirror of the Rust severity derivation: the highest confirmed
+ * dimension maps onto S1-S5, and a rapidly expanding production scope with
+ * unknown reach is never ranked below S2.
+ */
+const derivedIncidentSeverity = (dimensions: ImpactDimensions): IncidentSeverity => {
+  const highest = highestConfirmedImpact(dimensions);
+  const severity: IncidentSeverity =
+    highest === "critical"
+      ? "S1"
+      : highest === "high"
+        ? "S2"
+        : highest === "medium"
+          ? "S3"
+          : highest === "low"
+            ? "S4"
+            : "S5";
+  if (
+    dimensions.production &&
+    dimensions.trajectory === "expanding" &&
+    dimensions.customer_reach === "unknown" &&
+    severityRank[severity] < severityRank.S2
+  ) {
+    return "S2";
+  }
+  return severity;
+};
+
 export const isIncidentBusinessImpact = (value: unknown): value is BusinessImpact =>
   hasExactKeys(value, [
     "level",
@@ -1291,8 +1346,7 @@ export const isIncidentBusinessImpact = (value: unknown): value is BusinessImpac
   isImpactDimensions(value.dimensions) &&
   value.trajectory === value.dimensions.trajectory &&
   value.level === highestConfirmedImpact(value.dimensions) &&
-  isSortedUniqueSafeStringArray(value.evidence_ids) &&
-  value.evidence_ids.length > 0;
+  isIncidentEvidenceIds(value.evidence_ids) && value.evidence_ids.length > 0;
 
 const isIncidentSeverityOverride = (
   value: unknown
@@ -1309,8 +1363,7 @@ const isIncidentSeverityOverride = (
   value.selected !== value.derived &&
   isNonNilUuid(value.actor_id) &&
   isSafeBoundedText(value.reason, 4000) &&
-  isSortedUniqueSafeStringArray(value.evidence_ids) &&
-  value.evidence_ids.length > 0;
+  isIncidentEvidenceIds(value.evidence_ids) && value.evidence_ids.length > 0;
 
 const isIncidentRoleAssignment = (value: unknown): value is IncidentRoleAssignment =>
   hasExactKeys(value, ["role", "principal_id", "assigned_by", "assigned_at"]) &&
@@ -1338,7 +1391,7 @@ const isIncidentTransition = (value: unknown): value is IncidentTransition => {
       return (
         hasExactKeys(context, ["note", "evidence_ids"]) &&
         isSafeBoundedText(context.note, 4000) &&
-        isSortedUniqueSafeStringArray(context.evidence_ids) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
         context.evidence_ids.length > 0
       );
     case "mitigating":
@@ -1374,7 +1427,7 @@ const isIncidentTransition = (value: unknown): value is IncidentTransition => {
           "impact_ended_at"
         ]) &&
         isSafeBoundedText(context.resolution_summary, 4000) &&
-        isSortedUniqueSafeStringArray(context.evidence_ids) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
         context.evidence_ids.length > 0 &&
         isNonEmptyString(context.impact_ended_at)
       );
@@ -1395,7 +1448,7 @@ const isIncidentTransition = (value: unknown): value is IncidentTransition => {
           "recurrence_signal_id"
         ]) &&
         isSafeBoundedText(context.reason, 4000) &&
-        isSortedUniqueSafeStringArray(context.evidence_ids) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
         (context.recurrence_signal_id === null ||
           isNonNilUuid(context.recurrence_signal_id)) &&
         (context.evidence_ids.length > 0 ||
@@ -1443,7 +1496,8 @@ const isIncidentTimelinePayload = (
         hasExactKeys(data, ["from", "to", "transition"]) &&
         isEnum(data.from, incidentStatuses) &&
         isEnum(data.to, incidentStatuses) &&
-        isIncidentTransition(data.transition)
+        isIncidentTransition(data.transition) &&
+        data.to === data.transition.target
       );
     case "severity_changed":
       return (
@@ -1521,7 +1575,14 @@ const isIncidentTimelineEvent = (value: unknown): value is IncidentTimelineEvent
   typeof value.policy_version === "number" &&
   Number.isSafeInteger(value.policy_version) &&
   value.policy_version >= 0 &&
-  isIncidentTimelinePayload(value.payload);
+  isIncidentTimelinePayload(value.payload) &&
+  /*
+   * The event kind must agree with the payload tag; creation is the one
+   * asymmetry because the wire kind is `incident_created` while the payload
+   * tag is `created`.
+   */
+  value.payload.kind ===
+    (value.kind === "incident_created" ? "created" : value.kind);
 
 const isWorkspaceBoundedScope = (value: unknown): value is ResourceScope =>
   isScope(value) &&
@@ -1575,7 +1636,7 @@ export const isIncident = (value: unknown): value is Incident =>
     isNonNilUuid(value.duplicate_of_incident_id)) &&
   isSortedUniqueUuidArray(value.trigger_ids) &&
   isSortedUniqueUuidArray(value.signal_ids) &&
-  isSortedUniqueSafeStringArray(value.evidence_ids) &&
+  isIncidentEvidenceIds(value.evidence_ids) &&
   isSortedUniqueUuidArray(value.hypothesis_ids) &&
   isSortedUniqueUuidArray(value.action_ids) &&
   Array.isArray(value.roles) &&
@@ -1584,7 +1645,30 @@ export const isIncident = (value: unknown): value is Incident =>
   Number.isSafeInteger(value.version) &&
   value.version >= 1 &&
   isNonEmptyString(value.created_at) &&
-  isNonEmptyString(value.updated_at);
+  isNonEmptyString(value.updated_at) &&
+  /*
+   * Frozen cross-field invariants: the owning team matches the scope, the
+   * derived severity is exactly recomputed from the assessment, override
+   * derivation matches, evidence closes over impact and override evidence,
+   * and duplicate fields agree.
+   */
+  value.owning_team_id === value.scope.team_id &&
+  value.derived_severity ===
+    derivedIncidentSeverity(value.business_impact.dimensions) &&
+  (value.severity_override === null ||
+    value.severity_override.derived === value.derived_severity) &&
+  (() => {
+    const aggregate = new Set(value.evidence_ids);
+    if (!value.business_impact.evidence_ids.every((id) => aggregate.has(id))) {
+      return false;
+    }
+    return (
+      value.severity_override === null ||
+      value.severity_override.evidence_ids.every((id) => aggregate.has(id))
+    );
+  })() &&
+  (value.disposition === "duplicate") ===
+    (value.duplicate_of_incident_id !== null);
 
 export const isIncidentTimelinePage = (
   value: unknown
@@ -1593,6 +1677,7 @@ export const isIncidentTimelinePage = (
   isNonNilUuid(value.incident_id) &&
   Array.isArray(value.events) &&
   value.events.every(isIncidentTimelineEvent) &&
+  value.events.every((event) => event.incident_id === value.incident_id) &&
   value.events.every(
     (event, index, events) =>
       index === 0 || events[index - 1].sequence < event.sequence

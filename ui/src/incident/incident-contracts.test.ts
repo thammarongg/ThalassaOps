@@ -3,6 +3,7 @@
 import { describe, expect, test } from "vitest";
 import {
   isIncident,
+  isIncidentBusinessImpact,
   isIncidentTimelinePage,
   isIncidentTriggerInput
 } from "../../contracts/guards";
@@ -78,7 +79,11 @@ const incidentFixture: Incident = {
   duplicate_of_incident_id: null,
   trigger_ids: [TRIGGER],
   signal_ids: [],
-  evidence_ids: ["evidence-checkout", "evidence-manual-report"],
+  evidence_ids: [
+    "evidence-checkout",
+    "evidence-manual-report",
+    "evidence-override"
+  ],
   hypothesis_ids: [],
   action_ids: [],
   roles: [
@@ -239,5 +244,129 @@ describe("incident wire guards", () => {
       isIncidentTriggerInput({ kind: "correlation_candidate", source_id: "x" })
     ).toBe(false);
     expect(isIncidentTriggerInput({ kind: "alert" })).toBe(false);
+  });
+  test("timeline events must match the page incident and payload kinds", () => {
+    const foreignIncident = timelineEvent(EVENT_TWO, 2, "triggers_attached", {
+      kind: "triggers_attached",
+      data: { trigger_ids: [TRIGGER] }
+    });
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [{ ...foreignIncident, incident_id: ACTOR }],
+        next_sequence: null
+      })
+    ).toBe(false);
+
+    const kindMismatch = timelineEvent(EVENT_TWO, 2, "triggers_attached", {
+      kind: "created",
+      data: {
+        summary: "mismatched",
+        scope,
+        owning_team_id: TEAM,
+        derived_severity: "S2",
+        trigger_ids: [TRIGGER],
+        initial_roles: []
+      }
+    });
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [kindMismatch],
+        next_sequence: null
+      })
+    ).toBe(false);
+  });
+
+  test("status payloads must target the transition target", () => {
+    const statusEvent = timelineEvent(EVENT_ONE, 1, "status_transitioned", {
+      kind: "status_transitioned",
+      data: {
+        from: "detected",
+        to: "resolved",
+        transition: {
+          target: "triage",
+          context: {
+            business_impact: businessImpact,
+            owner: ACTOR,
+            duplicate_checked: true
+          }
+        }
+      }
+    });
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [statusEvent],
+        next_sequence: null
+      })
+    ).toBe(false);
+  });
+
+  test("incidents enforce cross-field ownership severity and closure", () => {
+    expect(
+      isIncident({ ...incidentFixture, owning_team_id: ACTOR })
+    ).toBe(false);
+    expect(
+      isIncident({ ...incidentFixture, derived_severity: "S3" })
+    ).toBe(false);
+    expect(
+      isIncident({
+        ...incidentFixture,
+        severity_override: { ...override, derived: "S3" }
+      })
+    ).toBe(false);
+    expect(
+      isIncident({
+        ...incidentFixture,
+        evidence_ids: ["evidence-manual-report", "evidence-override"]
+      })
+    ).toBe(false);
+    expect(
+      isIncident({
+        ...incidentFixture,
+        disposition: "duplicate",
+        duplicate_of_incident_id: null
+      })
+    ).toBe(false);
+    expect(
+      isIncident({
+        ...incidentFixture,
+        disposition: null,
+        duplicate_of_incident_id: ACTOR
+      })
+    ).toBe(false);
+  });
+
+  test("evidence ids accept order independent uniqueness with scalar bounds", () => {
+    const unsorted = {
+      ...businessImpact,
+      evidence_ids: ["evidence-b", "evidence-a"]
+    };
+    expect(isIncidentBusinessImpact(unsorted)).toBe(true);
+
+    const scalarBound = {
+      ...businessImpact,
+      evidence_ids: ["é".repeat(101)]
+    };
+    expect(isIncidentBusinessImpact(scalarBound)).toBe(true);
+
+    const oversize = {
+      ...businessImpact,
+      evidence_ids: ["x".repeat(201)]
+    };
+    expect(isIncidentBusinessImpact(oversize)).toBe(false);
+
+    const whitespace = {
+      ...businessImpact,
+      evidence_ids: ["evi dence"]
+    };
+    expect(isIncidentBusinessImpact(whitespace)).toBe(false);
+
+    const duplicated = {
+      ...businessImpact,
+      evidence_ids: ["evidence-checkout", "evidence-checkout"]
+    };
+    expect(isIncidentBusinessImpact(duplicated)).toBe(false);
   });
 });

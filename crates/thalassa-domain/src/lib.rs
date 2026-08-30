@@ -581,6 +581,8 @@ pub const INCIDENT_SUMMARY_MAXIMUM: usize = 200;
 pub const INCIDENT_NOTE_MAXIMUM: usize = 4_000;
 /// Maximum characters for incident source identifiers and record digests.
 pub const INCIDENT_SOURCE_ID_MAXIMUM: usize = 200;
+/// Maximum characters for an opaque incident page cursor.
+pub const INCIDENT_CURSOR_MAXIMUM: usize = 200;
 /// Maximum characters for business-impact summary, scope and criticality text.
 pub const IMPACT_SUMMARY_MAXIMUM: usize = 1_000;
 
@@ -620,6 +622,8 @@ pub enum IncidentError {
     VersionConflict { expected: u64, actual: u64 },
     #[error("incident event sequence must be positive with room for appended events")]
     InvalidEventSequence,
+    #[error("incident page limits must be within 1..=100 and cursors non-empty, bounded and control-free")]
+    InvalidPagination,
 }
 
 /// Rejects empty, control-bearing, sensitive or oversized incident text.
@@ -1831,6 +1835,45 @@ pub struct IncidentTimelinePage {
     pub incident_id: IncidentId,
     pub events: Vec<IncidentTimelineEvent>,
     pub next_sequence: Option<u64>,
+}
+
+/// Validates one opaque page cursor: non-empty, bounded and control-free.
+fn validate_incident_cursor(value: &str) -> Result<(), IncidentError> {
+    if value.trim().is_empty()
+        || value.chars().count() > INCIDENT_CURSOR_MAXIMUM
+        || value.chars().any(|character| character.is_control())
+    {
+        return Err(IncidentError::InvalidPagination);
+    }
+    Ok(())
+}
+
+impl IncidentListRequest {
+    /// Validates pagination without silent clamping: limits stay in 1..=100
+    /// and cursors stay opaque, bounded and control-free.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        if self.limit == 0 || self.limit > 100 {
+            return Err(IncidentError::InvalidPagination);
+        }
+        if let Some(cursor) = &self.cursor {
+            validate_incident_cursor(cursor)?;
+        }
+        Ok(())
+    }
+}
+
+impl IncidentTimelineRequest {
+    /// Validates pagination without silent clamping: limits stay in 1..=100
+    /// and sequence cursors stay positive.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        if self.limit == 0 || self.limit > 100 {
+            return Err(IncidentError::InvalidPagination);
+        }
+        if self.after_sequence == Some(0) {
+            return Err(IncidentError::InvalidEventSequence);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
