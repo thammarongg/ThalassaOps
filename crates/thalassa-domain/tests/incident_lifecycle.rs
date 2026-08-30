@@ -790,6 +790,26 @@ fn lifecycle_walk_increments_version_and_sequence_with_attribution() {
             )
             .unwrap();
         assert_eq!(mutation.incident.version, index as u64 + 2);
+        assert!(
+            !mutation.events.is_empty(),
+            "every accepted transition emits at least one event"
+        );
+        assert_eq!(
+            mutation.events.first().unwrap().kind,
+            IncidentEventKind::StatusTransitioned
+        );
+        let kinds: Vec<IncidentEventKind> = mutation.events.iter().map(|e| e.kind).collect();
+        if index == 0 {
+            assert_eq!(
+                kinds,
+                vec![
+                    IncidentEventKind::StatusTransitioned,
+                    IncidentEventKind::RoleChanged
+                ]
+            );
+        } else {
+            assert_eq!(kinds, vec![IncidentEventKind::StatusTransitioned]);
+        }
         for event in &mutation.events {
             assert_eq!(event.sequence, expected_sequence);
             assert_eq!(event.actor_id, ACTOR);
@@ -1160,6 +1180,194 @@ fn severity_changes_recalculate_override_and_close_evidence() {
         unchanged_payload.current_impact.summary,
         "impact still contained"
     );
+}
+#[test]
+fn rejects_zero_and_overflowing_first_event_sequences() {
+    let incident = created();
+
+    let override_command = IncidentSeverityCommand::Override {
+        selected: IncidentSeverity::S1,
+        reason: "worse than assessed".into(),
+        evidence_ids: vec!["evidence-severity".into()],
+    };
+    let disposition = IncidentDispositionCommand {
+        disposition: Some(IncidentDisposition::Informational),
+        duplicate_of_incident_id: None,
+        reason: "noise only".into(),
+    };
+    let assignment = IncidentRoleCommand::Assign {
+        role: IncidentRole::TechnicalLead,
+        principal_id: COMMANDER,
+    };
+
+    assert!(matches!(
+        incident.transition(1, 0, triage(), ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
+    assert!(matches!(
+        incident.set_severity(1, 0, override_command.clone(), ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
+    assert!(matches!(
+        incident.set_disposition(1, 0, disposition.clone(), ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
+    assert!(matches!(
+        incident.assign_role(1, 0, assignment, ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
+    assert_eq!(incident.version, 1);
+
+    let expanding_triage = IncidentTransition::Triage(TriageContext {
+        business_impact: impact_with_level(
+            ImpactLevel::Medium,
+            "checkout degraded but available",
+            "evidence-triage",
+        ),
+        owner: COMMANDER,
+        duplicate_checked: true,
+    });
+    assert!(matches!(
+        incident.transition(1, u64::MAX, expanding_triage, ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
+
+    let boundary_disposition = incident
+        .set_disposition(1, u64::MAX, disposition, ACTOR, REQUEST, 7, now())
+        .unwrap();
+    assert_eq!(boundary_disposition.events.len(), 1);
+    assert_eq!(boundary_disposition.events[0].sequence, u64::MAX);
+
+    let boundary_triage = incident
+        .transition(1, u64::MAX, triage_with(ACTOR), ACTOR, REQUEST, 7, now())
+        .unwrap();
+    assert_eq!(boundary_triage.events.len(), 1);
+    assert_eq!(boundary_triage.events[0].sequence, u64::MAX);
+}
+
+#[test]
+fn creation_requires_workspace_bounded_scopes_with_valid_ids() {
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.organization_id = None;
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidScope)
+    ));
+
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.workspace_id = None;
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidScope)
+    ));
+
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.organization_id = Some(uuid::Uuid::nil());
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.environment_id = Some(uuid::Uuid::nil());
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.resource_ids = vec![uuid::Uuid::nil()];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut teamless = trigger();
+    teamless.scope.team_id = None;
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![teamless];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidScope)
+    ));
+
+    let mut nil_resource = trigger();
+    nil_resource.scope.resource_ids = vec![uuid::Uuid::nil()];
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![nil_resource];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut narrowed = trigger();
+    narrowed.scope.environment_id = Some(uuid::Uuid::from_u128(0x220));
+    narrowed.scope.resource_ids = vec![uuid::Uuid::from_u128(0x221)];
+    let mut fixture = incident_create_fixture();
+    fixture.command.triggers = vec![narrowed];
+    assert!(create_result(fixture).is_ok());
+}
+
+#[test]
+fn triage_replaces_assessment_and_clears_stale_override() {
+    let incident = created();
+    let override_command = IncidentSeverityCommand::Override {
+        selected: IncidentSeverity::S1,
+        reason: "worse than assessed".into(),
+        evidence_ids: vec!["evidence-override".into()],
+    };
+    let overridden = incident
+        .set_severity(1, 3, override_command, ACTOR, REQUEST, 7, now())
+        .unwrap();
+    assert_eq!(overridden.incident.current_severity(), IncidentSeverity::S1);
+
+    let triage = IncidentTransition::Triage(TriageContext {
+        business_impact: impact_with_level(
+            ImpactLevel::Medium,
+            "checkout degraded but available",
+            "evidence-triage",
+        ),
+        owner: COMMANDER,
+        duplicate_checked: true,
+    });
+    let mutation = overridden
+        .incident
+        .transition(2, 4, triage, ACTOR, REQUEST, 7, now())
+        .unwrap();
+
+    assert_eq!(mutation.incident.version, 3);
+    assert_eq!(mutation.incident.severity_override, None);
+    assert_eq!(mutation.incident.derived_severity, IncidentSeverity::S3);
+    assert_eq!(mutation.incident.current_severity(), IncidentSeverity::S3);
+    let kinds: Vec<IncidentEventKind> = mutation.events.iter().map(|e| e.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            IncidentEventKind::StatusTransitioned,
+            IncidentEventKind::SeverityChanged,
+            IncidentEventKind::RoleChanged,
+        ]
+    );
+    let sequences: Vec<u64> = mutation.events.iter().map(|e| e.sequence).collect();
+    assert_eq!(sequences, vec![4, 5, 6]);
+    let thalassa_domain::IncidentTimelinePayload::SeverityChanged(payload) =
+        &mutation.events[1].payload
+    else {
+        panic!("expected severity payload");
+    };
+    assert_eq!(payload.previous_severity, IncidentSeverity::S1);
+    assert_eq!(payload.current_severity, IncidentSeverity::S3);
+    assert_eq!(payload.override_detail, None);
+    assert_eq!(payload.previous_impact.level, ImpactLevel::High);
+    assert_eq!(payload.current_impact.level, ImpactLevel::Medium);
+    assert!(mutation
+        .incident
+        .evidence_ids
+        .contains(&"evidence-override".to_string()));
+    assert!(mutation
+        .incident
+        .evidence_ids
+        .contains(&"evidence-triage".to_string()));
 }
 
 #[test]

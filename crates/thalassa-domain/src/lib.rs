@@ -618,6 +618,8 @@ pub enum IncidentError {
     InvalidRole,
     #[error("incident version conflict: expected {expected}, actual {actual}")]
     VersionConflict { expected: u64, actual: u64 },
+    #[error("incident event sequence must be positive with room for appended events")]
+    InvalidEventSequence,
 }
 
 /// Rejects empty, control-bearing, sensitive or oversized incident text.
@@ -1005,21 +1007,26 @@ fn materialize_events(
     request_id: Uuid,
     policy_version: u64,
     now: DateTime<Utc>,
-) -> Vec<IncidentTimelineEvent> {
+) -> Result<Vec<IncidentTimelineEvent>, IncidentError> {
     pending
         .into_iter()
         .enumerate()
-        .map(|(offset, event)| IncidentTimelineEvent {
-            id: Uuid::new_v4(),
-            incident_id,
-            sequence: first_sequence + offset as u64,
-            kind: event.kind,
-            actor_id,
-            reason: event.reason,
-            occurred_at: now,
-            request_id,
-            policy_version,
-            payload: event.payload,
+        .map(|(offset, event)| {
+            let sequence = first_sequence
+                .checked_add(offset as u64)
+                .ok_or(IncidentError::InvalidEventSequence)?;
+            Ok(IncidentTimelineEvent {
+                id: Uuid::new_v4(),
+                incident_id,
+                sequence,
+                kind: event.kind,
+                actor_id,
+                reason: event.reason,
+                occurred_at: now,
+                request_id,
+                policy_version,
+                payload: event.payload,
+            })
         })
         .collect()
 }
@@ -1038,21 +1045,28 @@ impl Incident {
         ensure_id(actor_id)?;
         ensure_id(request_id)?;
         ensure_id(command.owning_team_id)?;
-        for scope_id in [
-            command.scope.organization_id,
-            command.scope.team_id,
-            command.scope.workspace_id,
-            command.scope.environment_id,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            ensure_id(scope_id)?;
-        }
-        validate_incident_text(&command.summary, INCIDENT_SUMMARY_MAXIMUM)?;
-        if !command.scope.is_bounded() || command.scope.team_id != Some(command.owning_team_id) {
+        let organization_id = command
+            .scope
+            .organization_id
+            .ok_or(IncidentError::InvalidScope)?;
+        let scope_team_id = command.scope.team_id.ok_or(IncidentError::InvalidScope)?;
+        let workspace_id = command
+            .scope
+            .workspace_id
+            .ok_or(IncidentError::InvalidScope)?;
+        ensure_id(organization_id)?;
+        ensure_id(scope_team_id)?;
+        ensure_id(workspace_id)?;
+        if scope_team_id != command.owning_team_id {
             return Err(IncidentError::InvalidScope);
         }
+        if let Some(environment_id) = command.scope.environment_id {
+            ensure_id(environment_id)?;
+        }
+        for resource_id in &command.scope.resource_ids {
+            ensure_id(*resource_id)?;
+        }
+        validate_incident_text(&command.summary, INCIDENT_SUMMARY_MAXIMUM)?;
         if command.triggers.is_empty() {
             return Err(IncidentError::InvalidTrigger);
         }
@@ -1089,8 +1103,17 @@ impl Incident {
             if let Some(signal_id) = trigger.signal_id {
                 ensure_id(signal_id)?;
             }
-            if !command.scope.contains(&trigger.scope) {
+            if trigger.scope.organization_id != Some(organization_id)
+                || trigger.scope.team_id != Some(scope_team_id)
+                || trigger.scope.workspace_id != Some(workspace_id)
+            {
                 return Err(IncidentError::InvalidScope);
+            }
+            if let Some(environment_id) = trigger.scope.environment_id {
+                ensure_id(environment_id)?;
+            }
+            for resource_id in &trigger.scope.resource_ids {
+                ensure_id(*resource_id)?;
             }
             if trigger_ids.contains(&trigger.id) {
                 return Err(IncidentError::InvalidTrigger);
@@ -1189,6 +1212,9 @@ impl Incident {
         now: DateTime<Utc>,
     ) -> Result<IncidentMutation, IncidentError> {
         self.ensure_version(expected_version)?;
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
         ensure_id(actor_id)?;
         ensure_id(request_id)?;
         let target = transition.target();
@@ -1199,7 +1225,7 @@ impl Incident {
             });
         }
         let mut next = self.clone();
-        let mut pending: Vec<PendingEvent> = Vec::new();
+        let mut appended: Vec<PendingEvent> = Vec::new();
         match &transition {
             IncidentTransition::Triage(context) => {
                 if context.owner.is_nil() {
@@ -1211,25 +1237,15 @@ impl Incident {
                 }
                 let previous_impact = next.business_impact.clone();
                 let previous_severity = next.current_severity();
+                next.severity_override = None;
                 next.business_impact = context.business_impact.clone();
                 next.derived_severity = derived;
                 next.evidence_ids =
                     merge_evidence(&next.evidence_ids, &context.business_impact.evidence_ids);
-                pending.push(PendingEvent {
-                    kind: IncidentEventKind::StatusTransitioned,
-                    reason: None,
-                    payload: IncidentTimelinePayload::StatusTransitioned(
-                        StatusTransitionedPayload {
-                            from: self.status,
-                            to: target,
-                            transition: transition.clone(),
-                        },
-                    ),
-                });
                 if context.business_impact != previous_impact
                     || next.current_severity() != previous_severity
                 {
-                    pending.push(PendingEvent {
+                    appended.push(PendingEvent {
                         kind: IncidentEventKind::SeverityChanged,
                         reason: None,
                         payload: IncidentTimelinePayload::SeverityChanged(SeverityChangedPayload {
@@ -1255,7 +1271,7 @@ impl Incident {
                         assigned_by: actor_id,
                         assigned_at: now,
                     });
-                    pending.push(PendingEvent {
+                    appended.push(PendingEvent {
                         kind: IncidentEventKind::RoleChanged,
                         reason: None,
                         payload: IncidentTimelinePayload::RoleChanged(RoleChangedPayload {
@@ -1334,6 +1350,16 @@ impl Incident {
                 }
             }
         }
+        let mut pending = vec![PendingEvent {
+            kind: IncidentEventKind::StatusTransitioned,
+            reason: None,
+            payload: IncidentTimelinePayload::StatusTransitioned(StatusTransitionedPayload {
+                from: self.status,
+                to: target,
+                transition: transition.clone(),
+            }),
+        }];
+        pending.extend(appended);
         next.status = target;
         next.version += 1;
         next.updated_at = now;
@@ -1345,7 +1371,7 @@ impl Incident {
             request_id,
             policy_version,
             now,
-        );
+        )?;
         Ok(IncidentMutation {
             incident: next,
             events,
@@ -1365,6 +1391,9 @@ impl Incident {
         now: DateTime<Utc>,
     ) -> Result<IncidentMutation, IncidentError> {
         self.ensure_version(expected_version)?;
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
         ensure_id(actor_id)?;
         ensure_id(request_id)?;
         let reason = match &command {
@@ -1434,7 +1463,7 @@ impl Incident {
             request_id,
             policy_version,
             now,
-        );
+        )?;
         Ok(IncidentMutation {
             incident: next,
             events,
@@ -1454,6 +1483,9 @@ impl Incident {
         now: DateTime<Utc>,
     ) -> Result<IncidentMutation, IncidentError> {
         self.ensure_version(expected_version)?;
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
         ensure_id(actor_id)?;
         ensure_id(request_id)?;
         validate_incident_text(&command.reason, INCIDENT_NOTE_MAXIMUM)?;
@@ -1493,7 +1525,7 @@ impl Incident {
             request_id,
             policy_version,
             now,
-        );
+        )?;
         Ok(IncidentMutation {
             incident: next,
             events,
@@ -1513,6 +1545,9 @@ impl Incident {
         now: DateTime<Utc>,
     ) -> Result<IncidentMutation, IncidentError> {
         self.ensure_version(expected_version)?;
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
         ensure_id(actor_id)?;
         ensure_id(request_id)?;
         let mut next = self.clone();
@@ -1604,7 +1639,7 @@ impl Incident {
             request_id,
             policy_version,
             now,
-        );
+        )?;
         Ok(IncidentMutation {
             incident: next,
             events,
