@@ -393,29 +393,47 @@ impl Signal {
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum IncidentSeverity {
+    #[serde(rename = "S1")]
     S1,
+    #[serde(rename = "S2")]
     S2,
+    #[serde(rename = "S3")]
     S3,
+    #[serde(rename = "S4")]
     S4,
+    #[serde(rename = "S5")]
     S5,
 }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum IncidentStatus {
+    #[serde(rename = "detected")]
     Detected,
+    #[serde(rename = "triage")]
     Triage,
+    #[serde(rename = "investigating")]
     Investigating,
+    #[serde(rename = "mitigating")]
     Mitigating,
+    #[serde(rename = "monitoring")]
     Monitoring,
+    #[serde(rename = "resolved")]
     Resolved,
+    #[serde(rename = "closed")]
     Closed,
+    #[serde(rename = "reopened")]
     Reopened,
 }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum IncidentDisposition {
+    #[serde(rename = "duplicate")]
     Duplicate,
+    #[serde(rename = "false_positive")]
     FalsePositive,
+    #[serde(rename = "suppressed")]
     Suppressed,
+    #[serde(rename = "cancelled")]
     Cancelled,
+    #[serde(rename = "informational")]
     Informational,
 }
 
@@ -423,38 +441,204 @@ pub enum IncidentDisposition {
 pub struct Incident {
     pub id: IncidentId,
     pub summary: String,
-    pub severity: IncidentSeverity,
+    pub scope: ResourceScope,
+    pub owning_team_id: TeamId,
+    pub business_impact: BusinessImpact,
+    pub derived_severity: IncidentSeverity,
+    pub severity_override: Option<IncidentSeverityOverride>,
     pub status: IncidentStatus,
     pub disposition: Option<IncidentDisposition>,
-    pub scope: ResourceScope,
+    pub duplicate_of_incident_id: Option<IncidentId>,
+    pub trigger_ids: Vec<IncidentTriggerId>,
     pub signal_ids: Vec<SignalId>,
-    pub evidence_ids: Vec<EvidenceId>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
     pub hypothesis_ids: Vec<HypothesisId>,
     pub action_ids: Vec<ActionId>,
+    pub roles: Vec<IncidentRoleAssignment>,
+    pub version: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 impl Incident {
+    /// Builds an empty-lifecycle incident whose initial severity derives from
+    /// the supplied business impact assessment.
     pub fn new(
         summary: impl Into<String>,
-        severity: IncidentSeverity,
+        owning_team_id: TeamId,
         scope: ResourceScope,
-    ) -> Self {
-        let timestamp = now();
-        Self {
+        business_impact: BusinessImpact,
+        now: DateTime<Utc>,
+    ) -> Result<Self, IncidentError> {
+        let summary = summary.into();
+        validate_incident_text(&summary, INCIDENT_SUMMARY_MAXIMUM)?;
+        let derived_severity = business_impact.derive_severity()?;
+        Ok(Self {
             id: Uuid::new_v4(),
-            summary: summary.into(),
-            severity,
+            summary,
+            scope,
+            owning_team_id,
+            business_impact,
+            derived_severity,
+            severity_override: None,
             status: IncidentStatus::Detected,
             disposition: None,
-            scope,
-            signal_ids: vec![],
-            evidence_ids: vec![],
-            hypothesis_ids: vec![],
-            action_ids: vec![],
-            created_at: timestamp,
-            updated_at: timestamp,
+            duplicate_of_incident_id: None,
+            trigger_ids: Vec::new(),
+            signal_ids: Vec::new(),
+            evidence_ids: Vec::new(),
+            hypothesis_ids: Vec::new(),
+            action_ids: Vec::new(),
+            roles: Vec::new(),
+            version: 1,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+}
+
+/// The six explicit reasons an incident may be created.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum IncidentSourceKind {
+    #[serde(rename = "alert")]
+    Alert,
+    #[serde(rename = "anomaly")]
+    Anomaly,
+    #[serde(rename = "user_report")]
+    UserReport,
+    #[serde(rename = "scheduled_health_check")]
+    ScheduledHealthCheck,
+    #[serde(rename = "vulnerability_finding")]
+    VulnerabilityFinding,
+    #[serde(rename = "manual_report")]
+    ManualReport,
+}
+
+/// Server-assigned identity of one incident trigger.
+pub type IncidentTriggerId = Uuid;
+
+/// Why an incident was created: source identity, scope and evidence references.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentTrigger {
+    pub id: IncidentTriggerId,
+    pub source_kind: IncidentSourceKind,
+    pub source_id: String,
+    pub source_record_digest: Option<String>,
+    pub scope: ResourceScope,
+    pub observed_at: DateTime<Utc>,
+    pub signal_id: Option<SignalId>,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub report: Option<IncidentReport>,
+}
+
+/// Structured bounded input behind user and manual report triggers.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentReport {
+    pub reporter_id: Option<PrincipalId>,
+    pub summary: String,
+}
+
+/// A responder's explicit severity decision that departs from the derived value.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentSeverityOverride {
+    pub derived: IncidentSeverity,
+    pub selected: IncidentSeverity,
+    pub actor_id: PrincipalId,
+    pub reason: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+/// Responder responsibility held by one principal for one incident.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum IncidentRole {
+    #[serde(rename = "owner")]
+    Owner,
+    #[serde(rename = "incident_commander")]
+    IncidentCommander,
+    #[serde(rename = "technical_lead")]
+    TechnicalLead,
+    #[serde(rename = "communications_lead")]
+    CommunicationsLead,
+    #[serde(rename = "approver")]
+    Approver,
+    #[serde(rename = "change_owner")]
+    ChangeOwner,
+    #[serde(rename = "stakeholder")]
+    Stakeholder,
+}
+
+/// One active responder-role assignment on an incident.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentRoleAssignment {
+    pub role: IncidentRole,
+    pub principal_id: PrincipalId,
+    pub assigned_by: PrincipalId,
+    pub assigned_at: DateTime<Utc>,
+}
+
+/// Maximum characters for an incident summary or report.
+pub const INCIDENT_SUMMARY_MAXIMUM: usize = 200;
+/// Maximum characters for incident notes, reasons and transition context.
+pub const INCIDENT_NOTE_MAXIMUM: usize = 4_000;
+/// Maximum characters for incident source identifiers and record digests.
+pub const INCIDENT_SOURCE_ID_MAXIMUM: usize = 200;
+/// Maximum characters for business-impact summary, scope and criticality text.
+pub const IMPACT_SUMMARY_MAXIMUM: usize = 1_000;
+
+/// Typed validation failures for incident contracts and inputs.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum IncidentError {
+    #[error("incident text is empty, contains control characters or sensitive markers")]
+    UnsafeText,
+    #[error("incident text exceeds its maximum length of {maximum} characters")]
+    TextTooLong { maximum: usize },
+    #[error("business impact level and trajectory do not match the impact dimensions")]
+    ImpactLevelMismatch,
+    #[error("incident evidence references are missing, duplicated or unsafe")]
+    InvalidEvidence,
+    #[error("incident identifier is nil or duplicated")]
+    InvalidId,
+}
+
+/// Rejects empty, control-bearing, sensitive or oversized incident text.
+pub fn validate_incident_text(value: &str, maximum: usize) -> Result<(), IncidentError> {
+    if value.trim().is_empty() {
+        return Err(IncidentError::UnsafeText);
+    }
+    if value.chars().count() > maximum {
+        return Err(IncidentError::TextTooLong { maximum });
+    }
+    if value.chars().any(|character| character.is_control()) || contains_sensitive_marker(value) {
+        return Err(IncidentError::UnsafeText);
+    }
+    Ok(())
+}
+
+impl IncidentTrigger {
+    /// Validates bounded provenance: safe source identity and evidence references.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        if self.id.is_nil() {
+            return Err(IncidentError::InvalidId);
         }
+        validate_incident_text(&self.source_id, INCIDENT_SOURCE_ID_MAXIMUM)?;
+        if let Some(digest) = &self.source_record_digest {
+            validate_incident_text(digest, INCIDENT_SOURCE_ID_MAXIMUM)?;
+        }
+        validate_incident_evidence_ids(&self.evidence_ids)
+    }
+}
+
+impl IncidentReport {
+    /// Validates the bounded report summary.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        validate_incident_text(&self.summary, INCIDENT_SUMMARY_MAXIMUM)
+    }
+}
+
+impl IncidentSeverityOverride {
+    /// Validates the bounded override reason and evidence references.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        validate_incident_text(&self.reason, INCIDENT_NOTE_MAXIMUM)?;
+        validate_incident_evidence_ids(&self.evidence_ids)
     }
 }
 
@@ -816,6 +1000,78 @@ pub enum ConsolePriority {
     P5,
 }
 
+/// Structured business-impact ratings across the accepted impact dimensions.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactDimensions {
+    pub availability: ImpactLevel,
+    pub customer_reach: ImpactLevel,
+    pub business_criticality: ImpactLevel,
+    pub data_integrity: ImpactLevel,
+    pub security_privacy: ImpactLevel,
+    pub financial_contractual: ImpactLevel,
+    pub trajectory: ImpactTrajectory,
+    pub production: bool,
+}
+
+impl ImpactDimensions {
+    /// Highest confirmed impact dimension. Unknown contributes no confirmed
+    /// impact, and the ranking is explicit because enum declaration order is
+    /// not the business ranking.
+    pub fn highest_level(&self) -> ImpactLevel {
+        [
+            self.availability,
+            self.customer_reach,
+            self.business_criticality,
+            self.data_integrity,
+            self.security_privacy,
+            self.financial_contractual,
+        ]
+        .into_iter()
+        .max_by_key(|level| impact_business_rank(*level))
+        .expect("dimensions are non-empty")
+    }
+
+    /// Dimensions attributing all confirmed impact to one primary dimension,
+    /// as used by compact Operations Console projections.
+    pub fn single_dimension(primary: ImpactLevel, trajectory: ImpactTrajectory) -> Self {
+        Self {
+            availability: primary,
+            customer_reach: ImpactLevel::None,
+            business_criticality: ImpactLevel::None,
+            data_integrity: ImpactLevel::None,
+            security_privacy: ImpactLevel::None,
+            financial_contractual: ImpactLevel::None,
+            trajectory,
+            production: true,
+        }
+    }
+}
+
+/// Explicit business ranking: Critical outranks High through None; Unknown
+/// confirms no impact.
+fn impact_business_rank(level: ImpactLevel) -> u8 {
+    match level {
+        ImpactLevel::Critical => 5,
+        ImpactLevel::High => 4,
+        ImpactLevel::Medium => 3,
+        ImpactLevel::Low => 2,
+        ImpactLevel::None => 1,
+        ImpactLevel::Unknown => 0,
+    }
+}
+
+/// Explicit severity ranking where S1 is most severe; derived `Ord` is not the
+/// business ranking.
+fn severity_rank(severity: &IncidentSeverity) -> u8 {
+    match severity {
+        IncidentSeverity::S1 => 5,
+        IncidentSeverity::S2 => 4,
+        IncidentSeverity::S3 => 3,
+        IncidentSeverity::S4 => 2,
+        IncidentSeverity::S5 => 1,
+    }
+}
+
 /// A compact, evidence-backed description of business impact.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BusinessImpact {
@@ -824,6 +1080,64 @@ pub struct BusinessImpact {
     pub customer_scope: String,
     pub service_criticality: String,
     pub trajectory: ImpactTrajectory,
+    pub dimensions: ImpactDimensions,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+impl BusinessImpact {
+    /// Validates bounded safe text, consistency with the impact dimensions and
+    /// evidence references.
+    pub fn validate(&self) -> Result<(), IncidentError> {
+        if self.level != self.dimensions.highest_level()
+            || self.trajectory != self.dimensions.trajectory
+        {
+            return Err(IncidentError::ImpactLevelMismatch);
+        }
+        for text in [
+            &self.summary,
+            &self.customer_scope,
+            &self.service_criticality,
+        ] {
+            validate_incident_text(text, IMPACT_SUMMARY_MAXIMUM)?;
+        }
+        if self.evidence_ids.is_empty() {
+            return Err(IncidentError::InvalidEvidence);
+        }
+        validate_incident_evidence_ids(&self.evidence_ids)
+    }
+
+    /// Derives the initial severity from the highest confirmed impact
+    /// dimension, enforcing the accepted safety floors.
+    pub fn derive_severity(&self) -> Result<IncidentSeverity, IncidentError> {
+        self.validate()?;
+        let severity = match self.dimensions.highest_level() {
+            ImpactLevel::Critical => IncidentSeverity::S1,
+            ImpactLevel::High => IncidentSeverity::S2,
+            ImpactLevel::Medium => IncidentSeverity::S3,
+            ImpactLevel::Low => IncidentSeverity::S4,
+            ImpactLevel::None | ImpactLevel::Unknown => IncidentSeverity::S5,
+        };
+        if self.dimensions.production
+            && self.dimensions.trajectory == ImpactTrajectory::Expanding
+            && self.dimensions.customer_reach == ImpactLevel::Unknown
+            && severity_rank(&severity) < severity_rank(&IncidentSeverity::S2)
+        {
+            return Ok(IncidentSeverity::S2);
+        }
+        Ok(severity)
+    }
+}
+
+/// Validates that every evidence reference is a safe, bounded, unique identifier.
+fn validate_incident_evidence_ids(ids: &[ConsoleEvidenceId]) -> Result<(), IncidentError> {
+    if ids.iter().any(|id| {
+        validate_incident_text(id, INCIDENT_SOURCE_ID_MAXIMUM).is_err()
+            || id.chars().any(char::is_whitespace)
+    }) || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+    {
+        return Err(IncidentError::InvalidEvidence);
+    }
+    Ok(())
 }
 
 /// Direction in which observed business impact is moving.

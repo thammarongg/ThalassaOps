@@ -25,6 +25,8 @@ fn impact() -> BusinessImpact {
         customer_scope: "customers in eu-west".into(),
         service_criticality: "tier-0".into(),
         trajectory: ImpactTrajectory::Stable,
+        dimensions: ImpactDimensions::single_dimension(ImpactLevel::High, ImpactTrajectory::Stable),
+        evidence_ids: vec!["evidence-checkout-degraded".into()],
     }
 }
 
@@ -329,6 +331,11 @@ fn unparsed_evidence_cannot_claim_that_sensitive_fields_were_masked() {
                 customer_scope: "none".into(),
                 service_criticality: "none".into(),
                 trajectory: ImpactTrajectory::Improving,
+                dimensions: ImpactDimensions::single_dimension(
+                    ImpactLevel::None,
+                    ImpactTrajectory::Improving,
+                ),
+                evidence_ids: vec!["evidence-1".into()],
             },
             attention: critical_number(),
             impacted_services: critical_number(),
@@ -646,6 +653,11 @@ fn richer_console_types_keep_numbers_tied_to_scope_query_window_and_evidence() {
             customer_scope: "all customers".into(),
             service_criticality: "tier-0".into(),
             trajectory: ImpactTrajectory::Expanding,
+            dimensions: ImpactDimensions::single_dimension(
+                ImpactLevel::Critical,
+                ImpactTrajectory::Expanding,
+            ),
+            evidence_ids: vec!["evidence-1".into()],
         },
         attention: critical_number(),
         impacted_services: critical_number(),

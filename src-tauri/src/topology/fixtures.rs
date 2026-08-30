@@ -608,6 +608,11 @@ fn fixture_incident(scope: &ResourceScope, resource_id: Uuid) -> IncidentQueueIt
             customer_scope: "production checkout customers".into(),
             service_criticality: "tier-0".into(),
             trajectory: thalassa_domain::ImpactTrajectory::Expanding,
+            dimensions: thalassa_domain::ImpactDimensions::single_dimension(
+                thalassa_domain::ImpactLevel::Critical,
+                thalassa_domain::ImpactTrajectory::Expanding,
+            ),
+            evidence_ids: vec![evidence_id.clone()],
         },
         scope: scope.clone(),
         detected_at: "2026-08-28T08:55:00Z".into(),
