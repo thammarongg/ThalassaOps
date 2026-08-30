@@ -255,6 +255,7 @@ fn catalog_for_workspace(mut catalog: FixtureCatalog, scope: ResourceScope) -> F
     }
     for change in &mut catalog.changes {
         change.scope = scope.clone();
+        change.drill_down_reference.scope = scope.clone();
     }
     for environment in &mut catalog.environments {
         environment.resource_count.drill_down_reference.scope = scope.clone();

@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod association;
 pub mod fixtures;
 pub mod normalize;
+pub mod projection;
 pub mod records;
 pub mod timeline;
 
