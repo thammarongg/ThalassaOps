@@ -36,6 +36,22 @@ An individual notification emitted by an integration. An alert is not automatica
 
 A correlated operational problem that requires investigation, coordination, communication or action. An incident has impact, severity, status, timeline, related signals, evidence, hypotheses and actions.
 
+### Incident Trigger
+
+The provenance that explains why a responder explicitly created an incident. A trigger is an alert, anomaly, user report, scheduled health check, vulnerability finding or manual report; a correlation candidate may help select triggers but is not itself a trigger.
+
+### Incident Disposition
+
+A classification explaining how an incident was ultimately understood, separate from its operational status. Canonical dispositions are Duplicate, False Positive, Suppressed, Cancelled and Informational.
+
+### Incident Timeline Event
+
+An immutable, actor-attributed record of an incident creation or change. Timeline events preserve the reason, policy version and before/after state needed for audit and later incident reconstruction.
+
+### Incident Responder Role
+
+An explicit responsibility assigned to a principal for one incident, such as Owner, Incident Commander, Technical Lead, Communications Lead, Approver, Change Owner or Stakeholder. One principal may hold multiple roles.
+
 ### Incident Card
 
 A concise, shareable representation of an incident for responders and management. It contains the problem summary, severity, affected scope, business or service impact, current status, evidence-backed findings, initial mitigation and next steps.
