@@ -10,9 +10,10 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use thalassa_domain::{
     validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCreateCommand,
-    IncidentCreateRequest, IncidentError, IncidentMutation, IncidentReport, IncidentRoleAssignment,
-    IncidentSourceKind, IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope,
-    INCIDENT_SUMMARY_MAXIMUM,
+    IncidentCreateRequest, IncidentDispositionRequest, IncidentError, IncidentId, IncidentMutation,
+    IncidentPage, IncidentReport, IncidentRoleAssignment, IncidentRoleRequest,
+    IncidentSeverityRequest, IncidentSourceKind, IncidentTimelinePage, IncidentTransitionRequest,
+    IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope, INCIDENT_SUMMARY_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -188,6 +189,162 @@ impl IncidentService {
             triggers,
             request_fingerprint,
         })?)
+    }
+
+    /// Applies one validated lifecycle transition.
+    pub fn transition(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentTransitionRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        let (incident, first_event_sequence) =
+            self.load_for_write(context, request.incident_id, request.expected_version)?;
+        let mutation = incident.transition(
+            request.expected_version,
+            first_event_sequence,
+            request.transition,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.apply_mutation(mutation)?)
+    }
+
+    /// Reassesses severity from a changed impact assessment, or records an
+    /// explicit attributed override.
+    pub fn set_severity(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentSeverityRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        let (incident, first_event_sequence) =
+            self.load_for_write(context, request.incident_id, request.expected_version)?;
+        let mutation = incident.set_severity(
+            request.expected_version,
+            first_event_sequence,
+            request.command,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.apply_mutation(mutation)?)
+    }
+
+    /// Sets or clears a disposition.  A disposition never transitions status
+    /// and never merges or closes an incident.
+    pub fn set_disposition(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentDispositionRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        let (incident, first_event_sequence) =
+            self.load_for_write(context, request.incident_id, request.expected_version)?;
+        let mutation = incident.set_disposition(
+            request.expected_version,
+            first_event_sequence,
+            request.command,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.apply_mutation(mutation)?)
+    }
+
+    /// Assigns, replaces or releases one responder role.
+    pub fn assign_role(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentRoleRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        let (incident, first_event_sequence) =
+            self.load_for_write(context, request.incident_id, request.expected_version)?;
+        let mutation = incident.assign_role(
+            request.expected_version,
+            first_event_sequence,
+            request.command,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.apply_mutation(mutation)?)
+    }
+
+    /// Reads one incident inside the caller's workspace.
+    pub fn get(
+        &self,
+        context: &IncidentCommandContext,
+        incident_id: IncidentId,
+    ) -> Result<Incident, IncidentServiceError> {
+        Ok(self.repository.get(self.workspace(context)?, incident_id)?)
+    }
+
+    /// Reads one bounded page of workspace incidents, newest update first.
+    pub fn list(
+        &self,
+        context: &IncidentCommandContext,
+        cursor: Option<&str>,
+        limit: u16,
+    ) -> Result<IncidentPage, IncidentServiceError> {
+        Ok(self
+            .repository
+            .list(self.workspace(context)?, cursor, limit)?)
+    }
+
+    /// Reads one bounded, ordered page of an incident's immutable timeline.
+    pub fn timeline(
+        &self,
+        context: &IncidentCommandContext,
+        incident_id: IncidentId,
+        after_sequence: Option<u64>,
+        limit: u16,
+    ) -> Result<IncidentTimelinePage, IncidentServiceError> {
+        Ok(self.repository.timeline(
+            self.workspace(context)?,
+            incident_id,
+            after_sequence,
+            limit,
+        )?)
+    }
+
+    fn workspace(&self, context: &IncidentCommandContext) -> Result<Uuid, IncidentServiceError> {
+        context
+            .workspace_scope
+            .workspace_id
+            .filter(|id| !id.is_nil())
+            .ok_or(IncidentServiceError::ScopeMismatch)
+    }
+
+    /// Loads the current aggregate for a write and allocates the sequence its
+    /// first appended event will take.  The version is checked here so a stale
+    /// writer is rejected before the aggregate builds any event.
+    fn load_for_write(
+        &self,
+        context: &IncidentCommandContext,
+        incident_id: IncidentId,
+        expected_version: u64,
+    ) -> Result<(Incident, u64), IncidentServiceError> {
+        if context.request_id.is_nil() || context.actor_id.is_nil() {
+            return Err(IncidentServiceError::InvalidRequest);
+        }
+        let workspace_id = self.workspace(context)?;
+        let incident = self.repository.get(workspace_id, incident_id)?;
+        if incident.version != expected_version {
+            return Err(IncidentServiceError::VersionConflict {
+                expected: expected_version,
+                actual: incident.version,
+            });
+        }
+        let highest = self
+            .repository
+            .highest_event_sequence(workspace_id, incident_id)?;
+        let first_event_sequence = highest
+            .checked_add(1)
+            .ok_or(IncidentServiceError::InvalidRequest)?;
+        Ok((incident, first_event_sequence))
     }
 
     fn resolve_input(

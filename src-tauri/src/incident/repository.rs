@@ -306,6 +306,36 @@ impl SqliteIncidentRepository {
         Ok(mutation)
     }
 
+    /// Highest stored event sequence for one incident, scoped to the caller's
+    /// workspace.  The next accepted mutation numbers its events from here.
+    pub fn highest_event_sequence(
+        &self,
+        workspace_id: Uuid,
+        incident_id: IncidentId,
+    ) -> Result<u64, IncidentStoreError> {
+        let exists: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM incident WHERE id = ?1 AND workspace_id = ?2",
+                [incident_id.to_string(), workspace_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)?;
+        if exists.is_none() {
+            return Err(IncidentStoreError::NotFound);
+        }
+        let highest: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), 0) FROM incident_timeline_event WHERE incident_id = ?1",
+                [incident_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        u64::try_from(highest).map_err(|_| corruption("event sequence"))
+    }
+
     /// Total stored incidents.  Read-only proof that a rejected command, a
     /// replay or a projection wrote nothing.
     pub fn incident_count(&self) -> Result<u64, IncidentStoreError> {
