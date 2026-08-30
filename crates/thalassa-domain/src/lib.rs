@@ -404,7 +404,7 @@ pub enum IncidentSeverity {
     #[serde(rename = "S5")]
     S5,
 }
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum IncidentStatus {
     #[serde(rename = "detected")]
     Detected,
@@ -597,6 +597,27 @@ pub enum IncidentError {
     InvalidEvidence,
     #[error("incident identifier is nil or duplicated")]
     InvalidId,
+    #[error("incident triggers are missing, duplicated or unsafe")]
+    InvalidTrigger,
+    #[error("incident or trigger scope does not fit the authorized workspace")]
+    InvalidScope,
+    #[error("incident transition from {from:?} to {to:?} is not allowed")]
+    InvalidTransition {
+        from: IncidentStatus,
+        to: IncidentStatus,
+    },
+    #[error("incident transition context is missing or inconsistent")]
+    InvalidTransitionContext,
+    #[error("incident severity override is missing a reason or evidence")]
+    InvalidSeverityOverride,
+    #[error("incident disposition and duplicate reference are inconsistent")]
+    InvalidDisposition,
+    #[error("duplicate disposition requires another incident and never a self-reference")]
+    InvalidDuplicateReference,
+    #[error("incident role assignment violates exclusive-role cardinality")]
+    InvalidRole,
+    #[error("incident version conflict: expected {expected}, actual {actual}")]
+    VersionConflict { expected: u64, actual: u64 },
 }
 
 /// Rejects empty, control-bearing, sensitive or oversized incident text.
@@ -639,6 +660,788 @@ impl IncidentSeverityOverride {
     pub fn validate(&self) -> Result<(), IncidentError> {
         validate_incident_text(&self.reason, INCIDENT_NOTE_MAXIMUM)?;
         validate_incident_evidence_ids(&self.evidence_ids)
+    }
+}
+
+/// Lifecycle transition target together with its required typed context.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "target", content = "context")]
+pub enum IncidentTransition {
+    #[serde(rename = "triage")]
+    Triage(TriageContext),
+    #[serde(rename = "investigating")]
+    Investigating(InvestigatingContext),
+    #[serde(rename = "mitigating")]
+    Mitigating(MitigatingContext),
+    #[serde(rename = "monitoring")]
+    Monitoring(MonitoringContext),
+    #[serde(rename = "resolved")]
+    Resolved(ResolvedContext),
+    #[serde(rename = "closed")]
+    Closed(ClosedContext),
+    #[serde(rename = "reopened")]
+    Reopened(ReopenedContext),
+}
+
+impl IncidentTransition {
+    /// Returns the target status of this transition.
+    pub fn target(&self) -> IncidentStatus {
+        match self {
+            Self::Triage(_) => IncidentStatus::Triage,
+            Self::Investigating(_) => IncidentStatus::Investigating,
+            Self::Mitigating(_) => IncidentStatus::Mitigating,
+            Self::Monitoring(_) => IncidentStatus::Monitoring,
+            Self::Resolved(_) => IncidentStatus::Resolved,
+            Self::Closed(_) => IncidentStatus::Closed,
+            Self::Reopened(_) => IncidentStatus::Reopened,
+        }
+    }
+
+    /// Returns true only for canonical lifecycle edges: no skips, repeats or
+    /// automatic transitions.
+    pub fn edge_allowed(from: IncidentStatus, to: IncidentStatus) -> bool {
+        matches!(
+            (from, to),
+            (IncidentStatus::Detected, IncidentStatus::Triage)
+                | (IncidentStatus::Triage, IncidentStatus::Investigating)
+                | (IncidentStatus::Investigating, IncidentStatus::Mitigating)
+                | (IncidentStatus::Mitigating, IncidentStatus::Monitoring)
+                | (IncidentStatus::Monitoring, IncidentStatus::Resolved)
+                | (IncidentStatus::Resolved, IncidentStatus::Closed)
+                | (IncidentStatus::Monitoring, IncidentStatus::Reopened)
+                | (IncidentStatus::Resolved, IncidentStatus::Reopened)
+                | (IncidentStatus::Closed, IncidentStatus::Reopened)
+                | (IncidentStatus::Reopened, IncidentStatus::Investigating)
+        )
+    }
+}
+
+/// Triage context: confirmed impact, accountable owner and completed duplicate check.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TriageContext {
+    pub business_impact: BusinessImpact,
+    pub owner: PrincipalId,
+    pub duplicate_checked: bool,
+}
+
+/// Investigation context: bounded note and the evidence being examined.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InvestigatingContext {
+    pub note: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+
+/// Mitigation context: what is being done, by whom, with what expected effect.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MitigatingContext {
+    pub action_description: String,
+    pub executor: PrincipalId,
+    pub expected_impact: String,
+}
+
+/// Monitoring context: bounded verification window, criteria and watch owner.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MonitoringContext {
+    pub verification_seconds: u64,
+    pub success_criteria: String,
+    pub watch_owner: PrincipalId,
+}
+
+/// Resolution context: bounded summary, supporting evidence and impact end time.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ResolvedContext {
+    pub resolution_summary: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub impact_ended_at: DateTime<Utc>,
+}
+
+/// Closure context: bounded closure notes and required follow-up references.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ClosedContext {
+    pub closure_notes: String,
+    pub follow_up_ids: Vec<String>,
+}
+
+/// Reopen context: reason plus new evidence or the recurring signal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReopenedContext {
+    pub reason: String,
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+    pub recurrence_signal_id: Option<SignalId>,
+}
+
+/// Explicit creation command; triggers arrive already resolved by the caller.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentCreateCommand {
+    pub summary: String,
+    pub scope: ResourceScope,
+    pub owning_team_id: TeamId,
+    pub triggers: Vec<IncidentTrigger>,
+    pub business_impact: BusinessImpact,
+    pub initial_roles: Vec<IncidentRoleAssignment>,
+}
+
+/// Explicit severity decision: reassess from changed impact or override.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "action", content = "details")]
+pub enum IncidentSeverityCommand {
+    #[serde(rename = "reassess")]
+    Reassess {
+        business_impact: BusinessImpact,
+        reason: String,
+    },
+    #[serde(rename = "override")]
+    Override {
+        selected: IncidentSeverity,
+        reason: String,
+        evidence_ids: Vec<ConsoleEvidenceId>,
+    },
+}
+
+/// Disposition change; a disposition never causes a status transition.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentDispositionCommand {
+    pub disposition: Option<IncidentDisposition>,
+    pub duplicate_of_incident_id: Option<IncidentId>,
+    pub reason: String,
+}
+
+/// Typed role operation expressed under `incident.assign_role`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "action", content = "details")]
+pub enum IncidentRoleCommand {
+    #[serde(rename = "assign")]
+    Assign {
+        role: IncidentRole,
+        principal_id: PrincipalId,
+    },
+    #[serde(rename = "replace")]
+    Replace {
+        role: IncidentRole,
+        principal_id: PrincipalId,
+    },
+    #[serde(rename = "release")]
+    Release { role: IncidentRole },
+}
+
+impl IncidentRole {
+    /// Returns true when the role allows at most one active assignee.
+    pub fn is_exclusive(self) -> bool {
+        self != IncidentRole::Stakeholder
+    }
+}
+
+/// Discriminator for typed incident timeline events.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum IncidentEventKind {
+    #[serde(rename = "incident_created")]
+    IncidentCreated,
+    #[serde(rename = "triggers_attached")]
+    TriggersAttached,
+    #[serde(rename = "status_transitioned")]
+    StatusTransitioned,
+    #[serde(rename = "severity_changed")]
+    SeverityChanged,
+    #[serde(rename = "disposition_changed")]
+    DispositionChanged,
+    #[serde(rename = "role_changed")]
+    RoleChanged,
+}
+
+/// One immutable, attributed incident timeline event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentTimelineEvent {
+    pub id: Uuid,
+    pub incident_id: IncidentId,
+    pub sequence: u64,
+    pub kind: IncidentEventKind,
+    pub actor_id: PrincipalId,
+    pub reason: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+    pub request_id: Uuid,
+    pub policy_version: u64,
+    pub payload: IncidentTimelinePayload,
+}
+
+/// Typed before/after values for one accepted incident mutation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "data")]
+pub enum IncidentTimelinePayload {
+    #[serde(rename = "created")]
+    Created(CreatedPayload),
+    #[serde(rename = "triggers_attached")]
+    TriggersAttached(TriggersAttachedPayload),
+    #[serde(rename = "status_transitioned")]
+    StatusTransitioned(StatusTransitionedPayload),
+    #[serde(rename = "severity_changed")]
+    SeverityChanged(SeverityChangedPayload),
+    #[serde(rename = "disposition_changed")]
+    DispositionChanged(DispositionChangedPayload),
+    #[serde(rename = "role_changed")]
+    RoleChanged(RoleChangedPayload),
+}
+
+/// Creation audit values: identity, team, severity and initial assignments.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CreatedPayload {
+    pub summary: String,
+    pub scope: ResourceScope,
+    pub owning_team_id: TeamId,
+    pub derived_severity: IncidentSeverity,
+    pub trigger_ids: Vec<IncidentTriggerId>,
+    pub initial_roles: Vec<IncidentRoleAssignment>,
+}
+
+/// Trigger references fixed at creation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TriggersAttachedPayload {
+    pub trigger_ids: Vec<IncidentTriggerId>,
+}
+
+/// Status before/after with the full typed transition context.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StatusTransitionedPayload {
+    pub from: IncidentStatus,
+    pub to: IncidentStatus,
+    pub transition: IncidentTransition,
+}
+
+/// Severity before/after including any explicit override detail.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SeverityChangedPayload {
+    pub previous: IncidentSeverity,
+    pub current: IncidentSeverity,
+    pub override_detail: Option<IncidentSeverityOverride>,
+}
+
+/// Disposition before/after with the duplicate reference when present.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DispositionChangedPayload {
+    pub previous: Option<IncidentDisposition>,
+    pub current: Option<IncidentDisposition>,
+    pub duplicate_of_incident_id: Option<IncidentId>,
+}
+
+/// Role before/after principals for assign, replace and release operations.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RoleChangedPayload {
+    pub role: IncidentRole,
+    pub previous_principal_ids: Vec<PrincipalId>,
+    pub current_principal_id: Option<PrincipalId>,
+}
+
+/// New aggregate state plus the ordered events the write transaction appends.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentMutation {
+    pub incident: Incident,
+    pub events: Vec<IncidentTimelineEvent>,
+}
+
+fn sort_unique<T: Ord>(mut ids: Vec<T>) -> Vec<T> {
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn normalize_roles(
+    roles: Vec<IncidentRoleAssignment>,
+    actor_id: PrincipalId,
+    now: DateTime<Utc>,
+) -> Result<Vec<IncidentRoleAssignment>, IncidentError> {
+    let mut normalized = Vec::new();
+    for assignment in roles {
+        if normalized.iter().any(|existing: &IncidentRoleAssignment| {
+            existing.role == assignment.role && existing.principal_id == assignment.principal_id
+        }) || (assignment.role.is_exclusive()
+            && normalized
+                .iter()
+                .any(|existing| existing.role == assignment.role))
+        {
+            return Err(IncidentError::InvalidRole);
+        }
+        normalized.push(IncidentRoleAssignment {
+            role: assignment.role,
+            principal_id: assignment.principal_id,
+            assigned_by: actor_id,
+            assigned_at: now,
+        });
+    }
+    Ok(normalized)
+}
+
+impl Incident {
+    /// Creates the canonical aggregate from an explicit creation command.
+    /// Audit values (actor, server timestamp, request ID, policy version) come
+    /// only from arguments, never from the command payload.
+    pub fn create(
+        command: IncidentCreateCommand,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        validate_incident_text(&command.summary, INCIDENT_SUMMARY_MAXIMUM)?;
+        if command.triggers.is_empty() {
+            return Err(IncidentError::InvalidTrigger);
+        }
+        if !command.scope.is_bounded() || command.scope.team_id != Some(command.owning_team_id) {
+            return Err(IncidentError::InvalidScope);
+        }
+        let mut trigger_ids = Vec::new();
+        let mut evidence_ids = command.business_impact.evidence_ids.clone();
+        let mut signal_ids = Vec::new();
+        for trigger in &command.triggers {
+            trigger.validate()?;
+            if !command.scope.contains(&trigger.scope) {
+                return Err(IncidentError::InvalidScope);
+            }
+            if trigger_ids.contains(&trigger.id) {
+                return Err(IncidentError::InvalidTrigger);
+            }
+            trigger_ids.push(trigger.id);
+            evidence_ids.extend(trigger.evidence_ids.iter().cloned());
+            if let Some(signal_id) = trigger.signal_id {
+                signal_ids.push(signal_id);
+            }
+        }
+        let derived_severity = command.business_impact.derive_severity()?;
+        let roles = normalize_roles(command.initial_roles, actor_id, now)?;
+        let incident = Self {
+            id: Uuid::new_v4(),
+            summary: command.summary,
+            scope: command.scope,
+            owning_team_id: command.owning_team_id,
+            business_impact: command.business_impact,
+            derived_severity,
+            severity_override: None,
+            status: IncidentStatus::Detected,
+            disposition: None,
+            duplicate_of_incident_id: None,
+            trigger_ids: sort_unique(trigger_ids),
+            signal_ids: sort_unique(signal_ids),
+            evidence_ids: sort_unique(evidence_ids),
+            hypothesis_ids: Vec::new(),
+            action_ids: Vec::new(),
+            roles,
+            version: 1,
+            created_at: now,
+            updated_at: now,
+        };
+        let created_event = incident.event(
+            1,
+            IncidentEventKind::IncidentCreated,
+            actor_id,
+            None,
+            request_id,
+            policy_version,
+            now,
+            IncidentTimelinePayload::Created(CreatedPayload {
+                summary: incident.summary.clone(),
+                scope: incident.scope.clone(),
+                owning_team_id: incident.owning_team_id,
+                derived_severity: incident.derived_severity.clone(),
+                trigger_ids: incident.trigger_ids.clone(),
+                initial_roles: incident.roles.clone(),
+            }),
+        );
+        Ok(IncidentMutation {
+            incident,
+            events: vec![created_event],
+        })
+    }
+
+    /// Current severity: the explicit override when present, else the derived value.
+    pub fn current_severity(&self) -> IncidentSeverity {
+        match &self.severity_override {
+            Some(override_detail) => override_detail.selected.clone(),
+            None => self.derived_severity.clone(),
+        }
+    }
+
+    /// Validates and applies one lifecycle transition and returns the new
+    /// state plus the appended timeline event.
+    pub fn transition(
+        &self,
+        expected_version: u64,
+        transition: IncidentTransition,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        self.ensure_version(expected_version)?;
+        let target = transition.target();
+        if !IncidentTransition::edge_allowed(self.status, target) {
+            return Err(IncidentError::InvalidTransition {
+                from: self.status,
+                to: target,
+            });
+        }
+        let mut next = self.clone();
+        match &transition {
+            IncidentTransition::Triage(context) => {
+                let derived = context.business_impact.derive_severity()?;
+                if !context.duplicate_checked {
+                    return Err(IncidentError::InvalidTransitionContext);
+                }
+                next.business_impact = context.business_impact.clone();
+                next.derived_severity = derived;
+                let owner_current = next
+                    .roles
+                    .iter()
+                    .find(|assignment| assignment.role == IncidentRole::Owner)
+                    .is_some_and(|assignment| assignment.principal_id == context.owner);
+                if !owner_current {
+                    next.roles
+                        .retain(|assignment| assignment.role != IncidentRole::Owner);
+                    next.roles.push(IncidentRoleAssignment {
+                        role: IncidentRole::Owner,
+                        principal_id: context.owner,
+                        assigned_by: actor_id,
+                        assigned_at: now,
+                    });
+                }
+            }
+            IncidentTransition::Investigating(context) => {
+                Self::validate_context_text(&context.note)?;
+                Self::validate_context_evidence(&context.evidence_ids)?;
+                next.evidence_ids = sort_unique(
+                    next.evidence_ids
+                        .iter()
+                        .chain(context.evidence_ids.iter())
+                        .cloned()
+                        .collect(),
+                );
+            }
+            IncidentTransition::Mitigating(context) => {
+                Self::validate_context_text(&context.action_description)?;
+                Self::validate_context_text(&context.expected_impact)?;
+            }
+            IncidentTransition::Monitoring(context) => {
+                if context.verification_seconds == 0 || context.verification_seconds > 86_400 {
+                    return Err(IncidentError::InvalidTransitionContext);
+                }
+                Self::validate_context_text(&context.success_criteria)?;
+            }
+            IncidentTransition::Resolved(context) => {
+                Self::validate_context_text(&context.resolution_summary)?;
+                Self::validate_context_evidence(&context.evidence_ids)?;
+                if context.impact_ended_at > now {
+                    return Err(IncidentError::InvalidTransitionContext);
+                }
+                next.evidence_ids = sort_unique(
+                    next.evidence_ids
+                        .iter()
+                        .chain(context.evidence_ids.iter())
+                        .cloned()
+                        .collect(),
+                );
+            }
+            IncidentTransition::Reopened(context) => {
+                Self::validate_context_text(&context.reason)?;
+                if context.evidence_ids.is_empty() && context.recurrence_signal_id.is_none() {
+                    return Err(IncidentError::InvalidTransitionContext);
+                }
+                validate_incident_evidence_ids(&context.evidence_ids)?;
+                next.evidence_ids = sort_unique(
+                    next.evidence_ids
+                        .iter()
+                        .chain(context.evidence_ids.iter())
+                        .cloned()
+                        .collect(),
+                );
+                if let Some(signal_id) = context.recurrence_signal_id {
+                    let mut signal_ids = next.signal_ids.clone();
+                    signal_ids.push(signal_id);
+                    next.signal_ids = sort_unique(signal_ids);
+                }
+            }
+            IncidentTransition::Closed(context) => {
+                Self::validate_context_text(&context.closure_notes)?;
+                for follow_up_id in &context.follow_up_ids {
+                    validate_incident_text(follow_up_id, INCIDENT_SOURCE_ID_MAXIMUM)
+                        .map_err(|_| IncidentError::InvalidTransitionContext)?;
+                }
+            }
+        }
+        next.status = target;
+        next.version += 1;
+        next.updated_at = now;
+        let event = self.event(
+            self.version + 1,
+            IncidentEventKind::StatusTransitioned,
+            actor_id,
+            None,
+            request_id,
+            policy_version,
+            now,
+            IncidentTimelinePayload::StatusTransitioned(StatusTransitionedPayload {
+                from: self.status,
+                to: target,
+                transition,
+            }),
+        );
+        Ok(IncidentMutation {
+            incident: next,
+            events: vec![event],
+        })
+    }
+
+    /// Reassesses severity from a changed impact assessment or records an
+    /// explicit actor-attributed override.
+    pub fn set_severity(
+        &self,
+        expected_version: u64,
+        command: IncidentSeverityCommand,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        self.ensure_version(expected_version)?;
+        let reason = match &command {
+            IncidentSeverityCommand::Reassess { reason, .. }
+            | IncidentSeverityCommand::Override { reason, .. } => reason,
+        };
+        validate_incident_text(reason, INCIDENT_NOTE_MAXIMUM)?;
+        let previous = self.current_severity();
+        let mut next = self.clone();
+        let (current, override_detail) = match &command {
+            IncidentSeverityCommand::Reassess {
+                business_impact, ..
+            } => {
+                let derived = business_impact.derive_severity()?;
+                next.business_impact = business_impact.clone();
+                next.derived_severity = derived.clone();
+                next.severity_override = None;
+                (derived, None)
+            }
+            IncidentSeverityCommand::Override {
+                selected,
+                evidence_ids,
+                ..
+            } => {
+                if evidence_ids.is_empty() {
+                    return Err(IncidentError::InvalidSeverityOverride);
+                }
+                validate_incident_evidence_ids(evidence_ids)?;
+                let detail = IncidentSeverityOverride {
+                    derived: self.derived_severity.clone(),
+                    selected: selected.clone(),
+                    actor_id,
+                    reason: reason.clone(),
+                    evidence_ids: evidence_ids.clone(),
+                };
+                next.severity_override = Some(detail.clone());
+                (selected.clone(), Some(detail))
+            }
+        };
+        next.version += 1;
+        next.updated_at = now;
+        let event = self.event(
+            self.version + 1,
+            IncidentEventKind::SeverityChanged,
+            actor_id,
+            Some(reason.clone()),
+            request_id,
+            policy_version,
+            now,
+            IncidentTimelinePayload::SeverityChanged(SeverityChangedPayload {
+                previous,
+                current,
+                override_detail,
+            }),
+        );
+        Ok(IncidentMutation {
+            incident: next,
+            events: vec![event],
+        })
+    }
+
+    /// Sets, changes or clears the disposition. A disposition never changes
+    /// the lifecycle status; Duplicate requires another incident reference.
+    pub fn set_disposition(
+        &self,
+        expected_version: u64,
+        command: IncidentDispositionCommand,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        self.ensure_version(expected_version)?;
+        validate_incident_text(&command.reason, INCIDENT_NOTE_MAXIMUM)?;
+        let duplicate_of = if matches!(command.disposition, Some(IncidentDisposition::Duplicate)) {
+            let duplicate_of = command
+                .duplicate_of_incident_id
+                .ok_or(IncidentError::InvalidDuplicateReference)?;
+            if duplicate_of == self.id {
+                return Err(IncidentError::InvalidDuplicateReference);
+            }
+            Some(duplicate_of)
+        } else {
+            if command.duplicate_of_incident_id.is_some() {
+                return Err(IncidentError::InvalidDisposition);
+            }
+            None
+        };
+        let mut next = self.clone();
+        next.disposition = command.disposition.clone();
+        next.duplicate_of_incident_id = duplicate_of;
+        next.version += 1;
+        next.updated_at = now;
+        let event = self.event(
+            self.version + 1,
+            IncidentEventKind::DispositionChanged,
+            actor_id,
+            Some(command.reason),
+            request_id,
+            policy_version,
+            now,
+            IncidentTimelinePayload::DispositionChanged(DispositionChangedPayload {
+                previous: self.disposition.clone(),
+                current: command.disposition.clone(),
+                duplicate_of_incident_id: duplicate_of,
+            }),
+        );
+        Ok(IncidentMutation {
+            incident: next,
+            events: vec![event],
+        })
+    }
+
+    /// Assigns, replaces or releases a responder role. Exclusive roles hold at
+    /// most one active assignee; Stakeholder may hold many.
+    pub fn assign_role(
+        &self,
+        expected_version: u64,
+        command: IncidentRoleCommand,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        self.ensure_version(expected_version)?;
+        let previous_principals = |role: &IncidentRole| {
+            self.roles
+                .iter()
+                .filter(|assignment| assignment.role == *role)
+                .map(|assignment| assignment.principal_id)
+                .collect::<Vec<_>>()
+        };
+        let (role, previous, current) = match &command {
+            IncidentRoleCommand::Assign { role, principal_id } => {
+                if self.roles.iter().any(|assignment| {
+                    assignment.role == *role && assignment.principal_id == *principal_id
+                }) || (role.is_exclusive() && !previous_principals(role).is_empty())
+                {
+                    return Err(IncidentError::InvalidRole);
+                }
+                (*role, Vec::new(), Some(*principal_id))
+            }
+            IncidentRoleCommand::Replace { role, .. } => (*role, previous_principals(role), None),
+            IncidentRoleCommand::Release { role } => {
+                let previous = previous_principals(role);
+                if previous.is_empty() {
+                    return Err(IncidentError::InvalidRole);
+                }
+                (*role, previous, None)
+            }
+        };
+        let mut next = self.clone();
+        match &command {
+            IncidentRoleCommand::Assign { role, principal_id } => {
+                next.roles.push(IncidentRoleAssignment {
+                    role: *role,
+                    principal_id: *principal_id,
+                    assigned_by: actor_id,
+                    assigned_at: now,
+                })
+            }
+            IncidentRoleCommand::Replace { role, principal_id } => {
+                next.roles.retain(|assignment| assignment.role != *role);
+                next.roles.push(IncidentRoleAssignment {
+                    role: *role,
+                    principal_id: *principal_id,
+                    assigned_by: actor_id,
+                    assigned_at: now,
+                });
+            }
+            IncidentRoleCommand::Release { role } => {
+                next.roles.retain(|assignment| assignment.role != *role);
+            }
+        }
+        let current_principal_id = match &command {
+            IncidentRoleCommand::Release { .. } => None,
+            _ => current,
+        };
+        next.version += 1;
+        next.updated_at = now;
+        let event = self.event(
+            self.version + 1,
+            IncidentEventKind::RoleChanged,
+            actor_id,
+            None,
+            request_id,
+            policy_version,
+            now,
+            IncidentTimelinePayload::RoleChanged(RoleChangedPayload {
+                role,
+                previous_principal_ids: previous,
+                current_principal_id,
+            }),
+        );
+        Ok(IncidentMutation {
+            incident: next,
+            events: vec![event],
+        })
+    }
+
+    fn ensure_version(&self, expected_version: u64) -> Result<(), IncidentError> {
+        if expected_version != self.version {
+            return Err(IncidentError::VersionConflict {
+                expected: expected_version,
+                actual: self.version,
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_context_text(value: &str) -> Result<(), IncidentError> {
+        validate_incident_text(value, INCIDENT_NOTE_MAXIMUM)
+            .map_err(|_| IncidentError::InvalidTransitionContext)
+    }
+
+    fn validate_context_evidence(evidence_ids: &[ConsoleEvidenceId]) -> Result<(), IncidentError> {
+        if evidence_ids.is_empty() || validate_incident_evidence_ids(evidence_ids).is_err() {
+            return Err(IncidentError::InvalidTransitionContext);
+        }
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn event(
+        &self,
+        sequence: u64,
+        kind: IncidentEventKind,
+        actor_id: PrincipalId,
+        reason: Option<String>,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+        payload: IncidentTimelinePayload,
+    ) -> IncidentTimelineEvent {
+        IncidentTimelineEvent {
+            id: Uuid::new_v4(),
+            incident_id: self.id,
+            sequence,
+            kind,
+            actor_id,
+            reason,
+            occurred_at: now,
+            request_id,
+            policy_version,
+            payload,
+        }
     }
 }
 
