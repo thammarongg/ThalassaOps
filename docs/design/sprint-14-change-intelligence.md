@@ -68,8 +68,10 @@ These are unchanged and bind every task in this sprint:
   type and no provider-specific change struct.
 - One source enum. `EvidenceSourceKind` gains `github`, `gitlab` and `argo_cd`.
   No adapter introduces a private source enum or a stringly typed source field.
-- Rust numeric fields are `f64`, TypeScript numeric fields are `number`, and
-  NaN and both infinities are rejected with typed errors before serialization.
+- Measured or displayed Rust numeric fields are `f64`, TypeScript numeric fields
+  are `number`, and NaN and both infinities are rejected with typed errors
+  before serialization. Request control parameters such as limits, bounds and
+  caller-supplied durations use unsigned integer types with range validation.
 - Absent source data is `Option`/`null`, an explicit unavailable
   `SourceStatus`, or an omitted record. Empty strings are never placeholders.
   Fabricated timestamps, actors, revisions, targets and links are forbidden.
@@ -204,7 +206,8 @@ pub struct ChangeEvent {
 `targets` reuses the Sprint 13 `SignalTarget` verbatim. This is the mechanism
 that makes association exact: a change and a signal that name the same
 deployment produce byte-identical target values, so the association is a
-comparison, not a heuristic string match.
+comparison, not a heuristic string match. A change adapter therefore emits the
+Sprint 13 identifier form, `deployment/<name>`, not the bare source name.
 
 `occurred_at` is required because a change without a source-supplied timestamp
 cannot participate in a timeline or a precedence test. An adapter that finds no
@@ -305,6 +308,12 @@ The source record ledger still retains the complete post-policy source payload
 for the core, and adapters therefore drop diff-body fields before the record is
 admitted, rather than after.
 
+Task 2 admission receives a caller-owned `SourceRecordStore` and an explicit
+`ResourceScope`; it never relies on process-global mutable state or an implicit
+workspace. The store owns the SQLite connection, policy evaluation, digest and
+evidence writes, so change retention uses the same workspace isolation and
+`source_record_evidence` lookup path as Sprint 13.
+
 Retention splits across two tables by design: migration `0005` adds
 `change_source_record` for change payloads, while evidence rows continue to use
 the existing `source_record_evidence` table from migration `0004`. There is one
@@ -373,6 +382,25 @@ pub struct ChangeAssociation {
 }
 ```
 
+Request control parameters use unsigned integer types for cardinality and
+caller-supplied duration bounds. Measured or displayed values remain finite
+`f64` values at the Rust boundary and `number` values in TypeScript.
+
+```rust
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeRequest {
+    pub window: TimeWindow,
+    pub evaluated_at: String,
+    pub lookback_seconds: u64,
+    pub limit: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeEvidenceRequest {
+    pub evidence_ids: Vec<ConsoleEvidenceId>,
+}
+```
+
 `candidate_id` is the existing `CorrelationCandidate.id` string; Sprint 14 does
 not change that field's type.
 
@@ -417,7 +445,7 @@ pub struct ChangeSnapshot {
     pub generated_at: String,
     pub scope: ResourceScope,
     pub request_window: TimeWindow,
-    pub lookback_seconds: f64,
+    pub lookback_seconds: u64,
     pub events: Vec<ChangeEvent>,
     pub timeline: ChangeTimeline,
     pub associations: Vec<ChangeAssociation>,
@@ -480,9 +508,21 @@ shapes:
 
 Every fixture is written to exercise the safety paths as well as the happy
 path: at least one record carries an email-shaped actor field that must be
-rejected, one carries a URL with a query string that must be dropped, one
-carries a diff body that must never reach a contract, and one carries unknown
+rejected using the reserved-TLD marker
+`sprint14-fixture-actor@example.invalid`, which is the only email-shaped string
+permitted in any committed fixture; one carries a URL with a query string that
+must be dropped, one carries a diff body that must never reach a contract, and one carries unknown
 fields that must survive in the retained record.
+
+Fixture change timestamps sit on the same fixture day as the Sprint 11 console
+and Sprint 13 correlation fixtures (2026-08-28), so a committed change can
+precede a correlated signal and the exit criterion is reachable from committed
+data alone.
+
+Fixture revision and native commit identifiers use realistic 40-character
+lowercase hexadecimal values and contain no run of 12 or more consecutive
+digits. This keeps committed replay data compatible with the live safe-identity
+control that rejects bare long digit runs as possible account identifiers.
 
 ## Data flow and determinism
 
@@ -492,9 +532,10 @@ For one `change.snapshot` request:
 2. Load fixture payloads through the injected fixture clock.
 3. Evaluate source and local-storage policy, then admit each post-policy record
    to the append-only ledger with a content digest.
-4. Normalize each record into a `ChangeEvent`, rejecting unsafe identities,
-   unparsable timestamps and invalid links with typed errors and source
-   statuses.
+4. Normalize each record into a `NormalizationOutput { event, statuses }`,
+   rejecting missing or unparsable timestamps with typed errors while recording
+   safe identity, link and path downgrades as source statuses. A successful
+   downgrade therefore remains inspectable without silently losing its status.
 5. Build the timeline over the half-open window with `(occurred_at, id)`
    ordering.
 6. Compute the Sprint 13 correlation snapshot for the same evaluation time,

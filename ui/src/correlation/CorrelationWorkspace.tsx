@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ChangeEvent,
+  ChangeRequest,
+  ChangeSnapshot,
   CommandEnvelope,
   CorrelationMetric,
   CorrelationMetricKey,
@@ -12,7 +15,13 @@ import type {
   SourceStatus
 } from "../../contracts/ipc";
 import { command } from "../../contracts/ipc";
-import { isCorrelationSnapshot, isEvidenceResponse } from "../../contracts/guards";
+import {
+  isChangeSnapshot,
+  isCorrelationSnapshot,
+  isEvidenceResponse
+} from "../../contracts/guards";
+import { ChangeDetail } from "../change/ChangeDetail";
+import { ChangeTimeline } from "../change/ChangeTimeline";
 import { Drawer, EmptyState, StatusIndicator } from "../design-system/components";
 import { useTranslation } from "../i18n";
 import { CandidateDetails } from "./CandidateDetails";
@@ -33,6 +42,28 @@ export const DEFAULT_CORRELATION_REQUEST: CorrelationRequest = {
   evaluated_at: "2026-08-28T09:00:00Z",
   allowed_lateness_seconds: 300
 };
+
+export const DEFAULT_CHANGE_REQUEST: ChangeRequest = {
+  window: {
+    start: "2026-08-28T08:00:00Z",
+    end: "2026-08-28T09:00:00Z"
+  },
+  evaluated_at: "2026-08-28T09:00:00Z",
+  lookback_seconds: 3600,
+  limit: 50
+};
+
+const changeEnvelope = <T,>(
+  verb: "snapshot" | "evidence",
+  capability: "WorkspaceRead" | "ResourceRead",
+  payload: T
+): CommandEnvelope<T> => ({
+  request_id: crypto.randomUUID(),
+  command: command("change", verb),
+  capability,
+  scope: { resource_ids: [] },
+  payload
+});
 
 const correlationEnvelope = <T,>(
   verb: "snapshot" | "evidence",
@@ -198,6 +229,8 @@ function SourceSummary({ signals }: { signals: Signal[] }) {
 export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<CorrelationSnapshot>();
+  const [changeSnapshot, setChangeSnapshot] = useState<ChangeSnapshot>();
+  const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
   const [snapshotState, setSnapshotState] = useState<SnapshotState>("loading");
   const [snapshotError, setSnapshotError] = useState("");
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
@@ -206,6 +239,7 @@ export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
   const [evidence, setEvidence] = useState<EvidenceRef[]>([]);
   const [evidenceError, setEvidenceError] = useState("");
   const snapshotRequestRef = useRef(0);
+  const changeRequestRef = useRef(0);
   const evidenceRequestRef = useRef(0);
 
   const issuedEvidenceIds = useMemo(
@@ -251,6 +285,72 @@ export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
       snapshotRequestRef.current += 1;
     };
   }, [invoke, t]);
+
+  useEffect(() => {
+    const requestId = ++changeRequestRef.current;
+    void invoke<ChangeRequest, ChangeSnapshot>("change_snapshot", {
+      envelope: changeEnvelope("snapshot", "WorkspaceRead", DEFAULT_CHANGE_REQUEST)
+    })
+      .then((result) => {
+        if (requestId !== changeRequestRef.current) return;
+        // A change view is context, never the reason a workspace fails to
+        // render: a rejected change snapshot leaves the correlation view intact
+        // and the change lane reports its own empty state.
+        if (result.ok && isChangeSnapshot(result.value)) {
+          setChangeSnapshot(result.value);
+          setSelectedChangeId(result.value.timeline.entry_ids[0] ?? null);
+        } else {
+          setChangeSnapshot(undefined);
+          setSelectedChangeId(null);
+        }
+      })
+      .catch(() => {
+        if (requestId !== changeRequestRef.current) return;
+        setChangeSnapshot(undefined);
+        setSelectedChangeId(null);
+      });
+    return () => {
+      changeRequestRef.current += 1;
+    };
+  }, [invoke]);
+
+  const openChangeEvidence = useCallback(
+    (subject: string, evidenceIds: string[]) => {
+      const requestId = ++evidenceRequestRef.current;
+      const ids = [...new Set(evidenceIds)];
+      setEvidenceSubject(subject);
+      setEvidence([]);
+      setEvidenceError("");
+      setEvidenceState(ids.length > 0 ? "loading" : "error");
+      if (ids.length === 0) {
+        setEvidenceError(t("change.metrics.unavailable"));
+        return;
+      }
+      void invoke<{ evidence_ids: string[] }, EvidenceRef[]>("change_evidence", {
+        envelope: changeEnvelope("evidence", "ResourceRead", { evidence_ids: ids })
+      })
+        .then((result) => {
+          if (requestId !== evidenceRequestRef.current) return;
+          if (result.ok && isEvidenceResponse(result.value, ids)) {
+            setEvidence(result.value);
+            setEvidenceState("ready");
+          } else {
+            setEvidenceState("error");
+            setEvidenceError(
+              result.ok
+                ? t("change.errors.malformedResponse")
+                : t(localizedErrorKey(result.error.code))
+            );
+          }
+        })
+        .catch(() => {
+          if (requestId !== evidenceRequestRef.current) return;
+          setEvidenceState("error");
+          setEvidenceError(t("change.errors.internalError"));
+        });
+    },
+    [invoke, t]
+  );
 
   const openEvidence = useCallback(
     (subject: string, evidenceIds: string[]) => {
@@ -373,11 +473,32 @@ export function CorrelationWorkspace({ invoke }: { invoke: Invoke }) {
                 candidate={selectedCandidate}
                 signals={snapshot.signals}
                 onOpenEvidence={openEvidence}
+                changeAssociations={
+                  changeSnapshot?.associations.filter(
+                    (association) => association.candidate_id === selectedCandidate.id
+                  ) ?? []
+                }
+                changeEvents={changeSnapshot?.events ?? []}
+                onOpenChangeEvidence={openChangeEvidence}
               />
             ) : (
               <EmptyState titleKey="correlation.details.selectCandidate" />
             )}
           </div>
+          {changeSnapshot && (
+            <div className="correlation-workspace__changes">
+              <ChangeTimeline
+                snapshot={changeSnapshot}
+                selectedChangeId={selectedChangeId}
+                onSelect={(event: ChangeEvent) => setSelectedChangeId(event.id)}
+              />
+              {changeSnapshot.events
+                .filter((event) => event.id === selectedChangeId)
+                .map((event) => (
+                  <ChangeDetail key={event.id} event={event} onOpenEvidence={openChangeEvidence} />
+                ))}
+            </div>
+          )}
           <Drawer
             titleKey="correlation.evidence.title"
             isOpen={evidenceState !== "idle"}

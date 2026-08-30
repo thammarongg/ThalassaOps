@@ -397,5 +397,8 @@ fn source_wire(source: thalassa_domain::EvidenceSourceKind) -> &'static str {
         thalassa_domain::EvidenceSourceKind::Falco => "falco",
         thalassa_domain::EvidenceSourceKind::Kyverno => "kyverno",
         thalassa_domain::EvidenceSourceKind::OpaGatekeeper => "opa_gatekeeper",
+        thalassa_domain::EvidenceSourceKind::GitHub => "github",
+        thalassa_domain::EvidenceSourceKind::GitLab => "gitlab",
+        thalassa_domain::EvidenceSourceKind::ArgoCd => "argo_cd",
     }
 }

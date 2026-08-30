@@ -1804,6 +1804,9 @@ fn evidence_source_status_key(source_kind: EvidenceSourceKind) -> &'static str {
         | EvidenceSourceKind::Falco
         | EvidenceSourceKind::Kyverno
         | EvidenceSourceKind::OpaGatekeeper => "security",
+        EvidenceSourceKind::GitHub | EvidenceSourceKind::GitLab | EvidenceSourceKind::ArgoCd => {
+            "changes"
+        }
     }
 }
 

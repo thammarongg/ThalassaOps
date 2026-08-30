@@ -10,6 +10,7 @@ use super::anomaly::{evaluate_rule, AnomalyError};
 use super::fixtures::FixtureCatalog;
 use super::health_check::{HealthCheckError, HealthCheckScheduler};
 use super::model::*;
+use crate::change::projection::to_stream_item;
 use crate::observability::alertmanager::NormalizedAlert;
 use chrono::{DateTime, SecondsFormat, Utc};
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +32,7 @@ pub struct AggregationInput {
     pub anomaly_rules: Vec<AnomalyRule>,
     pub health_checks: Vec<HealthCheckSchedule>,
     pub health_check_results: BTreeMap<String, FixtureHealthCheck>,
-    pub changes: Vec<ChangeStreamItem>,
+    pub changes: Vec<ChangeEvent>,
     pub environments: Vec<EnvironmentStatus>,
     pub evidence: Vec<EvidenceRef>,
 }
@@ -941,12 +942,15 @@ fn project_health_checks(
 }
 
 fn project_changes(
-    changes: &[ChangeStreamItem],
+    changes: &[ChangeEvent],
     scope: &ResourceScope,
     evidence: &mut EvidenceStore,
     statuses: &mut StatusBook,
 ) -> Vec<ChangeStreamItem> {
-    let mut ordered = changes.to_vec();
+    // The console summary is derived from the canonical change event; this
+    // module never invents a change item of its own.
+    let mut ordered: Vec<ChangeStreamItem> = changes.iter().map(to_stream_item).collect();
+    let change_ids: Vec<String> = ordered.iter().map(|change| change.id.clone()).collect();
     ordered.sort_by(|left, right| {
         parse_timestamp(&right.occurred_at)
             .cmp(&parse_timestamp(&left.occurred_at))
@@ -955,7 +959,7 @@ fn project_changes(
     let mut projected = Vec::new();
     let mut evidence_ids = Vec::new();
     let mut malformed = false;
-    let duplicate_change_ids = duplicate_keys(changes.iter().map(|change| change.id.as_str()));
+    let duplicate_change_ids = duplicate_keys(change_ids.iter().map(String::as_str));
     for mut change in ordered {
         if change.id.trim().is_empty() || parse_timestamp(&change.occurred_at).is_none() {
             malformed = true;
@@ -988,7 +992,6 @@ fn project_changes(
         }
         change.evidence_ids = unique_ids(ids.iter());
         change.id = safe_id_component(&change.id);
-        change.source = change.source.and_then(|value| safe_detail(&value));
         change.summary = safe_text(&change.summary, "Operational change");
         change.actor = change.actor.and_then(|value| safe_detail(&value));
         change.target_resource = change.target_resource.and_then(|value| safe_detail(&value));

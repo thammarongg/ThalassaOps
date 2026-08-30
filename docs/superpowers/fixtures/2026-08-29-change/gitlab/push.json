@@ -1,0 +1,25 @@
+{
+  "object_kind": "push",
+  "before": "a5c71e93b0d84f26a1c39e75b8d02f46c9a13e58",
+  "after": "e08b3d1f7a5c96204e8b1d3f5a7c09e26b4d8f13",
+  "ref": "refs/heads/main",
+  "user_username": "release-bot",
+  "user_name": "release-bot",
+  "project": {
+    "id": 2401,
+    "path": "checkout",
+    "path_with_namespace": "acme/checkout",
+    "web_url": "https://gitlab.com/acme/checkout"
+  },
+  "commits": [
+    {
+      "id": "e08b3d1f7a5c96204e8b1d3f5a7c09e26b4d8f13",
+      "timestamp": "2026-08-28T08:43:00Z",
+      "message": "Refresh checkout client",
+      "added": ["src/client.rs"],
+      "modified": ["src/lib.rs"],
+      "removed": []
+    }
+  ],
+  "total_commits_count": 1
+}

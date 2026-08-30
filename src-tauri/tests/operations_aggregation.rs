@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeSet;
+
 use thalassa_domain::{
-    ChangeStreamState, ConsoleHealthState, ConsoleSeverity, ImpactLevel, QueueItemSourceKind,
-    ResourceScope, SourceState, StatusReason,
+    ChangeStreamState, ConsoleHealthState, ConsoleSeverity, EvidenceSourceKind, ImpactLevel,
+    QueueItemSourceKind, ResourceScope, SourceState, StatusReason,
 };
+use thalassaops::change::projection::to_stream_item;
 use thalassaops::operations::{fixture_catalog, fixture_time, OperationsAggregator};
 
 #[test]
@@ -262,7 +265,7 @@ fn malformed_records_are_skipped_without_panicking_or_erasing_valid_sources() {
 fn out_of_scope_changes_do_not_admit_evidence_before_the_scope_filter() {
     let mut catalog = fixture_catalog();
     let mut foreign_change = catalog.changes[0].clone();
-    foreign_change.id = "foreign-change".into();
+    foreign_change.id = uuid::Uuid::from_u128(0xf0);
     foreign_change.scope = ResourceScope::environment(
         uuid::Uuid::from_u128(99),
         uuid::Uuid::from_u128(98),
@@ -270,6 +273,7 @@ fn out_of_scope_changes_do_not_admit_evidence_before_the_scope_filter() {
         uuid::Uuid::from_u128(96),
     );
     foreign_change.evidence_ids.clear();
+    let foreign_id = foreign_change.id.to_string();
     catalog.changes.push(foreign_change);
 
     let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
@@ -279,11 +283,12 @@ fn out_of_scope_changes_do_not_admit_evidence_before_the_scope_filter() {
     assert!(snapshot
         .changes
         .iter()
-        .all(|change| change.id != "foreign-change"));
+        .all(|change| change.id != foreign_id));
+    let derived_evidence = format!("evidence-change-{foreign_id}");
     assert!(snapshot
         .evidence
         .iter()
-        .all(|evidence| evidence.id != "evidence-change-foreign-change"));
+        .all(|evidence| evidence.id != derived_evidence));
 }
 
 #[test]
@@ -369,8 +374,8 @@ fn duplicate_projection_records_are_skipped_as_ambiguous() {
     duplicate_schedule.name = "Conflicting API check".into();
     catalog.health_checks.push(duplicate_schedule);
 
-    let mut duplicate_change = catalog.changes[0].clone();
-    duplicate_change.summary = "Conflicting deployment summary".into();
+    let duplicate_change = catalog.changes[0].clone();
+    let duplicate_change_id = duplicate_change.id.to_string();
     catalog.changes.push(duplicate_change);
 
     let mut duplicate_environment = catalog.environments[0].clone();
@@ -393,7 +398,7 @@ fn duplicate_projection_records_are_skipped_as_ambiguous() {
     assert!(snapshot
         .changes
         .iter()
-        .all(|change| change.id != "change-payment-deploy"));
+        .all(|change| change.id != duplicate_change_id));
     assert!(snapshot
         .environments
         .iter()
@@ -462,4 +467,62 @@ fn source_status_merge_is_stable_for_reversed_duplicate_records() {
         .expect("duplicate source statuses should merge");
 
     assert_eq!(first.source_status, second.source_status);
+}
+
+#[test]
+fn change_stream_items_are_projected_from_canonical_change_events() {
+    let catalog = fixture_catalog();
+    let event = catalog
+        .changes
+        .first()
+        .expect("the fixture catalog should replay change events");
+
+    let item = to_stream_item(event);
+
+    assert_eq!(item.id, event.id.to_string());
+    assert_eq!(item.source, event.source);
+    assert_eq!(item.kind, event.kind);
+    assert_eq!(item.occurred_at, event.occurred_at);
+    assert_eq!(item.evidence_ids, event.evidence_ids);
+    assert_eq!(item.scope, event.scope);
+}
+
+#[test]
+fn the_console_change_stream_no_longer_invents_items() {
+    let catalog = fixture_catalog();
+    let event_ids: BTreeSet<String> = catalog
+        .changes
+        .iter()
+        .map(|event| event.id.to_string())
+        .collect();
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("the replayed change catalog should aggregate");
+
+    assert!(!snapshot.changes.is_empty());
+    for change in &snapshot.changes {
+        assert!(
+            event_ids.contains(&change.id),
+            "every console change must come from a canonical change event"
+        );
+        assert_ne!(change.source, EvidenceSourceKind::Fixture);
+    }
+}
+
+#[test]
+fn a_projected_summary_only_carries_source_supplied_identifiers() {
+    let catalog = fixture_catalog();
+
+    for event in &catalog.changes {
+        let item = to_stream_item(event);
+        let expected = event
+            .revision
+            .as_ref()
+            .and_then(|revision| revision.short_id.clone())
+            .or_else(|| event.source_record.native_id.clone())
+            .unwrap_or_else(|| event.id.to_string());
+
+        assert_eq!(item.summary, expected);
+        assert!(!item.summary.contains(' '));
+    }
 }

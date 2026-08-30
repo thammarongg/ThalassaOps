@@ -1,0 +1,64 @@
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "source": "github",
+  "kind": "code_commit",
+  "outcome": "succeeded",
+  "occurred_at": "2026-08-29T08:45:00Z",
+  "ingested_at": "2026-08-29T08:45:05Z",
+  "scope": {
+    "organization_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "team_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "workspace_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "environment_id": null,
+    "resource_ids": []
+  },
+  "targets": [
+    {
+      "kind": "deployment",
+      "id": "deployment/checkout-api"
+    }
+  ],
+  "revision": null,
+  "actor": {
+    "kind": "human",
+    "handle": "release-engineer"
+  },
+  "repository": null,
+  "environment": null,
+  "diff_stat": null,
+  "changed_paths": [],
+  "source_link": null,
+  "source_record": {
+    "source_kind": "github",
+    "native_id": "push-2026-08-29-0845",
+    "revision": null,
+    "content_digest": "sha256:fixture-change-event",
+    "evidence_ids": [
+      "evidence-change-event-fixture"
+    ]
+  },
+  "evidence_ids": [
+    "evidence-change-event-fixture"
+  ],
+  "drill_down": {
+    "destination": "evidence",
+    "evidence_ids": [
+      "evidence-change-event-fixture"
+    ],
+    "filter_key": "change-event-fixture"
+  },
+  "drill_down_reference": {
+    "source_query": "github change event fixture",
+    "scope": {
+      "organization_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "team_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "workspace_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "environment_id": null,
+      "resource_ids": []
+    },
+    "time_window": null,
+    "evidence_ids": [
+      "evidence-change-event-fixture"
+    ]
+  }
+}

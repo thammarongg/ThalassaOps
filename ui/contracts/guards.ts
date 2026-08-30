@@ -4,6 +4,12 @@
 
 import type {
   CandidateStatus,
+  ChangeAssociation,
+  ChangeEvent,
+  ChangeKind,
+  ChangeMetric,
+  ChangeMetricKey,
+  ChangeSnapshot,
   CorrelationCandidate,
   CorrelationMetric,
   CorrelationMetricKey,
@@ -26,6 +32,7 @@ import type {
   SignalState,
   SignalTarget,
   SignalTargetKind,
+  NumberUnit,
   SourceRecordRef,
   SourceStatus,
   StatusReason,
@@ -67,8 +74,13 @@ const evidenceSources: EvidenceSourceKind[] = [
   "trivy",
   "falco",
   "kyverno",
-  "opa_gatekeeper"
+  "opa_gatekeeper",
+  "github",
+  "gitlab",
+  "argo_cd"
 ];
+
+export const changeSources: EvidenceSourceKind[] = ["github", "gitlab", "argo_cd"];
 const securityEvidenceSources: EvidenceSourceKind[] = [
   "trivy",
   "falco",
@@ -905,4 +917,219 @@ export const isCorrelationSnapshot = (value: unknown): value is CorrelationSnaps
   }
 
   return true;
+};
+
+const changeKinds: ChangeKind[] = [
+  "deployment",
+  "configuration",
+  "maintenance",
+  "connector",
+  "code_commit",
+  "code_merge",
+  "sync",
+  "rollback"
+];
+
+const changeMetricKeys: ChangeMetricKey[] = [
+  "changes_in_window",
+  "associated_changes",
+  "changes_by_source"
+];
+
+const numberUnits: NumberUnit[] = ["count", "percentage", "milliseconds", "seconds"];
+
+const isChangeActor = (value: unknown): boolean =>
+  isRecord(value) &&
+  isEnum(value.kind, ["human", "automation", "unknown"]) &&
+  isNullableSafeDisplayText(value.handle);
+
+const isChangeDiffStat = (value: unknown): boolean =>
+  value === null ||
+  (isRecord(value) &&
+    isFiniteNonNegativeInteger(value.files_changed) &&
+    isFiniteNonNegativeInteger(value.insertions) &&
+    isFiniteNonNegativeInteger(value.deletions) &&
+    value.unit === "count");
+
+const isChangeRevision = (value: unknown): boolean =>
+  value === null ||
+  (isRecord(value) &&
+    isSafeDisplayText(value.id) &&
+    isNullableSafeDisplayText(value.short_id) &&
+    isSafeStringArray(value.parent_ids));
+
+const isChangeRepository = (value: unknown): boolean =>
+  value === null ||
+  (isRecord(value) &&
+    isSafeDisplayText(value.host) &&
+    isNullableSafeDisplayText(value.namespace) &&
+    isSafeDisplayText(value.name) &&
+    isNullableSafeDisplayText(value.reference));
+
+const isChangeSourceLink = (value: unknown): boolean =>
+  value === null ||
+  (isRecord(value) &&
+    isEnum(value.kind, ["commit", "pull_request", "compare", "deployment", "application"]) &&
+    isTrustedNativeUrl(value.url));
+
+const isChangeEvent = (value: unknown): value is ChangeEvent =>
+  isRecord(value) &&
+  isNonNilUuid(value.id) &&
+  isEnum(value.source, changeSources) &&
+  isEnum(value.kind, changeKinds) &&
+  isEnum(value.outcome, ["succeeded", "failed", "in_progress", "reverted", "unknown"]) &&
+  isTimestamp(value.occurred_at) &&
+  (value.ingested_at === null || isTimestamp(value.ingested_at)) &&
+  isScope(value.scope) &&
+  Array.isArray(value.targets) &&
+  value.targets.every(isSignalTarget) &&
+  isChangeRevision(value.revision) &&
+  isChangeActor(value.actor) &&
+  isChangeRepository(value.repository) &&
+  isNullableSafeDisplayText(value.environment) &&
+  isChangeDiffStat(value.diff_stat) &&
+  isSafeStringArray(value.changed_paths) &&
+  isChangeSourceLink(value.source_link) &&
+  isSourceRecord(value.source_record) &&
+  isStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  isDrillDownTarget(value.drill_down) &&
+  isDrillDownReference(value.drill_down_reference);
+
+const isChangeAssociation = (value: unknown): value is ChangeAssociation =>
+  isRecord(value) &&
+  isNonNilUuid(value.change_id) &&
+  isSafeDisplayText(value.candidate_id) &&
+  isEnum(value.qualification, ["exact_association", "probable_structural"]) &&
+  isFiniteNumber(value.lead_time_seconds) &&
+  value.lead_time_seconds >= 0 &&
+  (value.target === null || isSignalTarget(value.target)) &&
+  isSafeStringArray(value.topology_path_ids) &&
+  isStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0;
+
+const isChangeMetric = (value: unknown): value is ChangeMetric =>
+  isRecord(value) &&
+  isEnum(value.key, changeMetricKeys) &&
+  (value.source === null || isEnum(value.source, changeSources)) &&
+  (value.key === "changes_by_source") === (value.source !== null) &&
+  isFiniteNumber(value.value) &&
+  value.value >= 0 &&
+  isEnum(value.unit, numberUnits) &&
+  value.unit === "count" &&
+  isStringArray(value.evidence_ids) &&
+  value.evidence_ids.length > 0 &&
+  isDrillDownTarget(value.drill_down) &&
+  isDrillDownReference(value.drill_down_reference);
+
+/**
+ * Runtime guard for the read-only `change.snapshot` response.
+ *
+ * The snapshot is accepted only as a whole: the timeline must reference known
+ * events in `(occurred_at, id)` order, every association must name an event
+ * inside the snapshot, and every evidence reference must resolve against the
+ * retained source records. A change the backend could not fully attribute is
+ * rejected rather than rendered without its source.
+ */
+export const isChangeSnapshot = (value: unknown): value is ChangeSnapshot => {
+  if (
+    !isRecord(value) ||
+    !isTimestamp(value.generated_at) ||
+    !isScope(value.scope) ||
+    !isTimeWindow(value.request_window) ||
+    !isFiniteNonNegativeInteger(value.lookback_seconds) ||
+    value.lookback_seconds > 86_400 ||
+    !Array.isArray(value.events) ||
+    !value.events.every(isChangeEvent) ||
+    !isRecord(value.timeline) ||
+    !isTimeWindow(value.timeline.window) ||
+    !Array.isArray(value.timeline.entry_ids) ||
+    !isBoolean(value.timeline.truncated) ||
+    !Array.isArray(value.associations) ||
+    !value.associations.every(isChangeAssociation) ||
+    !Array.isArray(value.metrics) ||
+    !value.metrics.every(isChangeMetric) ||
+    !Array.isArray(value.source_statuses) ||
+    !value.source_statuses.every(isSourceStatus)
+  ) {
+    return false;
+  }
+
+  const snapshot = value as ChangeSnapshot;
+  if (
+    snapshot.timeline.window.start !== snapshot.request_window.start ||
+    snapshot.timeline.window.end !== snapshot.request_window.end ||
+    new Set(snapshot.events.map((event) => event.id)).size !== snapshot.events.length ||
+    new Set(snapshot.timeline.entry_ids).size !== snapshot.timeline.entry_ids.length ||
+    new Set(snapshot.source_statuses.map((status) => status.source_key)).size !==
+      snapshot.source_statuses.length
+  ) {
+    return false;
+  }
+
+  const eventById = new Map(snapshot.events.map((event) => [event.id, event]));
+  const knownEvidenceIds = new Set(
+    snapshot.events.flatMap((event) => event.source_record.evidence_ids)
+  );
+  const closesOverEvidence = (ids: readonly string[]) =>
+    ids.every((id) => knownEvidenceIds.has(id));
+
+  let previousKey: [number, string] | null = null;
+  for (const entryId of snapshot.timeline.entry_ids) {
+    const event = eventById.get(entryId);
+    if (!event) return false;
+    const occurredAt = Date.parse(event.occurred_at);
+    const windowStart = Date.parse(snapshot.timeline.window.start);
+    const windowEnd = Date.parse(snapshot.timeline.window.end);
+    if (occurredAt < windowStart || occurredAt >= windowEnd) return false;
+    const key: [number, string] = [occurredAt, event.id];
+    if (
+      previousKey &&
+      (previousKey[0] > key[0] || (previousKey[0] === key[0] && previousKey[1] > key[1]))
+    ) {
+      return false;
+    }
+    previousKey = key;
+  }
+
+  for (const event of snapshot.events) {
+    if (
+      !scopeContains(snapshot.scope, event.scope) ||
+      !closesOverEvidence(event.evidence_ids) ||
+      !closesOverEvidence(event.drill_down.evidence_ids) ||
+      !closesOverEvidence(event.drill_down_reference.evidence_ids)
+    ) {
+      return false;
+    }
+  }
+
+  const associationKeys = new Set<string>();
+  for (const association of snapshot.associations) {
+    const key = association.candidate_id + "|" + association.change_id;
+    if (associationKeys.has(key)) return false;
+    associationKeys.add(key);
+    if (
+      !eventById.has(association.change_id) ||
+      association.lead_time_seconds > snapshot.lookback_seconds ||
+      !closesOverEvidence(association.evidence_ids)
+    ) {
+      return false;
+    }
+  }
+
+  const metricIdentities = new Set<string>();
+  for (const metric of snapshot.metrics) {
+    const identity = metric.key + "|" + (metric.source ?? "");
+    if (metricIdentities.has(identity)) return false;
+    metricIdentities.add(identity);
+    if (
+      !closesOverEvidence(metric.evidence_ids) ||
+      !closesOverEvidence(metric.drill_down.evidence_ids) ||
+      !closesOverEvidence(metric.drill_down_reference.evidence_ids)
+    ) {
+      return false;
+    }
+  }
+
+  return snapshot.source_statuses.every((status) => closesOverEvidence(status.evidence_ids));
 };

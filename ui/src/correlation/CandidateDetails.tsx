@@ -1,9 +1,12 @@
 import type {
+  ChangeAssociation,
+  ChangeEvent,
   CorrelationCandidate,
   CorrelationReason,
   Signal,
   SignalTarget
 } from "../../contracts/ipc";
+import { CandidateChangeSection } from "../change/CandidateChangeSection";
 import { StatusIndicator } from "../design-system/components";
 import { useTranslation } from "../i18n";
 
@@ -206,11 +209,17 @@ function ReasonDetails({ reason }: { reason: CorrelationReason }) {
 export function CandidateDetails({
   candidate,
   signals,
-  onOpenEvidence
+  onOpenEvidence,
+  changeAssociations = [],
+  changeEvents = [],
+  onOpenChangeEvidence
 }: {
   candidate: CorrelationCandidate;
   signals: Signal[];
   onOpenEvidence: (subject: string, evidenceIds: string[]) => void;
+  changeAssociations?: ChangeAssociation[];
+  changeEvents?: ChangeEvent[];
+  onOpenChangeEvidence?: (subject: string, evidenceIds: string[]) => void;
 }) {
   const { t } = useTranslation();
   const signalById = new Map(signals.map((signal) => [signal.id, signal]));
@@ -252,6 +261,13 @@ export function CandidateDetails({
         ) : (
           <p className="correlation-empty">{t("correlation.details.membersUnavailable")}</p>
         )}
+      </div>
+      <div className="correlation-candidate-details__section">
+        <CandidateChangeSection
+          associations={changeAssociations}
+          events={changeEvents}
+          onOpenEvidence={onOpenChangeEvidence ?? onOpenEvidence}
+        />
       </div>
       <div className="correlation-candidate-details__footer">
         <p role="status">

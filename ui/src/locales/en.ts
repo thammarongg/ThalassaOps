@@ -411,6 +411,104 @@ const en = {
       unverified: "unverified"
     }
   },
+  change: {
+    eyebrow: "Change intelligence / read-only context",
+    title: "Recent changes",
+    subtitle: "Changes recorded before these signals, with the source record behind each one.",
+    loading: "Loading changes…",
+    empty: "No change was recorded in this window.",
+    emptyDetail: "The window holds no source-backed change record.",
+    truncated:
+      "Showing the {{count}} most recent changes in this window; earlier changes are not listed.",
+    window: "Window {{start}} to {{end}}",
+    timelineTitle: "Change timeline",
+    timelineDescription: "Ordered by the time each source recorded the change.",
+    detailTitle: "Change detail",
+    selectChange: "Select a change to see its source record.",
+    diffNotice:
+      "Diff content is read at the source; ThalassaOps stores only the file statistics below.",
+    openEvidence: "View change evidence",
+    openSource: "Open at source",
+    noLink: "This source record carries no safe link.",
+    fields: {
+      occurredAt: "Recorded at",
+      actor: "Actor",
+      target: "Target",
+      environment: "Environment",
+      revision: "Revision",
+      parents: "Parent revisions",
+      repository: "Repository",
+      reference: "Reference",
+      changedPaths: "Changed paths",
+      diffStat: "Diff statistics",
+      nativeId: "Source ID",
+      digest: "Content digest",
+      none: "Not reported"
+    },
+    diffStat: "{{files}} files, +{{insertions}} / -{{deletions}}",
+    sources: {
+      github: "GitHub",
+      gitlab: "GitLab",
+      argo_cd: "Argo CD",
+      unknown: "Unknown source"
+    },
+    kinds: {
+      deployment: "Deployment",
+      configuration: "Configuration",
+      maintenance: "Maintenance",
+      connector: "Connector",
+      code_commit: "Commit",
+      code_merge: "Merge",
+      sync: "Sync",
+      rollback: "Rollback"
+    },
+    outcomes: {
+      succeeded: "Succeeded",
+      failed: "Failed",
+      in_progress: "In progress",
+      reverted: "Reverted",
+      unknown: "Unknown"
+    },
+    actorKinds: {
+      human: "Person",
+      automation: "Automation",
+      unknown: "Unknown actor"
+    },
+    targetKinds: {
+      resource: "Resource",
+      service: "Service",
+      deployment: "Deployment",
+      topology: "Topology"
+    },
+    candidate: {
+      title: "Changes before these signals",
+      description:
+        "Each entry changed something these signals name, before the first signal arrived.",
+      empty: "No recorded change preceded these signals inside the lookback window.",
+      reason: "Changed before",
+      qualification: {
+        exact_association: "Shared target",
+        probable_structural: "Probable structural link"
+      },
+      leadTime: "Preceded the first signal by {{minutes}} min",
+      matchedTarget: "Shared target: {{target}}",
+      matchedPath: "Topology path: {{path}}"
+    },
+    metrics: {
+      changes_in_window: "Changes in window",
+      associated_changes: "Changes before a candidate",
+      changes_by_source: "Changes from {{source}}",
+      unavailable: "No verified evidence"
+    },
+    errors: {
+      invalidRequest: "The change request was rejected as invalid.",
+      notFound: "The change evidence is no longer part of this snapshot.",
+      permissionDenied: "This workspace is not permitted to read change records.",
+      policyDenied: "Policy denied access to the change records.",
+      malformedResponse: "The change response did not match the contract.",
+      internalError: "The change snapshot could not be prepared."
+    }
+  },
   correlation: {
     eyebrow: "Signal correlation / read-only model",
     title: "Signal correlation",

@@ -182,7 +182,10 @@ export type EvidenceSourceKind =
   | "trivy"
   | "falco"
   | "kyverno"
-  | "opa_gatekeeper";
+  | "opa_gatekeeper"
+  | "github"
+  | "gitlab"
+  | "argo_cd";
 export type EvidenceRedaction = {
   classification_verified: boolean;
   redaction_verified: boolean;
@@ -302,7 +305,11 @@ export type CorrelationWindow = {
   state: CorrelationWindowState;
 };
 export type CorrelationReasonKind =
-  "shared_resource" | "shared_service" | "shared_deployment" | "topology_relation";
+  | "shared_resource"
+  | "shared_service"
+  | "shared_deployment"
+  | "topology_relation"
+  | "preceding_change";
 export type CorrelationQualification = "exact_association" | "probable_structural";
 export type CorrelationReason = {
   kind: CorrelationReasonKind;
@@ -444,10 +451,18 @@ export type SignalSummary = {
 export type AlertSummary = { active: CriticalNumber; by_source: SignalCount[] };
 export type AnomalySummary = { active: CriticalNumber; by_severity: CriticalNumber[] };
 
-export type ChangeKind = "deployment" | "configuration" | "maintenance" | "connector";
+export type ChangeKind =
+  | "deployment"
+  | "configuration"
+  | "maintenance"
+  | "connector"
+  | "code_commit"
+  | "code_merge"
+  | "sync"
+  | "rollback";
 export type ChangeStreamItem = {
   id: string;
-  source: string | null;
+  source: EvidenceSourceKind;
   occurred_at: string;
   kind: ChangeKind;
   summary: string;
@@ -457,6 +472,96 @@ export type ChangeStreamItem = {
   scope: ResourceScope;
   evidence_ids: ConsoleEvidenceId[];
   drill_down: DrillDownTarget;
+};
+
+export type ChangeEventId = UUID;
+export type ChangeOutcome = "succeeded" | "failed" | "in_progress" | "reverted" | "unknown";
+export type ChangeActorKind = "human" | "automation" | "unknown";
+export type ChangeActor = { kind: ChangeActorKind; handle: string | null };
+export type ChangeRevision = {
+  id: string;
+  short_id: string | null;
+  parent_ids: string[];
+};
+export type ChangeRepositoryRef = {
+  host: string;
+  namespace: string;
+  name: string;
+  reference: string | null;
+};
+export type ChangeDiffStat = {
+  files_changed: number;
+  insertions: number;
+  deletions: number;
+  unit: NumberUnit;
+};
+export type ChangeLinkKind = "commit" | "pull_request" | "compare" | "deployment" | "application";
+export type ChangeSourceLink = { kind: ChangeLinkKind; url: string };
+export type ChangeEvent = {
+  id: ChangeEventId;
+  source: EvidenceSourceKind;
+  kind: ChangeKind;
+  outcome: ChangeOutcome;
+  occurred_at: string;
+  ingested_at: string | null;
+  scope: ResourceScope;
+  targets: SignalTarget[];
+  revision: ChangeRevision | null;
+  actor: ChangeActor;
+  repository: ChangeRepositoryRef | null;
+  environment: string | null;
+  diff_stat: ChangeDiffStat | null;
+  changed_paths: string[];
+  source_link: ChangeSourceLink | null;
+  source_record: SourceRecordRef;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+export type ChangeTimeline = {
+  window: TimeWindow;
+  entry_ids: ChangeEventId[];
+  truncated: boolean;
+};
+export type ChangeAssociation = {
+  change_id: ChangeEventId;
+  candidate_id: string;
+  qualification: CorrelationQualification;
+  lead_time_seconds: number;
+  target: SignalTarget | null;
+  topology_path_ids: string[];
+  evidence_ids: ConsoleEvidenceId[];
+};
+export type ChangeMetricKey =
+  | "changes_in_window"
+  | "associated_changes"
+  | "changes_by_source";
+export type ChangeMetric = {
+  key: ChangeMetricKey;
+  source: EvidenceSourceKind | null;
+  value: number;
+  unit: NumberUnit;
+  evidence_ids: ConsoleEvidenceId[];
+  drill_down: DrillDownTarget;
+  drill_down_reference: DrillDownReference;
+};
+export type ChangeRequest = {
+  window: TimeWindow;
+  evaluated_at: string;
+  lookback_seconds: number;
+  limit: number;
+};
+export type ChangeEvidenceRequest = { evidence_ids: ConsoleEvidenceId[] };
+export type ChangeSnapshot = {
+  generated_at: string;
+  scope: ResourceScope;
+  request_window: TimeWindow;
+  lookback_seconds: number;
+  events: ChangeEvent[];
+  timeline: ChangeTimeline;
+  associations: ChangeAssociation[];
+  metrics: ChangeMetric[];
+  source_statuses: SourceStatus[];
 };
 export type StatusReason =
   | "not_configured"

@@ -1,4 +1,5 @@
 pub mod app;
+pub mod change;
 pub mod cloud;
 pub mod connectors;
 pub mod correlation;

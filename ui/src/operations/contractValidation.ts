@@ -7,6 +7,7 @@ import type {
   ConsoleSeverity,
   CriticalNumber,
   EnvironmentStatus,
+  EvidenceSourceKind,
   HealthSummary,
   ImpactLevel,
   IncidentQueueItem,
@@ -34,6 +35,21 @@ import {
   statusReasons
 } from "../../contracts/guards";
 
+const evidenceSourceKinds: EvidenceSourceKind[] = [
+  "alertmanager",
+  "prometheus",
+  "kubernetes",
+  "cloud",
+  "health_check",
+  "fixture",
+  "trivy",
+  "falco",
+  "kyverno",
+  "opa_gatekeeper",
+  "github",
+  "gitlab",
+  "argo_cd"
+];
 const healthStates: ConsoleHealthState[] = ["healthy", "degraded", "critical", "unknown"];
 const impactLevels: ImpactLevel[] = ["critical", "high", "medium", "low", "none", "unknown"];
 const severities: ConsoleSeverity[] = ["S1", "S2", "S3", "S4", "S5"];
@@ -132,7 +148,9 @@ const isSignalSummary = (value: unknown): value is SignalSummary =>
 const isChange = (value: unknown): value is ChangeStreamItem =>
   isRecord(value) &&
   isNonEmptyString(value.id) &&
-  isNullableString(value.source) &&
+  // Sprint 14 derives this stream from canonical change events, so the source
+  // is a typed wire value rather than a free-form string.
+  isEnum(value.source, evidenceSourceKinds) &&
   isNonEmptyString(value.occurred_at) &&
   isEnum(value.kind, changeKinds) &&
   isNonEmptyString(value.summary) &&

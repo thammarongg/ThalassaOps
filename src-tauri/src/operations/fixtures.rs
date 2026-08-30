@@ -2,19 +2,20 @@
 
 use super::anomaly::parse_prometheus_fixture;
 use super::model::{
-    AnomalyCondition, AnomalyRule, ChangeKind, ChangeStreamItem, ConsoleHealthState,
-    ConsoleSeverity, CriticalNumber, DrillDownDestination, DrillDownReference, DrillDownTarget,
-    EvidenceRedaction, EvidenceRef, EvidenceSourceKind, FixtureHealthCheck, HealthCheckOutcome,
-    HealthCheckSchedule, HealthCheckSource, MetricFixture, MetricFixtureSample,
-    MetricFixtureSource, NumberUnit, RateDirection, ResourceScope, SourceState, SourceStatus,
-    StatusReason, ThresholdOperator,
+    AnomalyCondition, AnomalyRule, ConsoleHealthState, ConsoleSeverity, CriticalNumber,
+    DrillDownDestination, DrillDownReference, DrillDownTarget, EvidenceRedaction, EvidenceRef,
+    EvidenceSourceKind, FixtureHealthCheck, HealthCheckOutcome, HealthCheckSchedule,
+    HealthCheckSource, MetricFixture, MetricFixtureSample, MetricFixtureSource, NumberUnit,
+    RateDirection, ResourceScope, SourceState, SourceStatus, StatusReason, ThresholdOperator,
 };
+use crate::change::{adapters as change_adapters, fixtures as change_fixtures};
+use crate::correlation::SourceRecordStore;
 use crate::observability::alertmanager::{
     AlertSourceReference, NormalizedAlert, ResourceReference,
 };
 use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
-use thalassa_domain::EnvironmentStatus;
+use thalassa_domain::{ChangeEvent, EnvironmentStatus};
 use uuid::Uuid;
 
 const CPU_FIXTURE: &str = include_str!(
@@ -27,14 +28,14 @@ const ERROR_RATE_FIXTURE: &str = include_str!(
 /// Minimal fixture catalog consumed by the anomaly producer and expanded by
 /// later Operations Console producers.  The catalog is intentionally an
 /// ordinary value so callers can replace it with recorded test data.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct FixtureCatalog {
     pub alerts: Vec<NormalizedAlert>,
     pub metrics: Vec<MetricFixture>,
     pub anomaly_rules: Vec<AnomalyRule>,
     pub health_checks: Vec<HealthCheckSchedule>,
     pub health_check_results: BTreeMap<String, FixtureHealthCheck>,
-    pub changes: Vec<ChangeStreamItem>,
+    pub changes: Vec<ChangeEvent>,
     pub environments: Vec<EnvironmentStatus>,
     pub source_status: Vec<SourceStatus>,
     pub evidence: Vec<EvidenceRef>,
@@ -190,8 +191,11 @@ pub fn fixture_catalog() -> FixtureCatalog {
     let worker_evidence = String::from("evidence-check-worker-timeout");
     let aws_evidence = String::from("evidence-env-aws-prod");
     let gcp_evidence = String::from("evidence-env-gcp-staging");
-    let deploy_evidence = String::from("evidence-change-payment-deploy");
-    let config_evidence = String::from("evidence-change-db-config");
+    let (changes, change_evidence) = fixture_change_events(&scope);
+    let change_evidence_ids: Vec<String> = change_evidence
+        .iter()
+        .map(|evidence| evidence.id.clone())
+        .collect();
 
     FixtureCatalog {
         alerts: vec![fixture_alert(&scope)],
@@ -199,26 +203,7 @@ pub fn fixture_catalog() -> FixtureCatalog {
         anomaly_rules,
         health_checks,
         health_check_results,
-        changes: vec![
-            fixture_change(
-                "change-payment-deploy",
-                "2026-08-28T08:58:00Z",
-                ChangeKind::Deployment,
-                "Checkout deployment completed",
-                "deployment/checkout",
-                deploy_evidence.clone(),
-                &scope,
-            ),
-            fixture_change(
-                "change-db-config",
-                "2026-08-28T08:50:00Z",
-                ChangeKind::Configuration,
-                "Database connection pool updated",
-                "database/checkout",
-                config_evidence.clone(),
-                &scope,
-            ),
-        ],
+        changes,
         environments: vec![
             fixture_environment(
                 "env-aws-prod",
@@ -292,7 +277,7 @@ pub fn fixture_catalog() -> FixtureCatalog {
                 None,
                 None,
                 Some(&observed_at),
-                vec![deploy_evidence.clone(), config_evidence.clone()],
+                change_evidence_ids,
             ),
         ],
         evidence: vec![
@@ -356,28 +341,28 @@ pub fn fixture_catalog() -> FixtureCatalog {
                 "GCP staging resources are healthy",
                 &scope,
             ),
-            fixture_evidence(
-                deploy_evidence,
-                EvidenceSourceKind::Fixture,
-                Some("fixture-changes"),
-                "fixture://changes",
-                Some("change-payment-deploy"),
-                "2026-08-28T08:58:00Z",
-                "Checkout deployment completed",
-                &scope,
-            ),
-            fixture_evidence(
-                config_evidence,
-                EvidenceSourceKind::Fixture,
-                Some("fixture-changes"),
-                "fixture://changes",
-                Some("change-db-config"),
-                "2026-08-28T08:50:00Z",
-                "Database connection pool updated",
-                &scope,
-            ),
-        ],
+        ]
+        .into_iter()
+        .chain(change_evidence)
+        .collect(),
     }
+}
+
+/// Replay the committed change fixtures through a local, scoped source ledger.
+///
+/// The console summarizes the same canonical change events the change module
+/// produces; it never invents one.  A replay failure yields an empty change
+/// stream, which the aggregate reports honestly as an unavailable source,
+/// rather than a panic during application startup.
+fn fixture_change_events(scope: &ResourceScope) -> (Vec<ChangeEvent>, Vec<EvidenceRef>) {
+    let mut store = SourceRecordStore::with_scope(scope.clone());
+    let Ok(output) =
+        change_adapters::replay_all(&mut store, scope, change_fixtures::fixture_clock())
+    else {
+        return (Vec::new(), Vec::new());
+    };
+    let evidence = store.evidence_refs().cloned().collect();
+    (output.events, evidence)
 }
 
 fn fixed_metric(
@@ -469,34 +454,6 @@ fn fixture_alert(scope: &ResourceScope) -> NormalizedAlert {
             namespace: "prod".into(),
             kind: "Service".into(),
             name: "checkout".into(),
-        },
-    }
-}
-
-fn fixture_change(
-    id: &str,
-    occurred_at: &str,
-    kind: ChangeKind,
-    summary: &str,
-    target_resource: &str,
-    evidence_id: String,
-    scope: &ResourceScope,
-) -> ChangeStreamItem {
-    ChangeStreamItem {
-        id: id.into(),
-        source: Some("fixture-changes".into()),
-        occurred_at: occurred_at.into(),
-        kind,
-        summary: summary.into(),
-        actor: Some("release-bot".into()),
-        target_resource: Some(target_resource.into()),
-        native_link: None,
-        scope: scope.clone(),
-        evidence_ids: vec![evidence_id.clone()],
-        drill_down: DrillDownTarget {
-            destination: DrillDownDestination::ChangeStream,
-            evidence_ids: vec![evidence_id],
-            filter_key: Some(id.into()),
         },
     }
 }

@@ -1,0 +1,69 @@
+{
+  "event_type": "push",
+  "before": "4b81e6d05a3c7f92b8e14d6a0c53f78e29b4a1d6",
+  "after": "9f2a4c7b1e8d3a05c6b7f4e2d1a08c395b7e6f24",
+  "ref": "refs/heads/main",
+  "repository": {
+    "id": 1401,
+    "full_name": "acme/checkout",
+    "name": "checkout",
+    "default_branch": "main",
+    "html_url": "https://github.com/acme/checkout"
+  },
+  "pusher": {
+    "name": "release-bot"
+  },
+  "sender": {
+    "login": "release-bot"
+  },
+  "head_commit": {
+    "id": "9f2a4c7b1e8d3a05c6b7f4e2d1a08c395b7e6f24",
+    "timestamp": "2026-08-28T08:42:00Z",
+    "message": "Improve checkout timeout handling",
+    "author": {
+      "name": "release-bot"
+    },
+    "committer": {
+      "name": "release-bot"
+    }
+  },
+  "commits": [
+    {
+      "id": "9f2a4c7b1e8d3a05c6b7f4e2d1a08c395b7e6f24",
+      "timestamp": "2026-08-28T08:42:00Z",
+      "message": "Improve checkout timeout handling",
+      "added": ["src/timeout.rs"],
+      "modified": ["src/main.rs"],
+      "removed": []
+    },
+    {
+      "id": "4b81e6d05a3c7f92b8e14d6a0c53f78e29b4a1d6",
+      "timestamp": "2026-08-28T08:41:00Z",
+      "message": "Refresh checkout dependency",
+      "added": [],
+      "modified": ["Cargo.toml"],
+      "removed": []
+    }
+  ],
+  "files": [
+    {
+      "filename": "src/timeout.rs",
+      "additions": 18,
+      "deletions": 4,
+      "changes": 22
+    },
+    {
+      "filename": "src/main.rs",
+      "additions": 3,
+      "deletions": 1,
+      "changes": 4
+    },
+    {
+      "filename": "Cargo.toml",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2
+    }
+  ],
+  "patch": "@@ -12,4 +12,18 @@\n+timeout handling\n"
+}
