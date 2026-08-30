@@ -1153,6 +1153,11 @@ fn severity_changes_recalculate_override_and_close_evidence() {
     assert_eq!(reassess_payload.current_impact.level, ImpactLevel::None);
     assert_eq!(reassess_payload.previous_severity, IncidentSeverity::S1);
     assert_eq!(reassess_payload.current_severity, IncidentSeverity::S5);
+    assert_eq!(
+        reassess_payload.previous_override,
+        Some(override_detail.clone())
+    );
+    assert_eq!(reassess_payload.current_override, None);
 
     let same_severity_reassess = IncidentSeverityCommand::Reassess {
         business_impact: impact_with_level(
@@ -1481,6 +1486,65 @@ fn creation_rejects_mismatched_or_nil_trigger_workspace_ids() {
     assert!(matches!(
         create_result(fixture),
         Err(IncidentError::InvalidScope)
+    ));
+
+    let mut nil_environment = trigger();
+    nil_environment.scope.environment_id = Some(uuid::Uuid::nil());
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.environment_id = Some(uuid::Uuid::from_u128(0x220));
+    fixture.command.triggers = vec![nil_environment];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+
+    let mut nil_trigger_resource = trigger();
+    nil_trigger_resource.scope.resource_ids = vec![uuid::Uuid::nil()];
+    let mut fixture = incident_create_fixture();
+    fixture.command.scope.resource_ids = vec![uuid::Uuid::from_u128(0x230)];
+    fixture.command.triggers = vec![nil_trigger_resource];
+    assert!(matches!(
+        create_result(fixture),
+        Err(IncidentError::InvalidId)
+    ));
+}
+
+#[test]
+fn severity_override_validate_rejects_empty_evidence_and_derived_match() {
+    let empty_evidence = thalassa_domain::IncidentSeverityOverride {
+        derived: IncidentSeverity::S2,
+        selected: IncidentSeverity::S1,
+        actor_id: ACTOR,
+        reason: "worse than assessed".into(),
+        evidence_ids: vec![],
+    };
+    assert!(matches!(
+        empty_evidence.validate(),
+        Err(IncidentError::InvalidSeverityOverride)
+    ));
+
+    let derived_match = thalassa_domain::IncidentSeverityOverride {
+        derived: IncidentSeverity::S2,
+        selected: IncidentSeverity::S2,
+        actor_id: ACTOR,
+        reason: "same as derived".into(),
+        evidence_ids: vec!["evidence-severity".into()],
+    };
+    assert!(matches!(
+        derived_match.validate(),
+        Err(IncidentError::InvalidSeverityOverride)
+    ));
+
+    let malformed_evidence = thalassa_domain::IncidentSeverityOverride {
+        derived: IncidentSeverity::S2,
+        selected: IncidentSeverity::S1,
+        actor_id: ACTOR,
+        reason: "worse than assessed".into(),
+        evidence_ids: vec!["unsafe evidence id".into()],
+    };
+    assert!(matches!(
+        malformed_evidence.validate(),
+        Err(IncidentError::InvalidEvidence)
     ));
 }
 

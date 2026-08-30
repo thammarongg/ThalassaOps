@@ -663,6 +663,9 @@ impl IncidentSeverityOverride {
         if self.selected == self.derived {
             return Err(IncidentError::InvalidSeverityOverride);
         }
+        if self.evidence_ids.is_empty() {
+            return Err(IncidentError::InvalidSeverityOverride);
+        }
         validate_incident_text(&self.reason, INCIDENT_NOTE_MAXIMUM)?;
         validate_incident_evidence_ids(&self.evidence_ids)
     }
@@ -1107,6 +1110,12 @@ impl Incident {
             if let Some(signal_id) = trigger.signal_id {
                 ensure_id(signal_id)?;
             }
+            if let Some(environment_id) = trigger.scope.environment_id {
+                ensure_id(environment_id)?;
+            }
+            for resource_id in &trigger.scope.resource_ids {
+                ensure_id(*resource_id)?;
+            }
             let trigger_organization = trigger
                 .scope
                 .organization_id
@@ -1122,12 +1131,6 @@ impl Incident {
                 || !command.scope.contains(&trigger.scope)
             {
                 return Err(IncidentError::InvalidScope);
-            }
-            if let Some(environment_id) = trigger.scope.environment_id {
-                ensure_id(environment_id)?;
-            }
-            for resource_id in &trigger.scope.resource_ids {
-                ensure_id(*resource_id)?;
             }
             if trigger_ids.contains(&trigger.id) {
                 return Err(IncidentError::InvalidTrigger);
