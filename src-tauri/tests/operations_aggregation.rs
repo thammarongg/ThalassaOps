@@ -37,6 +37,16 @@ fn full_fixture_console_is_business_impact_first_and_evidence_backed() {
         ChangeStreamState::Available
     );
     assert!(snapshot.validate().is_ok());
+    for item in &snapshot.incident_queue {
+        item.business_impact
+            .validate()
+            .expect("every projected queue impact validates");
+    }
+    snapshot
+        .health_summary
+        .headline
+        .validate()
+        .expect("projected headline validates");
 }
 
 #[test]
@@ -75,6 +85,23 @@ fn healthy_console_has_no_attention_and_numbers_still_have_evidence() {
         .iter()
         .all(|number| !number.evidence_ids.is_empty()));
     assert!(snapshot.validate().is_ok());
+}
+
+#[test]
+fn empty_queue_fallback_headline_is_valid_and_evidence_backed() {
+    let mut catalog = fixture_catalog();
+    catalog.alerts.clear();
+    catalog.anomaly_rules.clear();
+    catalog.metrics.clear();
+    catalog.health_checks.clear();
+
+    let snapshot = OperationsAggregator::from_fixture_catalog(catalog)
+        .snapshot_at(fixture_time())
+        .expect("an empty queue should still produce a healthy projection");
+
+    assert_eq!(snapshot.health_summary.headline.level, ImpactLevel::None);
+    assert!(snapshot.health_summary.headline.validate().is_ok());
+    assert!(!snapshot.health_summary.headline.evidence_ids.is_empty());
 }
 
 #[test]
@@ -442,6 +469,11 @@ fn unknown_business_impact_outranks_no_impact_in_the_headline() {
         .snapshot_at(fixture_time())
         .expect("mixed impact levels should aggregate");
 
+    snapshot
+        .health_summary
+        .headline
+        .validate()
+        .expect("unknown headline impact validates");
     assert_eq!(snapshot.health_summary.headline.level, ImpactLevel::Unknown);
 }
 

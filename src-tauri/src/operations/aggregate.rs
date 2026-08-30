@@ -1410,7 +1410,14 @@ fn health_summary(
                 ImpactLevel::None,
                 ImpactTrajectory::Improving,
             ),
-            evidence_ids: Vec::new(),
+            evidence_ids: fallback_ids(
+                Vec::new(),
+                "headline",
+                EvidenceSourceKind::Fixture,
+                "operations:headline",
+                now,
+                evidence,
+            ),
         });
 
     let mut active_by_severity = Vec::new();

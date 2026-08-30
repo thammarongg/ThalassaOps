@@ -1032,15 +1032,22 @@ impl ImpactDimensions {
     }
 
     /// Dimensions attributing all confirmed impact to one primary dimension,
-    /// as used by compact Operations Console projections.
+    /// as used by compact Operations Console projections. An Unknown primary
+    /// means the whole assessment is unconfirmed, so every dimension stays
+    /// Unknown instead of asserting a confirmed None.
     pub fn single_dimension(primary: ImpactLevel, trajectory: ImpactTrajectory) -> Self {
+        let unconfirmed = if primary == ImpactLevel::Unknown {
+            ImpactLevel::Unknown
+        } else {
+            ImpactLevel::None
+        };
         Self {
             availability: primary,
-            customer_reach: ImpactLevel::None,
-            business_criticality: ImpactLevel::None,
-            data_integrity: ImpactLevel::None,
-            security_privacy: ImpactLevel::None,
-            financial_contractual: ImpactLevel::None,
+            customer_reach: unconfirmed,
+            business_criticality: unconfirmed,
+            data_integrity: unconfirmed,
+            security_privacy: unconfirmed,
+            financial_contractual: unconfirmed,
             trajectory,
             production: true,
         }

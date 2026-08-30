@@ -521,6 +521,18 @@ fn conflicting_duplicate_incident_ids_are_rejected_as_ambiguous() {
 }
 
 #[test]
+fn fixture_incident_business_impacts_are_valid_and_evidence_backed() {
+    let input = topology_fixture_input(fixture_scope());
+    assert!(!input.incident_queue.is_empty());
+    for item in &input.incident_queue {
+        item.business_impact
+            .validate()
+            .expect("topology fixture incident impact validates");
+        assert!(!item.business_impact.evidence_ids.is_empty());
+    }
+}
+
+#[test]
 fn downstream_impact_traverses_structural_paths_from_a_node() {
     let base = TopologyBuilder::from_input(topology_fixture_input(fixture_scope()))
         .snapshot_at(&default_topology_request())

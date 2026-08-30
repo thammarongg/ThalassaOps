@@ -207,3 +207,20 @@ fn single_dimension_dimensions_match_their_primary_level() {
         assert!(dimensions.production);
     }
 }
+
+#[test]
+fn unknown_single_dimension_stays_consistent_and_within_severity_floors() {
+    let stable = ImpactDimensions::single_dimension(ImpactLevel::Unknown, ImpactTrajectory::Stable);
+    assert_eq!(stable.highest_level(), ImpactLevel::Unknown);
+    assert_eq!(
+        impact(stable).derive_severity().unwrap(),
+        IncidentSeverity::S5
+    );
+
+    let expanding =
+        ImpactDimensions::single_dimension(ImpactLevel::Unknown, ImpactTrajectory::Expanding);
+    assert_eq!(
+        impact(expanding).derive_severity().unwrap(),
+        IncidentSeverity::S2
+    );
+}
