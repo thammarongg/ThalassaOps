@@ -5,8 +5,8 @@
     "sha": "c5e7a1d9b3f02c6e8a4d7b1f9c3e5a0d2b6f8e14",
     "ref": "main",
     "environment": "production",
-    "created_at": "2026-08-29T08:52:00Z",
-    "updated_at": "2026-08-29T08:54:00Z",
+    "created_at": "2026-08-28T08:52:00Z",
+    "updated_at": "2026-08-28T08:54:00Z",
     "repository": {
       "full_name": "acme/checkout",
       "name": "checkout"
@@ -17,8 +17,8 @@
     "id": 9901,
     "state": "success",
     "description": "Deployment completed",
-    "created_at": "2026-08-29T08:54:00Z",
-    "updated_at": "2026-08-29T08:54:00Z",
+    "created_at": "2026-08-28T08:54:00Z",
+    "updated_at": "2026-08-28T08:54:00Z",
     "creator": {
       "login": "release-bot"
     },

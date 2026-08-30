@@ -83,7 +83,7 @@ pub fn catalog() -> Vec<ChangeFixture> {
 
 /// Fixed clock used by all fixture replay tests and producers.
 pub fn fixture_clock() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339("2026-08-29T09:00:00Z")
+    DateTime::parse_from_rfc3339("2026-08-28T09:00:00Z")
         .expect("fixture clock is a valid RFC3339 timestamp")
         .with_timezone(&Utc)
 }

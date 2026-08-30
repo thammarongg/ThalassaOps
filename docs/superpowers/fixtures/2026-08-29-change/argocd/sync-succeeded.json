@@ -18,8 +18,8 @@
   },
   "operationState": {
     "phase": "Succeeded",
-    "startedAt": "2026-08-29T08:58:00Z",
-    "finishedAt": "2026-08-29T08:58:30Z",
+    "startedAt": "2026-08-28T08:58:00Z",
+    "finishedAt": "2026-08-28T08:58:30Z",
     "syncResult": {
       "revision": "c19e4a7f30b58d26a4c81e09f7b35d62a8c04e19"
     }

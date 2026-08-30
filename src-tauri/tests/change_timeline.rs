@@ -15,8 +15,8 @@ fn replayed_events() -> Vec<ChangeEvent> {
 
 fn window() -> TimeWindow {
     TimeWindow {
-        start: "2026-08-29T08:00:00Z".into(),
-        end: "2026-08-29T10:00:00Z".into(),
+        start: "2026-08-28T08:00:00Z".into(),
+        end: "2026-08-28T10:00:00Z".into(),
     }
 }
 
@@ -34,7 +34,7 @@ fn window_is_half_open_on_the_end_boundary() {
 #[test]
 fn entries_are_ordered_by_occurred_at_then_id() {
     let mut events = replayed_events();
-    let same_timestamp = "2026-08-29T08:30:00Z";
+    let same_timestamp = "2026-08-28T08:30:00Z";
     events[0].occurred_at = same_timestamp.into();
     events[1].occurred_at = same_timestamp.into();
     let mut expected = vec![events[0].id, events[1].id];
@@ -69,8 +69,8 @@ fn exceeding_the_limit_drops_oldest_entries_and_sets_truncated() {
 #[test]
 fn an_invalid_window_is_a_typed_error() {
     let invalid = TimeWindow {
-        start: "2026-08-29T09:00:00Z".into(),
-        end: "2026-08-29T09:00:00Z".into(),
+        start: "2026-08-28T09:00:00Z".into(),
+        end: "2026-08-28T09:00:00Z".into(),
     };
 
     assert_eq!(
