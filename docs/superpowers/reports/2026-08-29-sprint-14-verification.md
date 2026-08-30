@@ -84,11 +84,14 @@ Every gate was run unpiped with a real exit code after `npm ci`.
 ## Behavior confirmed from the committed data
 
 Replaying the nine committed fixtures against the Sprint 13 correlation
-snapshot produces five associations on the `deployment/checkout` candidate,
-with measured lead times of 140 to 860 seconds. The four changes recorded at or
-after the candidate's first signal appear in the timeline and in no association
-list, which is the design's required negative case: temporal proximity alone
-never creates an association.
+snapshot produces nine timeline entries and five associations on the
+`deployment/checkout` candidate, with measured lead times of 140, 560, 620, 800
+and 860 seconds. The four changes recorded at or after the candidate's first
+signal appear in the timeline and in no association list, which is the design's
+required negative case: temporal proximity alone never creates an association.
+Eight of the nine events carry a validated `https` source link; the ninth is
+the fixture whose credentialed URL is deliberately dropped by link policy and
+reported through a typed source status.
 
 ## Deviations from the plan
 
@@ -100,6 +103,13 @@ never creates an association.
   (`ui/src/locales/{en,th}.ts`) rather than new per-module locale files, which
   is the pattern every other workspace in this repository follows and needs no
   i18n plumbing change.
+- `change_acceptance.rs` asserts that at least one associated change exposes a
+  validated `https` link, not that every one does. One committed fixture
+  carries a credentialed URL that link policy must drop, so requiring a link on
+  every change would assert against the sprint's own safety requirement.
+- The two Tauri commands are registered in `src-tauri/main.rs` beside the
+  existing command wrappers, matching the layout every prior sprint uses;
+  `src-tauri/src/app/mod.rs` declares the handler module.
 - The change timeline, detail panel and per-candidate section are mounted in
   the correlation workspace, where the candidate and its preceding changes are
   read together. The Operations Console keeps its Sprint 11 change-stream
