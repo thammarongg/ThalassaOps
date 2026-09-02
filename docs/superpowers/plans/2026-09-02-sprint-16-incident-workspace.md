@@ -1,0 +1,1473 @@
+# Sprint 16 Incident Workspace Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build the Incident Workspace — a split list/detail surface where a responder manages one incident from any supported source through resolution, including comments, assignment, status changes, evidence and frozen association tabs.
+
+**Architecture:** A shell component owns every IPC call and all selection state; panels are pure props-in/callbacks-out components that can be tested alone. Comments become a new immutable timeline event kind rather than a separate entity, which forces one prerequisite change in the Rust write path: timeline sequence allocation moves inside the write transaction for every mutation.
+
+**Tech Stack:** Rust (thalassa-domain, thalassa-ipc, src-tauri, rusqlite), TypeScript, React, Vitest, @testing-library/react.
+
+**Spec:** `docs/design/sprint-16-incident-workspace.md`
+
+## Global Constraints
+
+- Sprint 16 touches Rust only for Tasks 1-3. Every other task is confined to `ui/`.
+- Comment body validation uses `validate_incident_text(body, INCIDENT_NOTE_MAXIMUM)`. `INCIDENT_NOTE_MAXIMUM` is 4000.
+- `incident.add_comment` uses `Capability::IncidentWrite` and `Permission::ManageIncident`. Do not add a new capability or permission.
+- No migration. `incident_timeline_event.event_kind` is plain `TEXT` with no `CHECK` constraint.
+- Comment writes must not read or write the `version` column.
+- The sequence-contention error must be a distinct variant. Never reuse `VersionConflict` for it.
+- Panels never call IPC. Only the shell and the two hooks in Task 6 do.
+- Evidence commands must never be called with an empty or duplicated identifier list.
+- Every user-visible string exists in both `ui/src/locales/en.ts` and `ui/src/locales/th.ts` in the same commit that introduces it.
+- Fixtures use the shared fixture day `2026-08-28` and must assert a non-empty result before anything is built on top of them.
+- The card is named **Incident Summary Card** everywhere, never "Incident Card".
+- Gates before any task is considered done: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test` for Rust tasks; `npm run format:check`, `npm run lint`, `npm run typecheck`, `npm test` for UI tasks.
+
+## Task DAG
+
+```
+Task 1  sequence allocation in transaction        (Rust, no deps)
+   |
+Task 2  Commented event kind + add_comment        (Rust)
+   |
+Task 3  incident.add_comment service/IPC          (Rust)
+   |
+Task 4  TypeScript contracts and guards           (ui)
+   |
+   +-- Task 5  locale parity test + scaffolding   (ui)
+   |
+   +-- Task 6  useIncidentList / useIncidentTimeline
+              |
+        Task 7  shell + IncidentList
+              |
+              +-- Task 8  IncidentNarrative
+              +-- Task 9  evidence resolution + IncidentEvidencePanel
+              |        |
+              |     Task 10  IncidentTabs + incidentTabConfig
+              +-- Task 11 IncidentCommentThread
+              +-- Task 12 IncidentActions + version-conflict reload
+              +-- Task 13 IncidentSummaryCard
+                       |
+                 Task 14 acceptance test
+```
+
+Tasks 8, 9, 11, 12 and 13 are independent of one another and may run in parallel once Task 7 lands. Task 10 depends on Task 9 because it reuses the evidence resolution helper.
+
+## File Map
+
+| File | Responsibility | Task |
+| --- | --- | --- |
+| `src-tauri/src/incident/repository.rs` | in-transaction sequence allocation, retry, comment append | 1, 3 |
+| `src-tauri/src/incident/service.rs` | drop external allocation, comment command | 1, 3 |
+| `crates/thalassa-domain/src/lib.rs` | `Commented` kind, `CommentedPayload`, `add_comment` | 2 |
+| `crates/thalassa-ipc/src/lib.rs` | `incident_add_comment_descriptor` | 3 |
+| `ui/contracts/guards.ts` | comment payload guard | 4 |
+| `ui/src/incident/contractValidation.ts` | incident payload guards | 4 |
+| `ui/src/locales/en.ts`, `th.ts` | strings | 5 and every UI task |
+| `ui/src/incident/useIncidentList.ts` | incident page fetch and cursor paging | 6 |
+| `ui/src/incident/useIncidentTimeline.ts` | timeline page fetch and sequence paging | 6 |
+| `ui/src/incident/IncidentWorkspace.tsx` | layout, selection, wiring | 7 |
+| `ui/src/incident/IncidentList.tsx` | queue, badges, filters | 7 |
+| `ui/src/incident/IncidentNarrative.tsx` | lifecycle event rendering | 8 |
+| `ui/src/incident/incidentEvidence.ts` | dedupe, empty guard, four states | 9 |
+| `ui/src/incident/IncidentEvidencePanel.tsx` | evidence rendering | 9 |
+| `ui/src/incident/incidentTabConfig.ts`, `IncidentTabs.tsx` | tab registry and chrome | 10 |
+| `ui/src/incident/IncidentCommentThread.tsx` | comment list and composer | 11 |
+| `ui/src/incident/IncidentActions.tsx` | transition, severity, role controls | 12 |
+| `ui/src/incident/IncidentSummaryCard.tsx` | bounded summary and clipboard copy | 13 |
+| `ui/src/incident/incident-fixtures.ts` | deterministic fixtures | 6 onward |
+| `ui/src/incident/incident.css` | module styles | 7 onward |
+
+---
+
+### Task 1: Allocate Timeline Sequences Inside the Write Transaction
+
+Today `IncidentService::load_for_write` reads `highest_event_sequence` and adds one *before* the transaction opens. That is safe only because the update statement carries `AND version = ?`, which rejects the losing writer. Task 3 adds a write with no version predicate, so this guard has to move.
+
+**Files:**
+- Modify: `src-tauri/src/incident/repository.rs:209` (`apply_mutation`)
+- Modify: `src-tauri/src/incident/service.rs:424-448` (`load_for_write`)
+- Test: `src-tauri/tests/incident_repository.rs`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+  - `IncidentStoreError::WriteContention` — new variant, returned after the retry budget is exhausted.
+  - `IncidentServiceError::WriteContention { }` — new variant mapped from the store error.
+  - `SqliteIncidentRepository::apply_mutation` keeps its signature; the `first_event_sequence` carried on the mutation is now treated as advisory and recomputed inside the transaction.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `src-tauri/tests/incident_repository.rs`:
+
+```rust
+#[test]
+fn concurrent_appends_do_not_collide_on_sequence() {
+    let fixture = RepositoryFixture::new();
+    let incident = fixture.create_incident();
+
+    // Two mutations built from the SAME stale view of the timeline: both
+    // believe the next free sequence is the same number.  Before the fix the
+    // second insert violates UNIQUE (incident_id, sequence).
+    let stale_sequence = fixture.highest_event_sequence(incident.id) + 1;
+    let first = fixture.build_comment_like_mutation(&incident, stale_sequence, "first");
+    let second = fixture.build_comment_like_mutation(&incident, stale_sequence, "second");
+
+    fixture.repository().apply_mutation(fixture.workspace_id(), first).expect("first append");
+    fixture
+        .repository()
+        .apply_mutation(fixture.workspace_id(), second)
+        .expect("second append is re-sequenced, not rejected");
+
+    let events = fixture.timeline(incident.id);
+    let sequences: Vec<u64> = events.iter().map(|event| event.sequence).collect();
+    let mut sorted = sequences.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sequences.len(), sorted.len(), "sequences must be unique");
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p thalassaops --test incident_repository concurrent_appends -- --nocapture`
+Expected: FAIL with a `UNIQUE constraint failed: incident_timeline_event.incident_id, incident_timeline_event.sequence` error surfaced as a database error.
+
+- [ ] **Step 3: Move allocation inside the transaction**
+
+In `repository.rs`, inside `apply_mutation` after the transaction is opened with `TransactionBehavior::Immediate` and after the existing version recheck, recompute the base sequence and renumber the mutation's events:
+
+```rust
+let allocated_base = highest_event_sequence_in(&transaction, incident_id)?
+    .checked_add(1)
+    .ok_or_else(|| invalid("incident timeline sequence exceeds the stored integer range"))?;
+
+for (offset, event) in mutation.events.iter_mut().enumerate() {
+    let offset = u64::try_from(offset)
+        .map_err(|_| invalid("mutation event count exceeds the stored integer range"))?;
+    event.sequence = allocated_base
+        .checked_add(offset)
+        .ok_or_else(|| invalid("incident timeline sequence exceeds the stored integer range"))?;
+}
+```
+
+- [ ] **Step 4: Add the bounded retry and the new error**
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum IncidentStoreError {
+    // ... existing variants ...
+    #[error("the incident timeline is under write contention")]
+    WriteContention,
+}
+
+const SEQUENCE_RETRY_BUDGET: usize = 3;
+```
+
+Wrap the transaction body so a unique-constraint violation on
+`incident_timeline_event.sequence` retries the whole transaction, at most
+`SEQUENCE_RETRY_BUDGET` times, then returns `IncidentStoreError::WriteContention`.
+Any other error propagates unchanged on the first occurrence.
+
+- [ ] **Step 5: Stop allocating outside the transaction**
+
+In `service.rs`, `load_for_write` keeps the version check and stops calling
+`highest_event_sequence`. It returns only the incident:
+
+```rust
+fn load_for_write(
+    &self,
+    context: &IncidentCommandContext,
+    incident_id: IncidentId,
+    expected_version: u64,
+) -> Result<Incident, IncidentServiceError> {
+    if context.request_id.is_nil() || context.actor_id.is_nil() {
+        return Err(IncidentServiceError::InvalidRequest);
+    }
+    let workspace_id = self.workspace(context)?;
+    let incident = self.repository.get(workspace_id, incident_id)?;
+    if incident.version != expected_version {
+        return Err(IncidentServiceError::VersionConflict {
+            expected: expected_version,
+            actual: incident.version,
+        });
+    }
+    Ok(incident)
+}
+```
+
+Every caller passes `1` as `first_event_sequence` to the aggregate; the
+repository assigns the real value. Update the four mutation methods
+(`transition`, `set_severity`, `set_disposition`, `assign_role`) accordingly.
+
+Map the store error in `IncidentServiceError`:
+
+```rust
+IncidentStoreError::WriteContention => Self::WriteContention,
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `cargo test -p thalassaops --test incident_repository --test incident_mutations --test incident_acceptance 2>&1 | tail -30`
+Expected: PASS, including every test that existed before this task.
+
+- [ ] **Step 7: Add the contention-exhausted test**
+
+```rust
+#[test]
+fn exhausted_sequence_retries_report_write_contention_not_version_conflict() {
+    let fixture = RepositoryFixture::new();
+    let incident = fixture.create_incident();
+    let error = fixture.apply_with_forced_sequence_collision(&incident, SEQUENCE_RETRY_BUDGET + 1);
+    assert!(
+        matches!(error, IncidentStoreError::WriteContention),
+        "contention must not be reported as a version conflict: {error:?}"
+    );
+}
+```
+
+- [ ] **Step 8: Run the full Rust gate**
+
+Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
+Expected: all green, test count at or above the pre-task count.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src-tauri/src/incident/repository.rs src-tauri/src/incident/service.rs src-tauri/tests/incident_repository.rs
+git commit -m "fix(incident): allocate timeline sequences inside the write transaction"
+```
+
+---
+
+### Task 2: Add the Commented Event Kind and add_comment
+
+**Files:**
+- Modify: `crates/thalassa-domain/src/lib.rs` (near `IncidentEventKind` at line 875, `IncidentTimelinePayload` at line 908, and the aggregate methods near line 1567)
+- Test: `crates/thalassa-domain/tests/incident_lifecycle.rs`, `crates/thalassa-domain/tests/incident_contracts.rs`
+
+**Interfaces:**
+- Consumes: `IncidentStoreError::WriteContention` from Task 1 (indirectly; the domain crate does not reference it).
+- Produces:
+  - `IncidentEventKind::Commented` with serde rename `"commented"`.
+  - `CommentedPayload { pub body: String }` with serde rename `"commented"` on the payload variant.
+  - `Incident::add_comment(&self, first_event_sequence: u64, body: &str, actor_id: PrincipalId, request_id: Uuid, policy_version: u64, now: DateTime<Utc>) -> Result<IncidentMutation, IncidentError>` — note there is **no** `expected_version` parameter.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `crates/thalassa-domain/tests/incident_lifecycle.rs`:
+
+```rust
+#[test]
+fn add_comment_appends_one_attributed_event_without_touching_version() {
+    let incident = investigating_incident();
+    let before = incident.version;
+
+    let mutation = incident
+        .add_comment(1, "restarted the checkout pods", ACTOR, REQUEST, 7, now())
+        .expect("a valid comment is accepted");
+
+    assert_eq!(mutation.events.len(), 1);
+    let event = &mutation.events[0];
+    assert_eq!(event.kind, IncidentEventKind::Commented);
+    assert_eq!(event.actor_id, ACTOR);
+    assert!(matches!(
+        &event.payload,
+        IncidentTimelinePayload::Commented(payload)
+            if payload.body == "restarted the checkout pods"
+    ));
+    assert_eq!(
+        mutation.incident.version, before,
+        "a comment must not advance the incident version"
+    );
+}
+
+#[test]
+fn add_comment_rejects_empty_oversized_and_unsafe_bodies() {
+    let incident = investigating_incident();
+    let oversized = "x".repeat(INCIDENT_NOTE_MAXIMUM + 1);
+
+    for body in ["", oversized.as_str()] {
+        assert!(
+            incident.add_comment(1, body, ACTOR, REQUEST, 7, now()).is_err(),
+            "body {:?} must be rejected",
+            &body[..body.len().min(16)]
+        );
+    }
+}
+
+#[test]
+fn add_comment_rejects_nil_actor_and_request_ids() {
+    let incident = investigating_incident();
+    assert!(incident.add_comment(1, "ok", Uuid::nil(), REQUEST, 7, now()).is_err());
+    assert!(incident.add_comment(1, "ok", ACTOR, Uuid::nil(), 7, now()).is_err());
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cargo test -p thalassa-domain --test incident_lifecycle add_comment 2>&1 | tail -20`
+Expected: FAIL with "no method named `add_comment`".
+
+- [ ] **Step 3: Add the enum variants**
+
+In `crates/thalassa-domain/src/lib.rs`, extend both enums:
+
+```rust
+pub enum IncidentEventKind {
+    // ... existing variants ...
+    #[serde(rename = "commented")]
+    Commented,
+}
+
+pub enum IncidentTimelinePayload {
+    // ... existing variants ...
+    #[serde(rename = "commented")]
+    Commented(CommentedPayload),
+}
+
+/// Free text a responder attached to the incident timeline.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CommentedPayload {
+    pub body: String,
+}
+```
+
+- [ ] **Step 4: Implement add_comment**
+
+```rust
+/// Appends one immutable responder comment.  A comment changes no incident
+/// state, so it deliberately takes no `expected_version` and does not
+/// advance the version; see the Sprint 16 design, section 7.5.
+pub fn add_comment(
+    &self,
+    first_event_sequence: u64,
+    body: &str,
+    actor_id: PrincipalId,
+    request_id: Uuid,
+    policy_version: u64,
+    now: DateTime<Utc>,
+) -> Result<IncidentMutation, IncidentError> {
+    if first_event_sequence == 0 {
+        return Err(IncidentError::InvalidEventSequence);
+    }
+    ensure_id(actor_id)?;
+    ensure_id(request_id)?;
+    validate_incident_text(body, INCIDENT_NOTE_MAXIMUM)
+        .map_err(|_| IncidentError::InvalidComment)?;
+
+    let mut next = self.clone();
+    next.updated_at = now;
+
+    let pending = PendingEvent {
+        kind: IncidentEventKind::Commented,
+        reason: None,
+        payload: IncidentTimelinePayload::Commented(CommentedPayload {
+            body: body.to_owned(),
+        }),
+    };
+    let events = self.build_events(
+        first_event_sequence,
+        vec![pending],
+        actor_id,
+        request_id,
+        policy_version,
+        now,
+    )?;
+    Ok(IncidentMutation { incident: next, events })
+}
+```
+
+Add `IncidentError::InvalidComment` to the error enum with the message
+`"the comment body is empty, too long or unsafe"`.
+
+- [ ] **Step 5: Add the wire-stability test**
+
+Add to `crates/thalassa-domain/tests/incident_contracts.rs`:
+
+```rust
+#[test]
+fn commented_event_wire_names_are_stable() {
+    let event = IncidentTimelinePayload::Commented(CommentedPayload {
+        body: "note".into(),
+    });
+    let encoded = serde_json::to_value(&event).expect("payload encodes");
+    assert_eq!(encoded["kind"], "commented");
+    assert_eq!(encoded["body"], "note");
+    assert_eq!(
+        serde_json::to_value(IncidentEventKind::Commented).expect("kind encodes"),
+        serde_json::json!("commented")
+    );
+}
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `cargo test -p thalassa-domain --test incident_lifecycle --test incident_contracts 2>&1 | tail -20`
+Expected: PASS.
+
+- [ ] **Step 7: Run the full Rust gate**
+
+Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
+Expected: all green.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add crates/thalassa-domain/src/lib.rs crates/thalassa-domain/tests/incident_lifecycle.rs crates/thalassa-domain/tests/incident_contracts.rs
+git commit -m "feat(incident): add the commented timeline event kind"
+```
+
+---
+
+### Task 3: Expose incident.add_comment Through the Service and IPC
+
+**Files:**
+- Modify: `crates/thalassa-ipc/src/lib.rs` (beside `incident_assign_role_descriptor`)
+- Modify: `src-tauri/src/incident/service.rs`
+- Modify: `src-tauri/src/app/incident.rs`
+- Modify: `src-tauri/src/main.rs`
+- Test: `crates/thalassa-ipc/tests/contracts.rs`, `src-tauri/tests/incident_mutations.rs`, `src-tauri/tests/incident_ipc.rs`
+
+**Interfaces:**
+- Consumes: `Incident::add_comment` and `CommentedPayload` from Task 2; `IncidentServiceError::WriteContention` from Task 1.
+- Produces:
+  - `incident_add_comment_descriptor() -> CommandDescriptor` with name `incident.add_comment`, `Capability::IncidentWrite`, `Permission::ManageIncident`.
+  - `IncidentCommentRequest { pub incident_id: IncidentId, pub body: String }` in `thalassa_domain`.
+  - `IncidentService::add_comment(&mut self, context: &IncidentCommandContext, request: IncidentCommentRequest) -> Result<IncidentMutation, IncidentServiceError>`.
+  - IPC error code `"incident_write_contention"` for the contention case.
+
+- [ ] **Step 1: Write the failing descriptor test**
+
+Add to `crates/thalassa-ipc/tests/contracts.rs`, in the existing descriptor table:
+
+```rust
+(incident_add_comment_descriptor(), "incident.add_comment"),
+```
+
+and assert its capability and permission:
+
+```rust
+#[test]
+fn add_comment_reuses_the_incident_write_capability() {
+    let descriptor = incident_add_comment_descriptor();
+    assert_eq!(descriptor.required_capability, Capability::IncidentWrite);
+    assert_eq!(descriptor.required_permission, Permission::ManageIncident);
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p thalassa-ipc --test contracts 2>&1 | tail -20`
+Expected: FAIL with "cannot find function `incident_add_comment_descriptor`".
+
+- [ ] **Step 3: Add the descriptor**
+
+```rust
+/// Stable command descriptor for appending one responder comment.
+pub fn incident_add_comment_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "add_comment",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+```
+
+- [ ] **Step 4: Write the failing service test**
+
+Add to `src-tauri/tests/incident_mutations.rs`:
+
+```rust
+#[test]
+fn adding_a_comment_appends_an_event_and_leaves_the_version_alone() {
+    let mut fixture = ServiceFixture::new();
+    let incident = fixture.create_incident();
+    let before = incident.version;
+
+    let mutation = fixture
+        .service()
+        .add_comment(
+            &fixture.context(),
+            IncidentCommentRequest {
+                incident_id: incident.id,
+                body: "paged the database on-call".into(),
+            },
+        )
+        .expect("the comment is accepted");
+
+    assert_eq!(mutation.events.len(), 1);
+    assert_eq!(mutation.incident.version, before);
+}
+
+#[test]
+fn replaying_a_comment_request_id_returns_the_stored_comment() {
+    let mut fixture = ServiceFixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentCommentRequest {
+        incident_id: incident.id,
+        body: "same text".into(),
+    };
+
+    let first = fixture.service().add_comment(&context, request.clone()).expect("first");
+    let replay = fixture.service().add_comment(&context, request).expect("replay");
+
+    assert_eq!(first.events[0].id, replay.events[0].id);
+    assert_eq!(fixture.timeline(incident.id).len(), first.events.len() + 1);
+}
+
+#[test]
+fn a_comment_on_an_unknown_incident_is_not_found() {
+    let mut fixture = ServiceFixture::new();
+    let error = fixture
+        .service()
+        .add_comment(
+            &fixture.context(),
+            IncidentCommentRequest {
+                incident_id: Uuid::new_v4(),
+                body: "orphan".into(),
+            },
+        )
+        .expect_err("an unknown incident is rejected");
+    assert!(matches!(error, IncidentServiceError::NotFound));
+}
+
+#[test]
+fn a_comment_on_another_workspaces_incident_is_indistinguishable_from_unknown() {
+    let mut fixture = ServiceFixture::new();
+    let foreign = fixture.create_incident_in_other_workspace();
+
+    let error = fixture
+        .service()
+        .add_comment(
+            &fixture.context(),
+            IncidentCommentRequest {
+                incident_id: foreign.id,
+                body: "should not land".into(),
+            },
+        )
+        .expect_err("a cross-workspace incident is rejected");
+
+    assert!(matches!(error, IncidentServiceError::NotFound));
+    assert!(
+        fixture.timeline_in_other_workspace(foreign.id).is_empty(),
+        "the foreign incident timeline must be untouched"
+    );
+}
+```
+
+- [ ] **Step 5: Run tests to verify they fail**
+
+Run: `cargo test -p thalassaops --test incident_mutations adding_a_comment 2>&1 | tail -20`
+Expected: FAIL with "no method named `add_comment`" on the service.
+
+- [ ] **Step 6: Implement the service path**
+
+In `src-tauri/src/incident/service.rs`:
+
+```rust
+pub fn add_comment(
+    &mut self,
+    context: &IncidentCommandContext,
+    request: IncidentCommentRequest,
+) -> Result<IncidentMutation, IncidentServiceError> {
+    if let Some(replayed) = self.replay_if_matching(
+        context,
+        request.incident_id,
+        SINGLE_EVENT_REPLAY_MAX_EVENTS,
+        |events| comment_replay_matches(events, &request.body),
+    )? {
+        return Ok(replayed);
+    }
+    if context.request_id.is_nil() || context.actor_id.is_nil() {
+        return Err(IncidentServiceError::InvalidRequest);
+    }
+    let workspace_id = self.workspace(context)?;
+    let incident = self.repository.get(workspace_id, request.incident_id)?;
+    let mutation = incident.add_comment(
+        1,
+        &request.body,
+        context.actor_id,
+        context.request_id,
+        context.policy_version,
+        context.now,
+    )?;
+    self.repository.apply_mutation(workspace_id, mutation)
+        .map_err(IncidentServiceError::from)
+}
+
+fn comment_replay_matches(events: &[IncidentTimelineEvent], body: &str) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    events.len() == 1
+        && event.kind == IncidentEventKind::Commented
+        && matches!(
+            &event.payload,
+            IncidentTimelinePayload::Commented(payload) if payload.body == body
+        )
+}
+```
+
+Note this path calls `repository.get` rather than `load_for_write`: there is no
+version to check.
+
+- [ ] **Step 7: Wire the IPC command**
+
+In `src-tauri/src/app/incident.rs`, add `incident_add_comment` following the
+shape of `incident_assign_role`: authorize with the new descriptor, parse the
+payload, call the service, and map errors. Add the contention mapping:
+
+```rust
+IncidentServiceError::WriteContention => "incident_write_contention",
+```
+
+Register the command in `src-tauri/src/main.rs` beside the other incident
+commands.
+
+- [ ] **Step 8: Write the failing IPC test**
+
+Add to `src-tauri/tests/incident_ipc.rs`:
+
+```rust
+#[test]
+fn add_comment_command_appends_to_the_timeline() {
+    let mut state = ipc_fixture();
+    let incident = state.create_incident();
+    let result = state.incident_add_comment(envelope(serde_json::json!({
+        "incident_id": incident.id,
+        "body": "checked the dashboards"
+    })));
+    assert!(matches!(result, IpcResult::Ok { .. }));
+}
+```
+
+- [ ] **Step 9: Run tests to verify they pass**
+
+Run: `cargo test -p thalassaops --test incident_mutations --test incident_ipc && cargo test -p thalassa-ipc --test contracts 2>&1 | tail -20`
+Expected: PASS.
+
+- [ ] **Step 10: Run the full Rust gate**
+
+Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
+Expected: all green.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add crates/thalassa-ipc src-tauri/src src-tauri/tests
+git commit -m "feat(incident): expose incident.add_comment over IPC"
+```
+
+---
+
+### Task 4: TypeScript Contracts and Runtime Guards
+
+**Files:**
+- Modify: `ui/contracts/guards.ts`
+- Create: `ui/src/incident/contractValidation.ts`
+- Test: `ui/src/incident/incident-contracts.test.ts` (exists; extend it)
+
+**Interfaces:**
+- Consumes: the `commented` wire names from Task 2 and the `incident.add_comment` command from Task 3.
+- Produces:
+  - `type IncidentTimelineEvent` with a discriminated `payload` union including `{ kind: "commented"; body: string }`.
+  - `isIncidentTimelineEvent(value: unknown): value is IncidentTimelineEvent`
+  - `isIncidentTimelinePage(value: unknown): value is IncidentTimelinePage`
+  - `isIncidentPage(value: unknown): value is IncidentPage`
+  - `INCIDENT_NOTE_MAXIMUM = 4000` exported for the composer in Task 11.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `ui/src/incident/incident-contracts.test.ts`:
+
+```ts
+it("accepts a commented timeline event and rejects a malformed one", () => {
+  const event = {
+    id: "6f1c1b0e-0000-4000-8000-000000000001",
+    incident_id: "6f1c1b0e-0000-4000-8000-000000000002",
+    sequence: 4,
+    kind: "commented",
+    actor_id: "6f1c1b0e-0000-4000-8000-000000000003",
+    reason: null,
+    occurred_at: "2026-08-28T09:00:00Z",
+    request_id: "6f1c1b0e-0000-4000-8000-000000000004",
+    policy_version: 7,
+    payload: { kind: "commented", body: "checked the dashboards" }
+  };
+
+  expect(isIncidentTimelineEvent(event)).toBe(true);
+  expect(isIncidentTimelineEvent({ ...event, payload: { kind: "commented" } })).toBe(false);
+  expect(isIncidentTimelineEvent({ ...event, payload: { kind: "commented", body: 4 } })).toBe(false);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/incident-contracts.test.ts`
+Expected: FAIL with "isIncidentTimelineEvent is not a function".
+
+- [ ] **Step 3: Implement the guards**
+
+In `ui/src/incident/contractValidation.ts`, follow the shape of
+`ui/src/topology/contractValidation.ts`:
+
+```ts
+export const INCIDENT_NOTE_MAXIMUM = 4000;
+
+export type IncidentTimelinePayload =
+  | { kind: "created"; summary: string }
+  | { kind: "triggers_attached" }
+  | { kind: "status_transitioned" }
+  | { kind: "severity_changed" }
+  | { kind: "disposition_changed" }
+  | { kind: "role_changed" }
+  | { kind: "commented"; body: string };
+
+export function isIncidentTimelineEvent(value: unknown): value is IncidentTimelineEvent {
+  if (!isRecord(value)) return false;
+  if (!isUuid(value.id) || !isUuid(value.incident_id) || !isUuid(value.actor_id)) return false;
+  if (!isPositiveInteger(value.sequence)) return false;
+  if (!isTimestamp(value.occurred_at)) return false;
+  if (value.reason !== null && !isBoundedText(value.reason, INCIDENT_NOTE_MAXIMUM)) return false;
+  return isIncidentTimelinePayload(value.payload);
+}
+
+function isIncidentTimelinePayload(value: unknown): value is IncidentTimelinePayload {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "commented") {
+    return isBoundedText(value.body, INCIDENT_NOTE_MAXIMUM);
+  }
+  return [
+    "created",
+    "triggers_attached",
+    "status_transitioned",
+    "severity_changed",
+    "disposition_changed",
+    "role_changed"
+  ].includes(value.kind);
+}
+```
+
+Add `isIncidentTimelinePage` and `isIncidentPage` in the same file, each
+validating the item array with the element guard and the cursor field
+(`next_cursor: string | null`, `next_sequence: number | null`).
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test -- ui/src/incident/incident-contracts.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Run the UI gate and commit**
+
+```bash
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/contracts/guards.ts ui/src/incident/contractValidation.ts ui/src/incident/incident-contracts.test.ts
+git commit -m "feat(incident): add TypeScript guards for incident timeline payloads"
+```
+
+---
+
+### Task 5: Locale Key Parity Test
+
+This lands before the components so every later task is forced to add both
+languages. `en.ts` and `th.ts` currently hold 801 keys each with no drift, so
+this test passes on existing content the moment it is written.
+
+**Files:**
+- Create: `ui/src/locales/locales.test.ts`
+- Modify: `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: an `incident` namespace in both locale files that later tasks extend.
+
+- [ ] **Step 1: Write the test**
+
+```ts
+import { describe, expect, it } from "vitest";
+import en from "./en";
+import th from "./th";
+
+function keyPaths(value: unknown, prefix = ""): string[] {
+  if (typeof value !== "object" || value === null) return [prefix];
+  return Object.entries(value).flatMap(([key, child]) =>
+    keyPaths(child, prefix ? `${prefix}.${key}` : key)
+  );
+}
+
+describe("locale parity", () => {
+  it("defines exactly the same key paths in en and th", () => {
+    const enKeys = keyPaths(en).sort();
+    const thKeys = keyPaths(th).sort();
+    expect(thKeys.filter((key) => !enKeys.includes(key))).toEqual([]);
+    expect(enKeys.filter((key) => !thKeys.includes(key))).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to confirm the existing files already pass**
+
+Run: `npm test -- ui/src/locales/locales.test.ts`
+Expected: PASS. If it fails, the drift is pre-existing — fix the missing keys in
+this task before continuing, and say so in the commit body.
+
+- [ ] **Step 3: Add the incident namespace to both files**
+
+In `en.ts`:
+
+```ts
+  incident: {
+    queueTitle: "Incidents",
+    detailTitle: "Incident",
+    emptyQueue: "No incidents match this filter",
+    loading: "Loading…"
+  },
+```
+
+In `th.ts`, the same key paths with Thai values:
+
+```ts
+  incident: {
+    queueTitle: "เหตุการณ์",
+    detailTitle: "รายละเอียดเหตุการณ์",
+    emptyQueue: "ไม่มีเหตุการณ์ที่ตรงกับตัวกรองนี้",
+    loading: "กำลังโหลด…"
+  },
+```
+
+- [ ] **Step 4: Run the UI gate and commit**
+
+```bash
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/locales
+git commit -m "test(ui): assert en and th locale key parity"
+```
+
+---
+
+### Task 6: Incident Data Hooks
+
+**Files:**
+- Create: `ui/src/incident/useIncidentList.ts`, `ui/src/incident/useIncidentTimeline.ts`
+- Create: `ui/src/incident/incident-fixtures.ts`
+- Test: `ui/src/incident/useIncidentList.test.ts`, `ui/src/incident/useIncidentTimeline.test.ts`
+
+**Interfaces:**
+- Consumes: `isIncidentPage`, `isIncidentTimelinePage` from Task 4.
+- Produces:
+  - `useIncidentList(invoke: Invoke): { incidents: IncidentSummary[]; loading: boolean; error: string | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
+  - `useIncidentTimeline(invoke: Invoke, incidentId: string | null): { events: IncidentTimelineEvent[]; loading: boolean; error: string | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
+  - `incidentFixturePage`, `incidentFixtureTimeline` — fixtures dated `2026-08-28`.
+
+- [ ] **Step 1: Write the fixtures and assert they are non-empty**
+
+In `incident-fixtures.ts`, build one page of three incidents and one timeline of
+six events, all timestamped on `2026-08-28`. Add this test first, in
+`useIncidentList.test.ts`:
+
+```ts
+it("ships a non-empty fixture page", () => {
+  expect(incidentFixturePage.items.length).toBeGreaterThan(0);
+  expect(incidentFixtureTimeline.events.length).toBeGreaterThan(0);
+});
+```
+
+- [ ] **Step 2: Write the failing hook test**
+
+```ts
+it("pages the incident list with the returned cursor", async () => {
+  const invoke = vi.fn<Invoke>()
+    .mockResolvedValueOnce({ ok: true, value: { items: incidentFixturePage.items, next_cursor: "c2" } })
+    .mockResolvedValueOnce({ ok: true, value: { items: [], next_cursor: null } });
+
+  const { result } = renderHook(() => useIncidentList(invoke));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.hasMore).toBe(true);
+
+  act(() => result.current.loadMore());
+  await waitFor(() => expect(result.current.hasMore).toBe(false));
+
+  expect(invoke).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    name: "incident.list",
+    payload: expect.objectContaining({ cursor: "c2" })
+  }));
+});
+
+it("reports a guard failure as an error rather than rendering unvalidated data", async () => {
+  const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: true, value: { items: [{ bogus: true }], next_cursor: null } });
+  const { result } = renderHook(() => useIncidentList(invoke));
+  await waitFor(() => expect(result.current.error).not.toBeNull());
+  expect(result.current.incidents).toEqual([]);
+});
+```
+
+- [ ] **Step 3: Run tests to verify they fail**
+
+Run: `npm test -- ui/src/incident/useIncidentList.test.ts`
+Expected: FAIL with "useIncidentList is not a function".
+
+- [ ] **Step 4: Implement both hooks**
+
+Each hook keeps `items`, `cursor`, `loading` and `error` in state, calls the
+command through `invoke`, runs the Task 4 guard on the response, and appends on
+`loadMore`. A guard failure sets `error` and leaves `items` untouched. Neither
+hook renders anything; neither is used outside the shell.
+
+`useIncidentTimeline` returns immediately with empty state when `incidentId` is
+`null`, and refetches from scratch when it changes.
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `npm test -- ui/src/incident/useIncidentList.test.ts ui/src/incident/useIncidentTimeline.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Run the UI gate and commit**
+
+```bash
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident
+git commit -m "feat(incident): add incident list and timeline data hooks"
+```
+
+---
+
+### Task 7: Workspace Shell and Incident List
+
+**Files:**
+- Create: `ui/src/incident/IncidentWorkspace.tsx`, `ui/src/incident/IncidentList.tsx`, `ui/src/incident/incident.css`
+- Test: `ui/src/incident/IncidentWorkspace.test.tsx`, `ui/src/incident/IncidentList.test.tsx`
+
+**Interfaces:**
+- Consumes: `useIncidentList`, `useIncidentTimeline` from Task 6.
+- Produces:
+  - `IncidentWorkspace({ invoke }: { invoke: Invoke })`
+  - `IncidentList({ incidents, selectedId, onSelect, filter, onFilterChange })` — pure, no IPC.
+  - The shell passes `incident`, `events`, and callbacks down to the panels added by Tasks 8-13.
+
+- [ ] **Step 1: Write the failing list test**
+
+```tsx
+it("renders severity and priority as separate fields", () => {
+  render(
+    <I18nProvider i18n={i18n}>
+      <IncidentList
+        incidents={incidentFixturePage.items}
+        selectedId={null}
+        onSelect={() => {}}
+        filter={{ status: "all" }}
+        onFilterChange={() => {}}
+      />
+    </I18nProvider>
+  );
+  const row = screen.getByRole("option", { name: /checkout/i });
+  expect(within(row).getByTestId("incident-severity")).toHaveTextContent("S1");
+  expect(within(row).getByTestId("incident-priority")).toHaveTextContent("P1");
+});
+
+it("calls onSelect with the incident id when a row is chosen", async () => {
+  const onSelect = vi.fn();
+  render(/* same tree with onSelect */);
+  await userEvent.click(screen.getByRole("option", { name: /checkout/i }));
+  expect(onSelect).toHaveBeenCalledWith(incidentFixturePage.items[0].id);
+});
+```
+
+`incident-severity` and `incident-priority` must be distinct elements. The spec
+forbids using one as a label for the other.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npm test -- ui/src/incident/IncidentList.test.tsx`
+Expected: FAIL with "IncidentList is not defined".
+
+- [ ] **Step 3: Implement IncidentList as a pure component**
+
+It receives arrays and callbacks only. It imports no hook from Task 6 and calls
+no `invoke`.
+
+- [ ] **Step 4: Write the failing shell test**
+
+```tsx
+it("selects the first incident and loads its timeline", async () => {
+  const invoke = incidentInvokeMock();
+  render(<I18nProvider i18n={i18n}><IncidentWorkspace invoke={invoke} /></I18nProvider>);
+  await waitFor(() => expect(screen.getByRole("option", { selected: true })).toBeInTheDocument());
+  expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ name: "incident.timeline" }));
+});
+```
+
+- [ ] **Step 5: Implement the shell**
+
+The shell wires the two hooks, holds `selectedId` and the queue filter, and
+renders `IncidentList` plus a detail region that Tasks 8-13 fill. It is the only
+component in the module that receives `invoke`.
+
+- [ ] **Step 6: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): add the incident workspace shell and queue"
+```
+
+---
+
+### Task 8: Incident Narrative
+
+**Files:**
+- Create: `ui/src/incident/IncidentNarrative.tsx`, `ui/src/incident/IncidentNarrative.test.tsx`
+
+**Interfaces:**
+- Consumes: `IncidentTimelineEvent` from Task 4, rendered by the shell from Task 7.
+- Produces: `IncidentNarrative({ events }: { events: IncidentTimelineEvent[] })` — pure.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+it("renders lifecycle events as a record and excludes comments", () => {
+  render(
+    <I18nProvider i18n={i18n}>
+      <IncidentNarrative events={incidentFixtureTimeline.events} />
+    </I18nProvider>
+  );
+  expect(screen.getByText(/investigating/i)).toBeInTheDocument();
+  expect(screen.queryByText(/checked the dashboards/i)).not.toBeInTheDocument();
+});
+
+it("renders each row with a timestamp, actor, change and reason column", () => {
+  render(/* same tree */);
+  const row = screen.getAllByRole("row")[1];
+  expect(within(row).getAllByRole("cell")).toHaveLength(4);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/IncidentNarrative.test.tsx`
+Expected: FAIL with "IncidentNarrative is not defined".
+
+- [ ] **Step 3: Implement**
+
+Filter `events` to the six lifecycle kinds, drop `commented`, and render a table
+with timestamp, actor, what changed and reason. Do not compose sentences; the
+spec fixes this as a formatted record for translation and Sprint 19 reasons.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident/IncidentNarrative.test.tsx
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): render the deterministic incident narrative"
+```
+
+---
+
+### Task 9: Evidence Resolution and Panel
+
+**Files:**
+- Create: `ui/src/incident/incidentEvidence.ts`, `ui/src/incident/IncidentEvidencePanel.tsx`
+- Test: `ui/src/incident/incidentEvidence.test.ts`, `ui/src/incident/IncidentEvidencePanel.test.tsx`
+
+**Interfaces:**
+- Consumes: `Invoke` from the shell.
+- Produces:
+  - `type EvidenceState = { status: "loading" } | { status: "empty" } | { status: "unavailable"; cause: "missing" | "scope" | "unverified" | "unknown" } | { status: "ready"; evidence: EvidenceRef[] }`
+  - `resolveEvidence(invoke: Invoke, command: string, ids: string[]): Promise<EvidenceState>`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+it("returns empty without issuing a command when there are no ids", async () => {
+  const invoke = vi.fn<Invoke>();
+  await expect(resolveEvidence(invoke, "operations.evidence", [])).resolves.toEqual({ status: "empty" });
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it("de-duplicates ids before requesting them", async () => {
+  const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: true, value: [] });
+  await resolveEvidence(invoke, "operations.evidence", ["a", "a", "b"]);
+  expect(invoke).toHaveBeenCalledWith(
+    expect.objectContaining({ payload: { evidence_ids: ["a", "b"] } })
+  );
+});
+
+it("maps each failure code to a distinct cause", async () => {
+  for (const [code, cause] of [
+    ["evidence_unknown_id", "missing"],
+    ["evidence_cross_scope", "scope"],
+    ["evidence_unverified", "unverified"]
+  ] as const) {
+    const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: false, error: { code } });
+    await expect(resolveEvidence(invoke, "operations.evidence", ["a"])).resolves.toEqual({
+      status: "unavailable",
+      cause
+    });
+  }
+});
+```
+
+The empty-list and duplicate rules are not stylistic: `EmptyRequest` and
+`DuplicateId` are hard errors in the Rust evidence store and would make the tab
+permanently unavailable.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/incidentEvidence.test.ts`
+Expected: FAIL with "resolveEvidence is not a function".
+
+- [ ] **Step 3: Implement resolveEvidence and the panel**
+
+`resolveEvidence` short-circuits on an empty list, de-duplicates while preserving
+order, calls the command, and maps error codes to causes. `IncidentEvidencePanel`
+is pure: it takes an `EvidenceState` and renders one of the four states with a
+distinct message per cause.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): resolve incident evidence with explicit failure states"
+```
+
+---
+
+### Task 10: Association Tabs
+
+**Files:**
+- Create: `ui/src/incident/incidentTabConfig.ts`, `ui/src/incident/IncidentTabs.tsx`
+- Test: `ui/src/incident/IncidentTabs.test.tsx`
+
+**Interfaces:**
+- Consumes: `resolveEvidence` and `EvidenceState` from Task 9.
+- Produces: `INCIDENT_TABS: IncidentTab[]` and `IncidentTabs({ incident, states, activeId, onSelect })`.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+it("reads the association set on every render rather than memoising it", () => {
+  const { rerender } = render(<IncidentTabs incident={incidentWithNoActions} {...rest} />);
+  expect(screen.getByRole("tab", { name: /vulnerabilit/i })).toHaveAttribute("aria-disabled", "true");
+
+  rerender(<IncidentTabs incident={incidentWithVulnerabilityEvidence} {...rest} />);
+  expect(screen.getByRole("tab", { name: /vulnerabilit/i })).toHaveAttribute("aria-disabled", "false");
+});
+
+it("distinguishes an empty tab from an unavailable one", () => {
+  render(<IncidentTabs {...rest} states={{ alerts: { status: "empty" }, topology: { status: "unavailable", cause: "missing" } }} />);
+  expect(screen.getByTestId("tab-alerts-empty")).toBeInTheDocument();
+  expect(screen.getByTestId("tab-topology-unavailable")).toBeInTheDocument();
+});
+```
+
+The first test is the guard required by the spec: Sprints 19 and 21 add
+identifiers to open incidents, so a registry that captured the set at mount would
+silently stop updating.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/IncidentTabs.test.tsx`
+Expected: FAIL with "IncidentTabs is not defined".
+
+- [ ] **Step 3: Implement the registry**
+
+```ts
+export type IncidentTab = {
+  id: "alerts" | "topology" | "changes" | "vulnerabilities";
+  labelKey: string;
+  select: (incident: IncidentDetail) => string[];
+  isEmpty: (ids: string[]) => boolean;
+};
+
+export const INCIDENT_TABS: IncidentTab[] = [
+  { id: "alerts", labelKey: "incident.tabs.alerts", select: (i) => i.signal_ids, isEmpty: (ids) => ids.length === 0 },
+  { id: "topology", labelKey: "incident.tabs.topology", select: (i) => i.evidence_ids, isEmpty: (ids) => ids.length === 0 },
+  { id: "changes", labelKey: "incident.tabs.changes", select: (i) => i.evidence_ids, isEmpty: (ids) => ids.length === 0 },
+  {
+    id: "vulnerabilities",
+    labelKey: "incident.tabs.vulnerabilities",
+    select: (i) => i.triggers.filter((t) => t.source_kind === "vulnerability_finding").flatMap((t) => t.evidence_ids),
+    isEmpty: (ids) => ids.length === 0
+  }
+];
+```
+
+`select` is called during render. Do not wrap it in `useMemo` keyed on anything
+but the incident itself. Adding a fifth tab must require a new array entry and
+nothing else.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): add the association tab registry"
+```
+
+---
+
+### Task 11: Comment Thread
+
+**Files:**
+- Create: `ui/src/incident/IncidentCommentThread.tsx`, `ui/src/incident/IncidentCommentThread.test.tsx`
+
+**Interfaces:**
+- Consumes: `INCIDENT_NOTE_MAXIMUM` from Task 4; the shell supplies `events` and an `onSubmit` that calls `incident.add_comment`.
+- Produces: `IncidentCommentThread({ events, onSubmit, submitting })` — pure.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+it("shows only commented events, oldest first", () => {
+  render(<I18nProvider i18n={i18n}><IncidentCommentThread events={incidentFixtureTimeline.events} onSubmit={() => {}} submitting={false} /></I18nProvider>);
+  const items = screen.getAllByRole("listitem");
+  expect(items).toHaveLength(2);
+  expect(items[0]).toHaveTextContent("checked the dashboards");
+  expect(screen.queryByText(/investigating/i)).not.toBeInTheDocument();
+});
+
+it("blocks an empty or oversized body before calling onSubmit", async () => {
+  const onSubmit = vi.fn();
+  render(/* same tree with onSubmit */);
+  const send = screen.getByRole("button", { name: /comment/i });
+
+  await userEvent.click(send);
+  expect(onSubmit).not.toHaveBeenCalled();
+
+  await userEvent.type(screen.getByRole("textbox"), "x".repeat(INCIDENT_NOTE_MAXIMUM + 1));
+  await userEvent.click(send);
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+it("renders a submitted comment optimistically", async () => {
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  render(/* same tree */);
+  await userEvent.type(screen.getByRole("textbox"), "paged the on-call");
+  await userEvent.click(screen.getByRole("button", { name: /comment/i }));
+  expect(screen.getByText("paged the on-call")).toBeInTheDocument();
+});
+```
+
+Comments are optimistic because they carry no version and only append. The
+version-carrying mutations in Task 12 are not.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/IncidentCommentThread.test.tsx`
+Expected: FAIL with "IncidentCommentThread is not defined".
+
+- [ ] **Step 3: Implement**
+
+Filter to `payload.kind === "commented"`, sort by `sequence`, render the
+composer with the length bound enforced before `onSubmit` fires.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): add the incident comment thread"
+```
+
+---
+
+### Task 12: Actions and Version-Conflict Recovery
+
+**Files:**
+- Create: `ui/src/incident/IncidentActions.tsx`, `ui/src/incident/IncidentActions.test.tsx`
+- Modify: `ui/src/incident/IncidentWorkspace.tsx`
+
+**Interfaces:**
+- Consumes: the shell's `invoke`, and the incident's `version`.
+- Produces: `IncidentActions({ incident, onTransition, onSeverity, onAssign, pending, conflict })` where `conflict` is `{ actor: string; at: string } | null`.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+it("does not render a status change until the command resolves", async () => {
+  let resolve: (value: unknown) => void = () => {};
+  const onTransition = vi.fn(() => new Promise((r) => { resolve = r; }));
+  render(/* actions with status "triage" */);
+
+  await userEvent.click(screen.getByRole("button", { name: /investigating/i }));
+  expect(screen.getByTestId("incident-status")).toHaveTextContent("triage");
+
+  await act(async () => { resolve({ ok: true }); });
+  await waitFor(() => expect(screen.getByTestId("incident-status")).toHaveTextContent("investigating"));
+});
+
+it("reports a version conflict, names the actor, and does not resubmit", async () => {
+  const onTransition = vi.fn().mockResolvedValue({ ok: false, error: { code: "incident_version_conflict" } });
+  render(/* actions with conflict wiring */);
+  await userEvent.click(screen.getByRole("button", { name: /investigating/i }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/changed by/i));
+  expect(screen.getByRole("alert")).toHaveTextContent(/not applied/i);
+  expect(onTransition).toHaveBeenCalledTimes(1);
+});
+```
+
+The last assertion is load-bearing: the spec forbids automatic resubmission
+because the responder's intent may no longer hold once the status has moved.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/IncidentActions.test.tsx`
+Expected: FAIL with "IncidentActions is not defined".
+
+- [ ] **Step 3: Implement**
+
+Render controls disabled while `pending`. On `incident_version_conflict`, the
+shell reloads the incident and passes `conflict`; the component renders an alert
+naming the actor and time and states the command was not applied. It offers a
+retry button that the responder must press.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): add incident actions with explicit conflict recovery"
+```
+
+---
+
+### Task 13: Incident Summary Card
+
+**Files:**
+- Create: `ui/src/incident/IncidentSummaryCard.tsx`, `ui/src/incident/IncidentSummaryCard.test.tsx`
+
+**Interfaces:**
+- Consumes: the selected incident from the shell.
+- Produces: `IncidentSummaryCard({ incident, onCopy })` and `buildSummaryMarkdown(incident): string`.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+const incident = incidentWithEvidenceAndComments;
+
+it("copies only the allowlisted fields", () => {
+  const markdown = buildSummaryMarkdown(incident);
+
+  for (const allowed of [incident.id, incident.summary, "S1", "investigating"]) {
+    expect(markdown).toContain(allowed);
+  }
+  for (const forbidden of ["checked the dashboards", "AKIA", "log excerpt", "Incident Commander"]) {
+    expect(markdown).not.toContain(forbidden);
+  }
+});
+
+it("is named the Incident Summary Card, not the Incident Card", () => {
+  render(<I18nProvider i18n={i18n}><IncidentSummaryCard incident={incident} onCopy={() => {}} /></I18nProvider>);
+  expect(screen.getByRole("heading")).toHaveTextContent(/summary card/i);
+});
+```
+
+`incidentWithEvidenceAndComments` is a fixture added in Task 6 and extended
+here: it carries at least one evidence reference whose excerpt contains the
+literal `AKIA`, one comment body `checked the dashboards`, and an
+`Incident Commander` role assignment, so the forbidden list actually has
+something to catch.
+
+```ts
+```
+
+The forbidden list is the spec's allowlist inverted: evidence excerpts, comment
+bodies, trigger payloads, role assignments and timeline reasons never leave.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- ui/src/incident/IncidentSummaryCard.test.tsx`
+Expected: FAIL with "buildSummaryMarkdown is not a function".
+
+- [ ] **Step 3: Implement**
+
+`buildSummaryMarkdown` reads exactly: id, summary, severity, derived severity,
+status, disposition, created and updated timestamps. It must be written as an
+explicit field list, never by serialising the incident object, so a new field
+added later is excluded by default rather than leaked by default.
+
+- [ ] **Step 4: Run tests, gate, and commit**
+
+```bash
+npm test -- ui/src/incident
+npm run format:check && npm run lint && npm run typecheck && npm test
+git add ui/src/incident ui/src/locales
+git commit -m "feat(incident): add the incident summary card with a copy allowlist"
+```
+
+---
+
+### Task 14: End-to-End Acceptance
+
+**Files:**
+- Create: `ui/src/incident/incident.acceptance.test.tsx`
+
+**Interfaces:**
+- Consumes: every component from Tasks 7-13.
+- Produces: nothing consumed by later tasks.
+
+- [ ] **Step 1: Write the acceptance test**
+
+```tsx
+it("lets a responder work one incident from triage to resolved without leaving the workspace", async () => {
+  const invoke = incidentInvokeMock();
+  render(<I18nProvider i18n={i18n}><IncidentWorkspace invoke={invoke} /></I18nProvider>);
+
+  await userEvent.click(await screen.findByRole("option", { name: /vulnerability/i }));
+  expect(await screen.findByTestId("tab-vulnerabilities")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: /vulnerabilit/i }));
+  expect(await screen.findByTestId("evidence-item")).toBeInTheDocument();
+
+  await userEvent.type(screen.getByRole("textbox", { name: /comment/i }), "confirmed the finding");
+  await userEvent.click(screen.getByRole("button", { name: /comment/i }));
+  expect(await screen.findByText("confirmed the finding")).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: /assign/i }));
+  await userEvent.click(screen.getByRole("button", { name: /investigating/i }));
+  await userEvent.click(screen.getByRole("button", { name: /resolved/i }));
+
+  await waitFor(() => expect(screen.getByTestId("incident-status")).toHaveTextContent("resolved"));
+
+  const names = invoke.mock.calls.map(([envelope]) => envelope.name);
+  expect(names).toContain("incident.add_comment");
+  expect(names).toContain("incident.assign_role");
+  expect(names).toContain("incident.transition");
+});
+```
+
+This covers the sprint exit criterion, including the vulnerability-finding case
+named in it.
+
+- [ ] **Step 2: Run it and fix what it finds**
+
+Run: `npm test -- ui/src/incident/incident.acceptance.test.tsx`
+Expected: PASS. Failures here are integration gaps between tasks, not new
+features — fix them in place.
+
+- [ ] **Step 3: Run every gate**
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test 2>&1 | tail -5
+npm run format:check && npm run lint && npm run typecheck && npm test
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add ui/src/incident
+git commit -m "test(incident): verify the sprint 16 workspace acceptance criterion"
+```
