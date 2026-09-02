@@ -24,6 +24,7 @@ const INCIDENT_MIGRATION: &str = include_str!("../../migrations/0006_incidents.s
 
 /// Maximum characters accepted for a stored creation fingerprint.
 const FINGERPRINT_MAXIMUM: usize = 200;
+const SEQUENCE_RETRY_BUDGET: usize = 3;
 
 /// Typed persistence failures.  Messages never carry provider payloads,
 /// credentials or report text.
@@ -47,6 +48,11 @@ pub enum IncidentStoreError {
     InvalidMutation(String),
     #[error("incident pagination arguments are invalid")]
     InvalidPagination,
+    #[error("the incident timeline is under write contention")]
+    WriteContention,
+    #[doc(hidden)]
+    #[error("incident timeline sequence collided while writing")]
+    SequenceCollision,
 }
 
 fn database_error(error: rusqlite::Error) -> IncidentStoreError {
@@ -63,6 +69,19 @@ fn corruption(kind: &str) -> IncidentStoreError {
 
 fn invalid(reason: &str) -> IncidentStoreError {
     IncidentStoreError::InvalidMutation(reason.into())
+}
+
+pub(crate) fn with_sequence_retry<T>(
+    budget: usize,
+    mut attempt: impl FnMut(usize) -> Result<T, IncidentStoreError>,
+) -> Result<T, IncidentStoreError> {
+    for tries in 0..budget {
+        match attempt(tries) {
+            Err(IncidentStoreError::SequenceCollision) => continue,
+            other => return other,
+        }
+    }
+    Err(IncidentStoreError::WriteContention)
 }
 
 /// One internal creation record.  The repository never receives raw IPC input:
@@ -223,121 +242,130 @@ impl SqliteIncidentRepository {
             .ok_or_else(|| invalid("a mutation appends at least one event"))?;
         let actor_id = first_event.actor_id;
         let occurred_at = first_event.occurred_at;
+        let first_event_request_id = first_event.request_id;
 
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database_error)?;
+        let incident_id = incident.id;
+        let mutation_template = mutation;
+        with_sequence_retry(SEQUENCE_RETRY_BUDGET, |_| {
+            let mut mutation = mutation_template.clone();
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(database_error)?;
 
-        let stored_incident = load_incident(&transaction, workspace_id, incident.id)?
-            .ok_or(IncidentStoreError::NotFound)?;
-        let replay_limit =
-            i64::try_from(
-                mutation.events.len().checked_add(1).ok_or_else(|| {
+            let stored_incident = load_incident(&transaction, workspace_id, incident_id)?
+                .ok_or(IncidentStoreError::NotFound)?;
+            let replay_limit =
+                i64::try_from(mutation.events.len().checked_add(1).ok_or_else(|| {
                     invalid("mutation event count exceeds the stored integer range")
-                })?,
-            )
-            .map_err(|_| invalid("mutation event count exceeds the stored integer range"))?;
-        let stored_events = load_events_for_request(
-            &transaction,
-            incident.id,
-            first_event.request_id,
-            replay_limit,
-        )?;
-        if !stored_events.is_empty() {
-            if stored_events.len() == mutation.events.len()
-                && stored_events
-                    .iter()
-                    .zip(&mutation.events)
-                    .all(|(stored, submitted)| event_content_matches(stored, submitted))
-            {
-                transaction.commit().map_err(database_error)?;
-                return Ok(IncidentMutation {
-                    incident: stored_incident,
-                    events: stored_events,
+                })?)
+                .map_err(|_| invalid("mutation event count exceeds the stored integer range"))?;
+            let stored_events = load_events_for_request(
+                &transaction,
+                incident_id,
+                first_event_request_id,
+                replay_limit,
+            )?;
+            if !stored_events.is_empty() {
+                if stored_events.len() == mutation.events.len()
+                    && stored_events
+                        .iter()
+                        .zip(&mutation.events)
+                        .all(|(stored, submitted)| event_content_matches(stored, submitted))
+                {
+                    transaction.commit().map_err(database_error)?;
+                    return Ok(IncidentMutation {
+                        incident: stored_incident,
+                        events: stored_events,
+                    });
+                }
+                return Err(IncidentStoreError::IdempotencyConflict);
+            }
+
+            let stored_version = stored_incident.version;
+            if stored_version != expected_version {
+                return Err(IncidentStoreError::VersionConflict {
+                    expected: expected_version,
+                    actual: stored_version,
                 });
             }
-            return Err(IncidentStoreError::IdempotencyConflict);
-        }
 
-        let stored_version = stored_incident.version;
-        if stored_version != expected_version {
-            return Err(IncidentStoreError::VersionConflict {
-                expected: expected_version,
-                actual: stored_version,
-            });
-        }
+            let highest = highest_event_sequence_in(&transaction, incident_id)?;
+            let allocated_base = highest.checked_add(1).ok_or_else(|| {
+                invalid("incident timeline sequence exceeds the stored integer range")
+            })?;
+            for (offset, event) in mutation.events.iter_mut().enumerate() {
+                let offset = u64::try_from(offset).map_err(|_| {
+                    invalid("mutation event count exceeds the stored integer range")
+                })?;
+                event.sequence = allocated_base.checked_add(offset).ok_or_else(|| {
+                    invalid("incident timeline sequence exceeds the stored integer range")
+                })?;
+            }
+            validate_events(&mutation, highest)?;
+            // The service preflights this lookup for a stable workspace-scoped
+            // error. Recheck after BEGIN IMMEDIATE: SQLite serializes competing
+            // writes, so a concurrent delete cannot invalidate the reference
+            // between validation and the current-state update.
+            let incident = &mutation.incident;
+            validate_duplicate_reference(&transaction, workspace_id, incident)?;
+            validate_role_principals(&transaction, workspace_id, &mutation)?;
 
-        let highest: i64 = transaction
-            .query_row(
-                "SELECT COALESCE(MAX(sequence), 0) FROM incident_timeline_event WHERE incident_id = ?1",
-                [incident.id.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(database_error)?;
-        let highest = u64::try_from(highest).map_err(|_| corruption("event sequence"))?;
-        validate_events(&mutation, highest)?;
-        // The service preflights this lookup for a stable workspace-scoped
-        // error. Recheck after BEGIN IMMEDIATE: SQLite serializes competing
-        // writes, so a concurrent delete cannot invalidate the reference
-        // between validation and the current-state update.
-        validate_duplicate_reference(&transaction, workspace_id, incident)?;
-        validate_role_principals(&transaction, workspace_id, &mutation)?;
+            let updated = transaction
+                .execute(
+                    "UPDATE incident SET
+                         scope_json = ?1,
+                         summary = ?2,
+                         business_impact_json = ?3,
+                         severity = ?4,
+                         derived_severity = ?5,
+                         severity_override_json = ?6,
+                         status = ?7,
+                         disposition = ?8,
+                         duplicate_of_incident_id = ?9,
+                         signal_ids_json = ?10,
+                         evidence_ids_json = ?11,
+                         hypothesis_ids_json = ?12,
+                         action_ids_json = ?13,
+                         version = ?14,
+                         updated_at = ?15
+                     WHERE id = ?16 AND workspace_id = ?17 AND version = ?18",
+                    rusqlite::params![
+                        to_json(&incident.scope)?,
+                        incident.summary,
+                        to_json(&incident.business_impact)?,
+                        severity_wire(&incident.current_severity()),
+                        severity_wire(&incident.derived_severity),
+                        optional_json(incident.severity_override.as_ref())?,
+                        status_wire(incident.status),
+                        incident.disposition.as_ref().map(disposition_wire),
+                        incident.duplicate_of_incident_id.map(|id| id.to_string()),
+                        to_json(&incident.signal_ids)?,
+                        to_json(&incident.evidence_ids)?,
+                        to_json(&incident.hypothesis_ids)?,
+                        to_json(&incident.action_ids)?,
+                        to_i64(incident.version)?,
+                        incident.updated_at.to_rfc3339(),
+                        incident.id.to_string(),
+                        workspace_id.to_string(),
+                        to_i64(expected_version)?,
+                    ],
+                )
+                .map_err(database_error)?;
+            if updated != 1 {
+                return Err(IncidentStoreError::VersionConflict {
+                    expected: expected_version,
+                    actual: stored_version,
+                });
+            }
 
-        let updated = transaction
-            .execute(
-                "UPDATE incident SET
-                     scope_json = ?1,
-                     summary = ?2,
-                     business_impact_json = ?3,
-                     severity = ?4,
-                     derived_severity = ?5,
-                     severity_override_json = ?6,
-                     status = ?7,
-                     disposition = ?8,
-                     duplicate_of_incident_id = ?9,
-                     signal_ids_json = ?10,
-                     evidence_ids_json = ?11,
-                     hypothesis_ids_json = ?12,
-                     action_ids_json = ?13,
-                     version = ?14,
-                     updated_at = ?15
-                 WHERE id = ?16 AND workspace_id = ?17 AND version = ?18",
-                rusqlite::params![
-                    to_json(&incident.scope)?,
-                    incident.summary,
-                    to_json(&incident.business_impact)?,
-                    severity_wire(&incident.current_severity()),
-                    severity_wire(&incident.derived_severity),
-                    optional_json(incident.severity_override.as_ref())?,
-                    status_wire(incident.status),
-                    incident.disposition.as_ref().map(disposition_wire),
-                    incident.duplicate_of_incident_id.map(|id| id.to_string()),
-                    to_json(&incident.signal_ids)?,
-                    to_json(&incident.evidence_ids)?,
-                    to_json(&incident.hypothesis_ids)?,
-                    to_json(&incident.action_ids)?,
-                    to_i64(incident.version)?,
-                    incident.updated_at.to_rfc3339(),
-                    incident.id.to_string(),
-                    workspace_id.to_string(),
-                    to_i64(expected_version)?,
-                ],
-            )
-            .map_err(database_error)?;
-        if updated != 1 {
-            return Err(IncidentStoreError::VersionConflict {
-                expected: expected_version,
-                actual: stored_version,
-            });
-        }
-
-        reconcile_roles(&transaction, incident, actor_id, occurred_at)?;
-        for event in &mutation.events {
-            insert_event(&transaction, event)?;
-        }
-        transaction.commit().map_err(database_error)?;
-        Ok(mutation)
+            reconcile_roles(&transaction, incident, actor_id, occurred_at)?;
+            for event in &mutation.events {
+                insert_event_for_mutation(&transaction, event)?;
+            }
+            transaction.commit().map_err(database_error)?;
+            Ok(mutation)
+        })
     }
 
     /// Loads the current incident and a bounded set of events for a mutation
@@ -384,15 +412,7 @@ impl SqliteIncidentRepository {
         if exists.is_none() {
             return Err(IncidentStoreError::NotFound);
         }
-        let highest: i64 = self
-            .connection
-            .query_row(
-                "SELECT COALESCE(MAX(sequence), 0) FROM incident_timeline_event WHERE incident_id = ?1",
-                [incident_id.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(database_error)?;
-        u64::try_from(highest).map_err(|_| corruption("event sequence"))
+        highest_event_sequence_in(&self.connection, incident_id)
     }
 
     /// Total stored incidents.  Read-only proof that a rejected command, a
@@ -638,6 +658,20 @@ fn validate_role_principals(
     Ok(())
 }
 
+fn highest_event_sequence_in(
+    connection: &Connection,
+    incident_id: IncidentId,
+) -> Result<u64, IncidentStoreError> {
+    let highest: i64 = connection
+        .query_row(
+            "SELECT COALESCE(MAX(sequence), 0) FROM incident_timeline_event WHERE incident_id = ?1",
+            [incident_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    u64::try_from(highest).map_err(|_| corruption("event sequence"))
+}
+
 /// Every appended event must continue the stored timeline contiguously, belong
 /// to this incident and appear exactly once per kind for one request.
 fn validate_events(
@@ -799,6 +833,27 @@ fn insert_event(
     connection: &Connection,
     event: &IncidentTimelineEvent,
 ) -> Result<(), IncidentStoreError> {
+    insert_event_with_error(connection, event, database_error)
+}
+
+fn insert_event_for_mutation(
+    connection: &Connection,
+    event: &IncidentTimelineEvent,
+) -> Result<(), IncidentStoreError> {
+    insert_event_with_error(connection, event, |error| {
+        if is_sequence_collision(&error) {
+            IncidentStoreError::SequenceCollision
+        } else {
+            database_error(error)
+        }
+    })
+}
+
+fn insert_event_with_error(
+    connection: &Connection,
+    event: &IncidentTimelineEvent,
+    map_error: impl FnOnce(rusqlite::Error) -> IncidentStoreError,
+) -> Result<(), IncidentStoreError> {
     connection
         .execute(
             "INSERT INTO incident_timeline_event (
@@ -818,8 +873,19 @@ fn insert_event(
                 to_json(&event.payload)?,
             ],
         )
-        .map_err(database_error)?;
+        .map_err(map_error)?;
     Ok(())
+}
+
+fn is_sequence_collision(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(sqlite_error, Some(message))
+            if sqlite_error.code == rusqlite::ErrorCode::ConstraintViolation
+                && message.contains(
+                    "incident_timeline_event.incident_id, incident_timeline_event.sequence",
+                )
+    )
 }
 
 /// Releases assignments the aggregate no longer holds and inserts the new
@@ -1323,5 +1389,45 @@ fn parse_event_kind(value: &str) -> Result<IncidentEventKind, IncidentStoreError
         "disposition_changed" => Ok(IncidentEventKind::DispositionChanged),
         "role_changed" => Ok(IncidentEventKind::RoleChanged),
         _ => Err(corruption("incident event kind")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_sequence_retries_report_write_contention_not_version_conflict() {
+        let mut attempts = 0;
+        let outcome: Result<(), IncidentStoreError> =
+            with_sequence_retry(SEQUENCE_RETRY_BUDGET, |_| {
+                attempts += 1;
+                Err(IncidentStoreError::SequenceCollision)
+            });
+
+        assert_eq!(
+            attempts, SEQUENCE_RETRY_BUDGET,
+            "the budget is respected exactly"
+        );
+        assert!(
+            matches!(outcome, Err(IncidentStoreError::WriteContention)),
+            "contention must not be reported as a version conflict: {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_succeeding_attempt_stops_retrying() {
+        let mut attempts = 0;
+        let outcome = with_sequence_retry(SEQUENCE_RETRY_BUDGET, |tries| {
+            attempts += 1;
+            if tries == 0 {
+                Err(IncidentStoreError::SequenceCollision)
+            } else {
+                Ok(7)
+            }
+        });
+
+        assert_eq!(attempts, 2);
+        assert!(matches!(outcome, Ok(7)));
     }
 }

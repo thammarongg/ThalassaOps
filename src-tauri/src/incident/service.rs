@@ -58,6 +58,8 @@ pub enum IncidentServiceError {
     IdempotencyConflict,
     #[error("the incident has been changed by another writer")]
     VersionConflict { expected: u64, actual: u64 },
+    #[error("the incident timeline is under write contention")]
+    WriteContention {},
     #[error("the incident was not found in this workspace")]
     NotFound,
     #[error("incident domain validation failed")]
@@ -78,6 +80,7 @@ impl From<IncidentStoreError> for IncidentServiceError {
             IncidentStoreError::VersionConflict { expected, actual } => {
                 Self::VersionConflict { expected, actual }
             }
+            IncidentStoreError::WriteContention => Self::WriteContention {},
             other => Self::Store(other),
         }
     }
@@ -213,11 +216,11 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.transition(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.transition,
             context.actor_id,
             context.request_id,
@@ -242,11 +245,11 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.set_severity(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -271,7 +274,7 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         if matches!(
             request.command.disposition,
@@ -286,7 +289,7 @@ impl IncidentService {
         }
         let mutation = incident.set_disposition(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -310,7 +313,7 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         if let IncidentRoleCommand::Assign { principal_id, .. }
         | IncidentRoleCommand::Replace { principal_id, .. } = &request.command
@@ -322,7 +325,7 @@ impl IncidentService {
         }
         let mutation = incident.assign_role(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -418,15 +421,15 @@ impl IncidentService {
         }
     }
 
-    /// Loads the current aggregate for a write and allocates the sequence its
-    /// first appended event will take.  The version is checked here so a stale
-    /// writer is rejected before the aggregate builds any event.
+    /// Loads the current aggregate for a write. The version is checked here so
+    /// a stale writer is rejected before the aggregate builds any event;
+    /// timeline sequence allocation happens inside the repository transaction.
     fn load_for_write(
         &self,
         context: &IncidentCommandContext,
         incident_id: IncidentId,
         expected_version: u64,
-    ) -> Result<(Incident, u64), IncidentServiceError> {
+    ) -> Result<Incident, IncidentServiceError> {
         if context.request_id.is_nil() || context.actor_id.is_nil() {
             return Err(IncidentServiceError::InvalidRequest);
         }
@@ -438,13 +441,7 @@ impl IncidentService {
                 actual: incident.version,
             });
         }
-        let highest = self
-            .repository
-            .highest_event_sequence(workspace_id, incident_id)?;
-        let first_event_sequence = highest
-            .checked_add(1)
-            .ok_or(IncidentServiceError::InvalidRequest)?;
-        Ok((incident, first_event_sequence))
+        Ok(incident)
     }
 
     fn resolve_input(

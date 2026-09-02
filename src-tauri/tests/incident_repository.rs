@@ -487,7 +487,47 @@ fn stale_version_does_not_append_or_overwrite() {
 }
 
 #[test]
-fn event_sequences_must_continue_the_stored_timeline() {
+fn a_stale_event_sequence_is_reallocated_rather_than_rejected() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let highest_before = fixture
+        .repository
+        .highest_event_sequence(WORKSPACE, created.incident.id)
+        .expect("highest event sequence is readable");
+
+    let mut mutation = triage_mutation(&created.incident, SECOND_REQUEST, highest_before + 1);
+    // Simulate a stale read: the caller believes sequence 1 is still free.
+    mutation.events[0].sequence = 1;
+
+    fixture
+        .repository
+        .apply_mutation(mutation)
+        .expect("a stale sequence is reallocated, not rejected");
+
+    let sequences: Vec<u64> = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events
+        .iter()
+        .map(|event| event.sequence)
+        .collect();
+    let mut unique = sequences.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(sequences.len(), unique.len(), "sequences must stay unique");
+    assert_eq!(
+        *sequences.iter().max().expect("at least one event"),
+        highest_before + 1,
+        "the appended event takes the next free sequence"
+    );
+}
+
+#[test]
+fn event_sequences_are_reallocated_to_continue_the_stored_timeline() {
     let mut fixture = fixture();
     let created = fixture
         .repository
@@ -495,24 +535,19 @@ fn event_sequences_must_continue_the_stored_timeline() {
         .expect("creation succeeds");
 
     let gapped = triage_mutation(&created.incident, SECOND_REQUEST, 9);
-    let error = fixture
+    let applied = fixture
         .repository
         .apply_mutation(gapped)
-        .expect_err("a gapped sequence is rejected");
-    assert!(matches!(
-        error,
-        IncidentStoreError::InvalidEventSequence { .. }
-    ));
+        .expect("a caller-provided sequence is advisory");
+    assert_eq!(applied.events[0].sequence, 3);
 
-    assert_eq!(
-        fixture
-            .repository
-            .timeline(WORKSPACE, created.incident.id, None, 100)
-            .expect("timeline is readable")
-            .events
-            .len(),
-        2
-    );
+    let events = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events;
+    let sequences: Vec<u64> = events.iter().map(|event| event.sequence).collect();
+    assert_eq!(sequences, vec![1, 2, 3]);
 }
 
 #[test]

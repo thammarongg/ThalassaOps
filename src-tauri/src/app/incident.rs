@@ -507,6 +507,7 @@ fn incident_service_error(error: IncidentServiceError) -> IpcError {
         IncidentServiceError::VersionConflict { .. } => {
             invalid_incident_request("incident_version_conflict")
         }
+        IncidentServiceError::WriteContention {} => incident_unavailable(),
         IncidentServiceError::IdempotencyConflict => {
             invalid_incident_request("incident_idempotency_conflict")
         }
