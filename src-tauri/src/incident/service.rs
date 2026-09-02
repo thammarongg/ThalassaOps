@@ -10,10 +10,12 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use thalassa_domain::{
     validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCreateCommand,
-    IncidentCreateRequest, IncidentDispositionRequest, IncidentError, IncidentId, IncidentMutation,
-    IncidentPage, IncidentReport, IncidentRoleAssignment, IncidentRoleRequest,
-    IncidentSeverityRequest, IncidentSourceKind, IncidentTimelinePage, IncidentTransitionRequest,
-    IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope, INCIDENT_SUMMARY_MAXIMUM,
+    IncidentCreateRequest, IncidentDispositionRequest, IncidentError, IncidentEventKind,
+    IncidentId, IncidentMutation, IncidentPage, IncidentReport, IncidentRoleAssignment,
+    IncidentRoleCommand, IncidentRoleRequest, IncidentSeverityCommand, IncidentSeverityRequest,
+    IncidentSourceKind, IncidentTimelineEvent, IncidentTimelinePage, IncidentTimelinePayload,
+    IncidentTransitionRequest, IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope,
+    INCIDENT_SUMMARY_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -52,7 +54,7 @@ pub enum IncidentServiceError {
     ScopeMismatch,
     #[error("the submitted text contains sensitive or unsafe content")]
     SensitiveContent,
-    #[error("the creation request identifier was reused with different content")]
+    #[error("the request identifier was reused with different content")]
     IdempotencyConflict,
     #[error("the incident has been changed by another writer")]
     VersionConflict { expected: u64, actual: u64 },
@@ -97,6 +99,12 @@ pub struct IncidentService {
     resolver: IncidentSourceResolver,
     repository: SqliteIncidentRepository,
 }
+
+// A lifecycle transition can append status, severity and role events.  The
+// extra row requested by `replay_if_matching` is a truncation sentinel, so a
+// malformed longer request cannot be mistaken for a complete replay.
+const TRANSITION_REPLAY_MAX_EVENTS: usize = 3;
+const SINGLE_EVENT_REPLAY_MAX_EVENTS: usize = 1;
 
 impl IncidentService {
     pub fn new(resolver: IncidentSourceResolver, repository: SqliteIncidentRepository) -> Self {
@@ -197,6 +205,14 @@ impl IncidentService {
         context: &IncidentCommandContext,
         request: IncidentTransitionRequest,
     ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            TRANSITION_REPLAY_MAX_EVENTS,
+            |events| transition_replay_matches(events, &request.transition),
+        )? {
+            return Ok(replayed);
+        }
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.transition(
@@ -218,6 +234,14 @@ impl IncidentService {
         context: &IncidentCommandContext,
         request: IncidentSeverityRequest,
     ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            SINGLE_EVENT_REPLAY_MAX_EVENTS,
+            |events| severity_replay_matches(events, &request.command),
+        )? {
+            return Ok(replayed);
+        }
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.set_severity(
@@ -239,6 +263,14 @@ impl IncidentService {
         context: &IncidentCommandContext,
         request: IncidentDispositionRequest,
     ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            SINGLE_EVENT_REPLAY_MAX_EVENTS,
+            |events| disposition_replay_matches(events, &request.command),
+        )? {
+            return Ok(replayed);
+        }
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         if matches!(
@@ -270,6 +302,14 @@ impl IncidentService {
         context: &IncidentCommandContext,
         request: IncidentRoleRequest,
     ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            SINGLE_EVENT_REPLAY_MAX_EVENTS,
+            |events| role_replay_matches(events, &request.command),
+        )? {
+            return Ok(replayed);
+        }
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.assign_role(
@@ -327,6 +367,47 @@ impl IncidentService {
             .workspace_id
             .filter(|id| !id.is_nil())
             .ok_or(IncidentServiceError::ScopeMismatch)
+    }
+
+    fn replay_if_matching<F>(
+        &mut self,
+        context: &IncidentCommandContext,
+        incident_id: IncidentId,
+        max_events: usize,
+        matches_content: F,
+    ) -> Result<Option<IncidentMutation>, IncidentServiceError>
+    where
+        F: FnOnce(&[IncidentTimelineEvent]) -> bool,
+    {
+        if context.request_id.is_nil() || context.actor_id.is_nil() {
+            return Err(IncidentServiceError::InvalidRequest);
+        }
+        let event_limit = i64::try_from(
+            max_events
+                .checked_add(1)
+                .ok_or(IncidentServiceError::InvalidRequest)?,
+        )
+        .map_err(|_| IncidentServiceError::InvalidRequest)?;
+        let workspace_id = self.workspace(context)?;
+        let Some(replayed) = self.repository.replay_mutation(
+            workspace_id,
+            incident_id,
+            context.request_id,
+            event_limit,
+        )?
+        else {
+            return Ok(None);
+        };
+        if replayed.events.len() <= max_events
+            && replayed.events.iter().all(|event| {
+                event.actor_id == context.actor_id && event.policy_version == context.policy_version
+            })
+            && matches_content(&replayed.events)
+        {
+            Ok(Some(replayed))
+        } else {
+            Err(IncidentServiceError::IdempotencyConflict)
+        }
     }
 
     /// Loads the current aggregate for a write and allocates the sequence its
@@ -411,6 +492,113 @@ impl IncidentService {
                 scope,
                 &context.workspace_scope,
             ),
+        }
+    }
+}
+
+// Mutation commands do not have a second persisted fingerprint.  Their typed
+// timeline payloads already retain the command's content, so matching those
+// payloads keeps the audit row as the single source of truth.
+fn transition_replay_matches(
+    events: &[IncidentTimelineEvent],
+    transition: &thalassa_domain::IncidentTransition,
+) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    event.kind == IncidentEventKind::StatusTransitioned
+        && event.reason.is_none()
+        && matches!(
+            &event.payload,
+            IncidentTimelinePayload::StatusTransitioned(payload)
+                if payload.transition == *transition
+        )
+}
+
+fn severity_replay_matches(
+    events: &[IncidentTimelineEvent],
+    command: &IncidentSeverityCommand,
+) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    if events.len() != 1 || event.kind != IncidentEventKind::SeverityChanged {
+        return false;
+    }
+    let IncidentTimelinePayload::SeverityChanged(payload) = &event.payload else {
+        return false;
+    };
+    match command {
+        IncidentSeverityCommand::Reassess {
+            business_impact,
+            reason,
+        } => {
+            event.reason.as_deref() == Some(reason)
+                && payload.current_impact == *business_impact
+                && payload.current_override.is_none()
+        }
+        IncidentSeverityCommand::Override {
+            selected,
+            reason,
+            evidence_ids,
+        } => payload
+            .current_override
+            .as_ref()
+            .is_some_and(|override_detail| {
+                event.reason.as_deref() == Some(reason)
+                    && override_detail.selected == *selected
+                    && override_detail.reason == *reason
+                    && override_detail.evidence_ids == *evidence_ids
+            }),
+    }
+}
+
+fn disposition_replay_matches(
+    events: &[IncidentTimelineEvent],
+    command: &thalassa_domain::IncidentDispositionCommand,
+) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    if events.len() != 1 || event.kind != IncidentEventKind::DispositionChanged {
+        return false;
+    }
+    let IncidentTimelinePayload::DispositionChanged(payload) = &event.payload else {
+        return false;
+    };
+    event.reason.as_deref() == Some(command.reason.as_str())
+        && payload.current == command.disposition
+        && payload.duplicate_of_incident_id == command.duplicate_of_incident_id
+}
+
+fn role_replay_matches(events: &[IncidentTimelineEvent], command: &IncidentRoleCommand) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    if events.len() != 1 || event.kind != IncidentEventKind::RoleChanged {
+        return false;
+    }
+    if event.reason.is_some() {
+        return false;
+    }
+    let IncidentTimelinePayload::RoleChanged(payload) = &event.payload else {
+        return false;
+    };
+    match command {
+        IncidentRoleCommand::Assign { role, principal_id } => {
+            payload.role == *role
+                && payload.previous_principal_ids.is_empty()
+                && payload.current_principal_id == Some(*principal_id)
+        }
+        IncidentRoleCommand::Replace { role, principal_id } => {
+            payload.role == *role
+                && payload.previous_principal_ids.len() == 1
+                && payload.current_principal_id == Some(*principal_id)
+        }
+        IncidentRoleCommand::Release { role, principal_id } => {
+            payload.role == *role
+                && payload.previous_principal_ids == vec![*principal_id]
+                && payload.current_principal_id.is_none()
         }
     }
 }

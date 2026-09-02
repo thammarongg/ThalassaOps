@@ -2,10 +2,10 @@
 //!
 //! Current state and the ordered timeline events of one accepted mutation are
 //! written in a single immediate transaction: a failure leaves neither partial
-//! current state nor orphan audit rows.  Creation is idempotent on the
-//! originating request ID; every later write is optimistic on
-//! `expected_version`.  The repository never calls a wall clock — every stored
-//! timestamp comes from the aggregate mutation it is given.
+//! current state nor orphan audit rows.  Creation and later writes are
+//! idempotent on their originating request IDs; a new later write is also
+//! optimistic on `expected_version`.  The repository never calls a wall clock —
+//! every stored timestamp comes from the aggregate mutation it is given.
 
 use std::path::Path;
 
@@ -39,7 +39,7 @@ pub enum IncidentStoreError {
     NotFound,
     #[error("incident version {expected} is stale; stored version is {actual}")]
     VersionConflict { expected: u64, actual: u64 },
-    #[error("creation request identifier was reused with different content")]
+    #[error("the request identifier was reused with different content")]
     IdempotencyConflict,
     #[error("incident event sequence {actual} does not continue the timeline at {expected}")]
     InvalidEventSequence { expected: u64, actual: u64 },
@@ -203,7 +203,8 @@ impl SqliteIncidentRepository {
     }
 
     /// Applies one accepted post-creation mutation under optimistic
-    /// concurrency: current state, role reconciliation and appended events all
+    /// concurrency: a matching request replay returns the stored result;
+    /// otherwise current state, role reconciliation and appended events all
     /// commit together or not at all.
     pub fn apply_mutation(
         &mut self,
@@ -228,18 +229,38 @@ impl SqliteIncidentRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database_error)?;
 
-        let stored_version: Option<i64> = transaction
-            .query_row(
-                "SELECT version FROM incident WHERE id = ?1 AND workspace_id = ?2",
-                [incident.id.to_string(), workspace_id.to_string()],
-                |row| row.get(0),
+        let stored_incident = load_incident(&transaction, workspace_id, incident.id)?
+            .ok_or(IncidentStoreError::NotFound)?;
+        let replay_limit =
+            i64::try_from(
+                mutation.events.len().checked_add(1).ok_or_else(|| {
+                    invalid("mutation event count exceeds the stored integer range")
+                })?,
             )
-            .optional()
-            .map_err(database_error)?;
-        let stored_version = match stored_version {
-            Some(version) => u64::try_from(version).map_err(|_| corruption("incident version"))?,
-            None => return Err(IncidentStoreError::NotFound),
-        };
+            .map_err(|_| invalid("mutation event count exceeds the stored integer range"))?;
+        let stored_events = load_events_for_request(
+            &transaction,
+            incident.id,
+            first_event.request_id,
+            replay_limit,
+        )?;
+        if !stored_events.is_empty() {
+            if stored_events.len() == mutation.events.len()
+                && stored_events
+                    .iter()
+                    .zip(&mutation.events)
+                    .all(|(stored, submitted)| event_content_matches(stored, submitted))
+            {
+                transaction.commit().map_err(database_error)?;
+                return Ok(IncidentMutation {
+                    incident: stored_incident,
+                    events: stored_events,
+                });
+            }
+            return Err(IncidentStoreError::IdempotencyConflict);
+        }
+
+        let stored_version = stored_incident.version;
         if stored_version != expected_version {
             return Err(IncidentStoreError::VersionConflict {
                 expected: expected_version,
@@ -316,6 +337,31 @@ impl SqliteIncidentRepository {
         }
         transaction.commit().map_err(database_error)?;
         Ok(mutation)
+    }
+
+    /// Loads the current incident and a bounded set of events for a mutation
+    /// request.  The service uses this before checking `expected_version`, so
+    /// a retry can replay after the first write has advanced the version.
+    pub(crate) fn replay_mutation(
+        &mut self,
+        workspace_id: Uuid,
+        incident_id: IncidentId,
+        request_id: Uuid,
+        event_limit: i64,
+    ) -> Result<Option<IncidentMutation>, IncidentStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database_error)?;
+        let incident = load_incident(&transaction, workspace_id, incident_id)?
+            .ok_or(IncidentStoreError::NotFound)?;
+        let events = load_events_for_request(&transaction, incident_id, request_id, event_limit)?;
+        transaction.commit().map_err(database_error)?;
+        if events.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(IncidentMutation { incident, events }))
+        }
     }
 
     /// Highest stored event sequence for one incident, scoped to the caller's
@@ -555,6 +601,21 @@ fn validate_events(
             .ok_or_else(|| invalid("event sequence overflow"))?;
     }
     Ok(())
+}
+
+/// Compares the immutable request content of two events while ignoring values
+/// regenerated for a retry (the event row ID, sequence and timestamp).
+fn event_content_matches(
+    stored: &IncidentTimelineEvent,
+    submitted: &IncidentTimelineEvent,
+) -> bool {
+    stored.incident_id == submitted.incident_id
+        && stored.kind == submitted.kind
+        && stored.actor_id == submitted.actor_id
+        && stored.reason == submitted.reason
+        && stored.request_id == submitted.request_id
+        && stored.policy_version == submitted.policy_version
+        && stored.payload == submitted.payload
 }
 
 fn insert_incident(

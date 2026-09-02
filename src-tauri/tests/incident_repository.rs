@@ -249,6 +249,59 @@ fn idempotent_creation_replay_returns_only_creation_events() {
 }
 
 #[test]
+fn applying_a_mutation_again_replays_the_original_result_without_writing() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&created.incident, SECOND_REQUEST, 3))
+        .expect("first mutation succeeds");
+    let before_retry = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable");
+
+    let replayed = fixture
+        .repository
+        .apply_mutation(applied.clone())
+        .expect("the mutation retry is replayed");
+
+    assert_eq!(replayed, applied);
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn applying_a_mutation_request_id_with_different_content_is_rejected() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&created.incident, SECOND_REQUEST, 3))
+        .expect("first mutation succeeds");
+    let mut divergent = applied.clone();
+    divergent.events[0].actor_id = Uuid::from_u128(0xa9);
+
+    let error = fixture
+        .repository
+        .apply_mutation(divergent)
+        .expect_err("a diverging mutation retry is rejected");
+
+    assert!(matches!(error, IncidentStoreError::IdempotencyConflict));
+}
+
+#[test]
 fn replaying_a_request_id_with_a_different_fingerprint_is_rejected() {
     let mut fixture = fixture();
     let record = creation_record(WORKSPACE, CREATE_REQUEST, 1);

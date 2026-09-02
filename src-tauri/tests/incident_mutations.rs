@@ -43,6 +43,10 @@ fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 8, 28, 9, 0, 0).unwrap()
 }
 
+fn later() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 8, 28, 10, 0, 0).unwrap()
+}
+
 fn business_impact() -> BusinessImpact {
     impact_at(ImpactLevel::High, "Checkout unavailable for customers")
 }
@@ -326,6 +330,253 @@ fn closed_can_reopen_but_stale_writer_cannot_mutate() {
         .expect("incident is readable");
     assert_eq!(stored.status, IncidentStatus::Reopened);
     assert_eq!(stored.disposition, None);
+}
+
+#[test]
+fn retrying_a_status_transition_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentTransitionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        transition: triage(),
+    };
+
+    let first = fixture
+        .service
+        .transition(&context, request.clone())
+        .expect("transition is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .transition(&retry_context, request)
+        .expect("the transition retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_severity_update_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentSeverityRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentSeverityCommand::Reassess {
+            business_impact: impact_at(ImpactLevel::Critical, "Checkout unavailable everywhere"),
+            reason: "Impact widened to every production region".into(),
+        },
+    };
+
+    let first = fixture
+        .service
+        .set_severity(&context, request.clone())
+        .expect("severity update is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .set_severity(&retry_context, request)
+        .expect("the severity retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_disposition_update_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentDispositionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentDispositionCommand {
+            disposition: Some(IncidentDisposition::Suppressed),
+            duplicate_of_incident_id: None,
+            reason: "Suppressed during the planned maintenance window".into(),
+        },
+    };
+
+    let first = fixture
+        .service
+        .set_disposition(&context, request.clone())
+        .expect("disposition update is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .set_disposition(&retry_context, request)
+        .expect("the disposition retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_role_assignment_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentRoleRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentRoleCommand::Assign {
+            role: IncidentRole::IncidentCommander,
+            principal_id: COMMANDER,
+        },
+    };
+
+    let first = fixture
+        .service
+        .assign_role(&context, request.clone())
+        .expect("role assignment is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .assign_role(&retry_context, request)
+        .expect("the role retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn a_different_request_id_at_a_stale_version_still_conflicts() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let first_context = fixture.context();
+    fixture
+        .service
+        .transition(
+            &first_context,
+            IncidentTransitionRequest {
+                incident_id: incident.id,
+                expected_version: incident.version,
+                transition: triage(),
+            },
+        )
+        .expect("transition is accepted");
+
+    let stale_context = fixture.context();
+    let result = fixture.service.transition(
+        &stale_context,
+        IncidentTransitionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            transition: triage(),
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(IncidentServiceError::VersionConflict {
+            expected: 1,
+            actual: 2
+        })
+    ));
+}
+
+#[test]
+fn reusing_a_mutation_request_id_with_different_content_is_rejected() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentTransitionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        transition: triage(),
+    };
+    fixture
+        .service
+        .transition(&context, request)
+        .expect("transition is accepted");
+
+    let divergent_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+    let result = fixture.service.transition(
+        &divergent_context,
+        IncidentTransitionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            transition: IncidentTransition::Triage(TriageContext {
+                business_impact: impact_at(
+                    ImpactLevel::Critical,
+                    "Checkout unavailable everywhere",
+                ),
+                owner: ACTOR,
+                duplicate_checked: true,
+            }),
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(IncidentServiceError::IdempotencyConflict)
+    ));
 }
 
 #[test]
