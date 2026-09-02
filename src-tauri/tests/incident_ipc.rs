@@ -206,7 +206,7 @@ fn every_write_command_advances_the_lifecycle_under_ipc() {
                 "action": "assign",
                 "details": {
                     "role": "incident_commander",
-                    "principal_id": Uuid::from_u128(0xa1)
+                    "principal_id": state.bootstrap.principal.id
                 }
             }
         }),

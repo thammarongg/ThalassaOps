@@ -6,13 +6,14 @@
 use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 use thalassa_domain::{
-    BusinessImpact, ClosedContext, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
-    IncidentCreateRequest, IncidentDisposition, IncidentDispositionCommand,
-    IncidentDispositionRequest, IncidentEventKind, IncidentRole, IncidentRoleAssignmentInput,
-    IncidentRoleCommand, IncidentRoleRequest, IncidentSeverity, IncidentSeverityCommand,
-    IncidentSeverityRequest, IncidentSourceKind, IncidentStatus, IncidentTransition,
-    IncidentTransitionRequest, IncidentTriggerInput, InvestigatingContext, MitigatingContext,
-    MonitoringContext, PrincipalId, ReopenedContext, ResolvedContext, ResourceScope, TriageContext,
+    BusinessImpact, ClosedContext, EnterpriseIdentity, ImpactDimensions, ImpactLevel,
+    ImpactTrajectory, Incident, IncidentCreateRequest, IncidentDisposition,
+    IncidentDispositionCommand, IncidentDispositionRequest, IncidentEventKind, IncidentRole,
+    IncidentRoleAssignmentInput, IncidentRoleCommand, IncidentRoleRequest, IncidentSeverity,
+    IncidentSeverityCommand, IncidentSeverityRequest, IncidentSourceKind, IncidentStatus,
+    IncidentTransition, IncidentTransitionRequest, IncidentTriggerInput, InvestigatingContext,
+    Membership, MitigatingContext, MonitoringContext, Principal, PrincipalId, PrincipalKind,
+    ReopenedContext, ResolvedContext, ResourceScope, TriageContext,
 };
 use thalassaops::correlation::SourceRecordStore;
 use thalassaops::incident::{
@@ -29,6 +30,7 @@ const OTHER_WORKSPACE: Uuid = Uuid::from_u128(0x99);
 const ACTOR: PrincipalId = Uuid::from_u128(0xa0);
 const COMMANDER: PrincipalId = Uuid::from_u128(0xa1);
 const STAKEHOLDER: PrincipalId = Uuid::from_u128(0xa4);
+const OTHER_WORKSPACE_PRINCIPAL: PrincipalId = Uuid::from_u128(0xae);
 const POLICY_VERSION: u64 = 7;
 
 fn workspace_scope() -> ResourceScope {
@@ -41,6 +43,10 @@ fn environment_scope() -> ResourceScope {
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 8, 28, 9, 0, 0).unwrap()
+}
+
+fn later() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 8, 28, 10, 0, 0).unwrap()
 }
 
 fn business_impact() -> BusinessImpact {
@@ -74,12 +80,60 @@ struct Fixture {
     next_request: u128,
 }
 
+fn seed_principals(database_path: &std::path::Path, workspace_id: Uuid, ids: &[PrincipalId]) {
+    let connection = rusqlite::Connection::open(database_path).expect("the database opens");
+    connection
+        .execute_batch(include_str!("../migrations/0001_local_workspace.sql"))
+        .expect("the identity schema applies");
+    for principal_id in ids {
+        let principal = Principal {
+            id: *principal_id,
+            kind: PrincipalKind::Local,
+            display_name: format!("Principal {principal_id}"),
+            identity: EnterpriseIdentity {
+                subject: principal_id.to_string(),
+                ..Default::default()
+            },
+            created_at: now(),
+        };
+        let membership = Membership::workspace_owner(*principal_id, workspace_id);
+        connection
+            .execute(
+                "INSERT INTO principals (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&principal).expect("principal serializes")
+                ],
+            )
+            .expect("principal inserts");
+        connection
+            .execute(
+                "INSERT INTO memberships (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&membership).expect("membership serializes")
+                ],
+            )
+            .expect("membership inserts");
+    }
+}
+
 impl Fixture {
     fn new() -> Self {
         let directory = TempDir::new().expect("temporary directory");
         let repository =
             SqliteIncidentRepository::open(&directory.path().join("incidents.sqlite3"))
                 .expect("repository opens");
+        seed_principals(
+            &directory.path().join("incidents.sqlite3"),
+            WORKSPACE,
+            &[ACTOR, COMMANDER, STAKEHOLDER],
+        );
+        seed_principals(
+            &directory.path().join("incidents.sqlite3"),
+            OTHER_WORKSPACE,
+            &[OTHER_WORKSPACE_PRINCIPAL],
+        );
         let mut records = SourceRecordStore::with_scope(environment_scope());
         let resolver = IncidentSourceResolver::replay(&environment_scope(), &mut records)
             .expect("the committed replay catalog resolves");
@@ -161,6 +215,34 @@ impl Fixture {
         let incident = self.transition(&incident, monitoring());
         let incident = self.transition(&incident, resolved());
         self.transition(&incident, closed())
+    }
+
+    fn persisted_counts(&self, incident_id: Uuid) -> (i64, i64, i64) {
+        let connection =
+            rusqlite::Connection::open(self._directory.path().join("incidents.sqlite3"))
+                .expect("the incident store opens");
+        let incident: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM incident WHERE id = ?1",
+                [incident_id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("incident count succeeds");
+        let roles: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM incident_role_assignment WHERE incident_id = ?1",
+                [incident_id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("role count succeeds");
+        let events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM incident_timeline_event WHERE incident_id = ?1",
+                [incident_id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("timeline count succeeds");
+        (incident, roles, events)
     }
 }
 
@@ -326,6 +408,376 @@ fn closed_can_reopen_but_stale_writer_cannot_mutate() {
         .expect("incident is readable");
     assert_eq!(stored.status, IncidentStatus::Reopened);
     assert_eq!(stored.disposition, None);
+}
+
+#[test]
+fn retrying_a_status_transition_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentTransitionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        transition: triage(),
+    };
+
+    let first = fixture
+        .service
+        .transition(&context, request.clone())
+        .expect("transition is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .transition(&retry_context, request)
+        .expect("the transition retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_severity_update_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentSeverityRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentSeverityCommand::Reassess {
+            business_impact: impact_at(ImpactLevel::Critical, "Checkout unavailable everywhere"),
+            reason: "Impact widened to every production region".into(),
+        },
+    };
+
+    let first = fixture
+        .service
+        .set_severity(&context, request.clone())
+        .expect("severity update is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .set_severity(&retry_context, request)
+        .expect("the severity retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_disposition_update_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentDispositionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentDispositionCommand {
+            disposition: Some(IncidentDisposition::Suppressed),
+            duplicate_of_incident_id: None,
+            reason: "Suppressed during the planned maintenance window".into(),
+        },
+    };
+
+    let first = fixture
+        .service
+        .set_disposition(&context, request.clone())
+        .expect("disposition update is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .set_disposition(&retry_context, request)
+        .expect("the disposition retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn retrying_a_role_assignment_replays_the_original_mutation() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentRoleRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        command: IncidentRoleCommand::Assign {
+            role: IncidentRole::IncidentCommander,
+            principal_id: COMMANDER,
+        },
+    };
+
+    let first = fixture
+        .service
+        .assign_role(&context, request.clone())
+        .expect("role assignment is accepted");
+    let before_retry = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let retry_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+
+    let replayed = fixture
+        .service
+        .assign_role(&retry_context, request)
+        .expect("the role retry is replayed");
+
+    assert_eq!(replayed, first);
+    assert_eq!(replayed.incident.version, 2);
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn assigning_an_unknown_principal_is_rejected_without_writing() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let before_timeline = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let before_counts = fixture.persisted_counts(incident.id);
+    let context = fixture.context();
+
+    let result = fixture.service.assign_role(
+        &context,
+        IncidentRoleRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            command: IncidentRoleCommand::Assign {
+                role: IncidentRole::IncidentCommander,
+                principal_id: Uuid::from_u128(0xdead),
+            },
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture
+            .service
+            .get(&fixture.read_context(), incident.id)
+            .expect("incident is readable"),
+        incident
+    );
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_timeline
+    );
+    assert_eq!(fixture.persisted_counts(incident.id), before_counts);
+}
+
+#[test]
+fn replacing_with_an_unknown_principal_is_rejected_without_writing() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let before_timeline = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let before_counts = fixture.persisted_counts(incident.id);
+    let context = fixture.context();
+
+    let result = fixture.service.assign_role(
+        &context,
+        IncidentRoleRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            command: IncidentRoleCommand::Replace {
+                role: IncidentRole::Owner,
+                principal_id: Uuid::from_u128(0xbeef),
+            },
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture
+            .service
+            .get(&fixture.read_context(), incident.id)
+            .expect("incident is readable"),
+        incident
+    );
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_timeline
+    );
+    assert_eq!(fixture.persisted_counts(incident.id), before_counts);
+}
+
+#[test]
+fn assigning_a_cross_workspace_principal_is_rejected_without_writing() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let before_timeline = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let before_counts = fixture.persisted_counts(incident.id);
+    let context = fixture.context();
+
+    let result = fixture.service.assign_role(
+        &context,
+        IncidentRoleRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            command: IncidentRoleCommand::Assign {
+                role: IncidentRole::IncidentCommander,
+                principal_id: OTHER_WORKSPACE_PRINCIPAL,
+            },
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture
+            .service
+            .get(&fixture.read_context(), incident.id)
+            .expect("incident is readable"),
+        incident
+    );
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_timeline
+    );
+    assert_eq!(fixture.persisted_counts(incident.id), before_counts);
+}
+
+#[test]
+fn a_different_request_id_at_a_stale_version_still_conflicts() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let first_context = fixture.context();
+    fixture
+        .service
+        .transition(
+            &first_context,
+            IncidentTransitionRequest {
+                incident_id: incident.id,
+                expected_version: incident.version,
+                transition: triage(),
+            },
+        )
+        .expect("transition is accepted");
+
+    let stale_context = fixture.context();
+    let result = fixture.service.transition(
+        &stale_context,
+        IncidentTransitionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            transition: triage(),
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(IncidentServiceError::VersionConflict {
+            expected: 1,
+            actual: 2
+        })
+    ));
+}
+
+#[test]
+fn reusing_a_mutation_request_id_with_different_content_is_rejected() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentTransitionRequest {
+        incident_id: incident.id,
+        expected_version: incident.version,
+        transition: triage(),
+    };
+    fixture
+        .service
+        .transition(&context, request)
+        .expect("transition is accepted");
+
+    let divergent_context = IncidentCommandContext {
+        now: later(),
+        ..context
+    };
+    let result = fixture.service.transition(
+        &divergent_context,
+        IncidentTransitionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            transition: IncidentTransition::Triage(TriageContext {
+                business_impact: impact_at(
+                    ImpactLevel::Critical,
+                    "Checkout unavailable everywhere",
+                ),
+                owner: ACTOR,
+                duplicate_checked: true,
+            }),
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(IncidentServiceError::IdempotencyConflict)
+    ));
 }
 
 #[test]

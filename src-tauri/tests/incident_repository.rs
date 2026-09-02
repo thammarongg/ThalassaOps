@@ -6,15 +6,16 @@
 use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 use thalassa_domain::{
-    BusinessImpact, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
+    BusinessImpact, EnterpriseIdentity, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
     IncidentCreateCommand, IncidentMutation, IncidentReport, IncidentRole, IncidentRoleAssignment,
-    IncidentSourceKind, IncidentStatus, IncidentTransition, IncidentTrigger, PrincipalId,
-    ResourceScope, TriageContext,
+    IncidentSourceKind, IncidentStatus, IncidentTransition, IncidentTrigger, Membership, Principal,
+    PrincipalId, PrincipalKind, ResourceScope, TriageContext,
 };
 use thalassaops::incident::{IncidentCreationRecord, IncidentStoreError, SqliteIncidentRepository};
 use uuid::Uuid;
 
 const ACTOR: PrincipalId = Uuid::from_u128(0xa0);
+const REPLACEMENT: PrincipalId = Uuid::from_u128(0xa9);
 const CREATE_REQUEST: Uuid = Uuid::from_u128(0xb0);
 const SECOND_REQUEST: Uuid = Uuid::from_u128(0xb1);
 const THIRD_REQUEST: Uuid = Uuid::from_u128(0xb2);
@@ -125,10 +126,49 @@ struct Fixture {
     repository: SqliteIncidentRepository,
 }
 
+fn seed_principals(database_path: &std::path::Path, workspace_id: Uuid, ids: &[PrincipalId]) {
+    let connection = rusqlite::Connection::open(database_path).expect("the database opens");
+    connection
+        .execute_batch(include_str!("../migrations/0001_local_workspace.sql"))
+        .expect("the identity schema applies");
+    for principal_id in ids {
+        let principal = Principal {
+            id: *principal_id,
+            kind: PrincipalKind::Local,
+            display_name: format!("Principal {principal_id}"),
+            identity: EnterpriseIdentity {
+                subject: principal_id.to_string(),
+                ..Default::default()
+            },
+            created_at: now(),
+        };
+        let membership = Membership::workspace_owner(*principal_id, workspace_id);
+        connection
+            .execute(
+                "INSERT INTO principals (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&principal).expect("principal serializes")
+                ],
+            )
+            .expect("principal inserts");
+        connection
+            .execute(
+                "INSERT INTO memberships (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&membership).expect("membership serializes")
+                ],
+            )
+            .expect("membership inserts");
+    }
+}
+
 fn fixture() -> Fixture {
     let directory = TempDir::new().expect("temporary directory");
     let database_path = directory.path().join("incidents.sqlite3");
     let repository = SqliteIncidentRepository::open(&database_path).expect("repository opens");
+    seed_principals(&database_path, WORKSPACE, &[ACTOR, REPLACEMENT]);
     Fixture {
         _directory: directory,
         database_path,
@@ -246,6 +286,59 @@ fn idempotent_creation_replay_returns_only_creation_events() {
         .expect("replayed creation succeeds");
 
     assert_eq!(replayed.events, first.events);
+}
+
+#[test]
+fn applying_a_mutation_again_replays_the_original_result_without_writing() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&created.incident, SECOND_REQUEST, 3))
+        .expect("first mutation succeeds");
+    let before_retry = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable");
+
+    let replayed = fixture
+        .repository
+        .apply_mutation(applied.clone())
+        .expect("the mutation retry is replayed");
+
+    assert_eq!(replayed, applied);
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_retry
+    );
+}
+
+#[test]
+fn applying_a_mutation_request_id_with_different_content_is_rejected() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&created.incident, SECOND_REQUEST, 3))
+        .expect("first mutation succeeds");
+    let mut divergent = applied.clone();
+    divergent.events[0].actor_id = Uuid::from_u128(0xa9);
+
+    let error = fixture
+        .repository
+        .apply_mutation(divergent)
+        .expect_err("a diverging mutation retry is rejected");
+
+    assert!(matches!(error, IncidentStoreError::IdempotencyConflict));
 }
 
 #[test]
@@ -556,7 +649,7 @@ fn role_history_is_retained_while_current_state_holds_active_roles() {
             3,
             thalassa_domain::IncidentRoleCommand::Replace {
                 role: IncidentRole::Owner,
-                principal_id: Uuid::from_u128(0xa9),
+                principal_id: REPLACEMENT,
             },
             ACTOR,
             SECOND_REQUEST,
@@ -586,4 +679,74 @@ fn role_history_is_retained_while_current_state_holds_active_roles() {
         )
         .expect("count succeeds");
     assert_eq!(released, 1, "the replaced owner keeps an audit row");
+}
+
+#[test]
+fn role_mutation_rejects_an_unknown_principal_inside_the_write_transaction() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let mutation = created
+        .incident
+        .assign_role(
+            created.incident.version,
+            3,
+            thalassa_domain::IncidentRoleCommand::Assign {
+                role: IncidentRole::IncidentCommander,
+                principal_id: Uuid::from_u128(0xbeef),
+            },
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("role assignment is valid at the domain boundary");
+
+    let connection = rusqlite::Connection::open(&fixture.database_path).expect("database opens");
+    let before_roles: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM incident_role_assignment WHERE incident_id = ?1",
+            [created.incident.id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("role count succeeds");
+    let before_events: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM incident_timeline_event WHERE incident_id = ?1",
+            [created.incident.id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("timeline count succeeds");
+
+    let error = fixture
+        .repository
+        .apply_mutation(mutation)
+        .expect_err("unknown principals are rejected by the repository transaction");
+    assert!(matches!(error, IncidentStoreError::NotFound));
+    assert_eq!(
+        fixture
+            .repository
+            .get(WORKSPACE, created.incident.id)
+            .expect("incident is readable"),
+        created.incident
+    );
+
+    let after_roles: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM incident_role_assignment WHERE incident_id = ?1",
+            [created.incident.id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("role count succeeds");
+    let after_events: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM incident_timeline_event WHERE incident_id = ?1",
+            [created.incident.id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("timeline count succeeds");
+    assert_eq!(after_roles, before_roles);
+    assert_eq!(after_events, before_events);
 }

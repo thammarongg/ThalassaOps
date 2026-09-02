@@ -2,10 +2,10 @@
 //!
 //! Current state and the ordered timeline events of one accepted mutation are
 //! written in a single immediate transaction: a failure leaves neither partial
-//! current state nor orphan audit rows.  Creation is idempotent on the
-//! originating request ID; every later write is optimistic on
-//! `expected_version`.  The repository never calls a wall clock — every stored
-//! timestamp comes from the aggregate mutation it is given.
+//! current state nor orphan audit rows.  Creation and later writes are
+//! idempotent on their originating request IDs; a new later write is also
+//! optimistic on `expected_version`.  The repository never calls a wall clock —
+//! every stored timestamp comes from the aggregate mutation it is given.
 
 use std::path::Path;
 
@@ -16,7 +16,7 @@ use thalassa_domain::{
     IncidentId, IncidentMutation, IncidentPage, IncidentRole, IncidentRoleAssignment,
     IncidentSeverity, IncidentSeverityOverride, IncidentSourceKind, IncidentStatus,
     IncidentTimelineEvent, IncidentTimelinePage, IncidentTimelinePayload, IncidentTrigger,
-    IncidentTriggerId, PrincipalId, ResourceScope, SignalId, INCIDENT_CURSOR_MAXIMUM,
+    IncidentTriggerId, Membership, PrincipalId, ResourceScope, SignalId, INCIDENT_CURSOR_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -39,7 +39,7 @@ pub enum IncidentStoreError {
     NotFound,
     #[error("incident version {expected} is stale; stored version is {actual}")]
     VersionConflict { expected: u64, actual: u64 },
-    #[error("creation request identifier was reused with different content")]
+    #[error("the request identifier was reused with different content")]
     IdempotencyConflict,
     #[error("incident event sequence {actual} does not continue the timeline at {expected}")]
     InvalidEventSequence { expected: u64, actual: u64 },
@@ -203,7 +203,8 @@ impl SqliteIncidentRepository {
     }
 
     /// Applies one accepted post-creation mutation under optimistic
-    /// concurrency: current state, role reconciliation and appended events all
+    /// concurrency: a matching request replay returns the stored result;
+    /// otherwise current state, role reconciliation and appended events all
     /// commit together or not at all.
     pub fn apply_mutation(
         &mut self,
@@ -228,18 +229,38 @@ impl SqliteIncidentRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database_error)?;
 
-        let stored_version: Option<i64> = transaction
-            .query_row(
-                "SELECT version FROM incident WHERE id = ?1 AND workspace_id = ?2",
-                [incident.id.to_string(), workspace_id.to_string()],
-                |row| row.get(0),
+        let stored_incident = load_incident(&transaction, workspace_id, incident.id)?
+            .ok_or(IncidentStoreError::NotFound)?;
+        let replay_limit =
+            i64::try_from(
+                mutation.events.len().checked_add(1).ok_or_else(|| {
+                    invalid("mutation event count exceeds the stored integer range")
+                })?,
             )
-            .optional()
-            .map_err(database_error)?;
-        let stored_version = match stored_version {
-            Some(version) => u64::try_from(version).map_err(|_| corruption("incident version"))?,
-            None => return Err(IncidentStoreError::NotFound),
-        };
+            .map_err(|_| invalid("mutation event count exceeds the stored integer range"))?;
+        let stored_events = load_events_for_request(
+            &transaction,
+            incident.id,
+            first_event.request_id,
+            replay_limit,
+        )?;
+        if !stored_events.is_empty() {
+            if stored_events.len() == mutation.events.len()
+                && stored_events
+                    .iter()
+                    .zip(&mutation.events)
+                    .all(|(stored, submitted)| event_content_matches(stored, submitted))
+            {
+                transaction.commit().map_err(database_error)?;
+                return Ok(IncidentMutation {
+                    incident: stored_incident,
+                    events: stored_events,
+                });
+            }
+            return Err(IncidentStoreError::IdempotencyConflict);
+        }
+
+        let stored_version = stored_incident.version;
         if stored_version != expected_version {
             return Err(IncidentStoreError::VersionConflict {
                 expected: expected_version,
@@ -261,6 +282,7 @@ impl SqliteIncidentRepository {
         // writes, so a concurrent delete cannot invalidate the reference
         // between validation and the current-state update.
         validate_duplicate_reference(&transaction, workspace_id, incident)?;
+        validate_role_principals(&transaction, workspace_id, &mutation)?;
 
         let updated = transaction
             .execute(
@@ -318,6 +340,31 @@ impl SqliteIncidentRepository {
         Ok(mutation)
     }
 
+    /// Loads the current incident and a bounded set of events for a mutation
+    /// request.  The service uses this before checking `expected_version`, so
+    /// a retry can replay after the first write has advanced the version.
+    pub(crate) fn replay_mutation(
+        &mut self,
+        workspace_id: Uuid,
+        incident_id: IncidentId,
+        request_id: Uuid,
+        event_limit: i64,
+    ) -> Result<Option<IncidentMutation>, IncidentStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database_error)?;
+        let incident = load_incident(&transaction, workspace_id, incident_id)?
+            .ok_or(IncidentStoreError::NotFound)?;
+        let events = load_events_for_request(&transaction, incident_id, request_id, event_limit)?;
+        transaction.commit().map_err(database_error)?;
+        if events.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(IncidentMutation { incident, events }))
+        }
+    }
+
     /// Highest stored event sequence for one incident, scoped to the caller's
     /// workspace.  The next accepted mutation numbers its events from here.
     pub fn highest_event_sequence(
@@ -366,6 +413,17 @@ impl SqliteIncidentRepository {
     ) -> Result<Incident, IncidentStoreError> {
         load_incident(&self.connection, workspace_id, incident_id)?
             .ok_or(IncidentStoreError::NotFound)
+    }
+
+    /// Resolves a principal against the caller's workspace membership.  A
+    /// principal in another workspace is intentionally indistinguishable from
+    /// an unknown principal to callers.
+    pub(crate) fn ensure_principal_in_workspace(
+        &self,
+        workspace_id: Uuid,
+        principal_id: PrincipalId,
+    ) -> Result<(), IncidentStoreError> {
+        ensure_principal_in_workspace(&self.connection, workspace_id, principal_id)
     }
 
     /// Reads one bounded page of workspace incidents, newest update first.
@@ -522,6 +580,64 @@ fn validate_duplicate_reference(
     Ok(())
 }
 
+fn ensure_principal_in_workspace(
+    connection: &Connection,
+    workspace_id: Uuid,
+    principal_id: PrincipalId,
+) -> Result<(), IncidentStoreError> {
+    let principal_exists: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM principals WHERE id = ?1",
+            [principal_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    if principal_exists.is_none() {
+        return Err(IncidentStoreError::NotFound);
+    }
+
+    let membership_document: Option<String> = connection
+        .query_row(
+            "SELECT document_json FROM memberships WHERE id = ?1",
+            [principal_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let Some(membership_document) = membership_document else {
+        return Err(IncidentStoreError::NotFound);
+    };
+    let membership: Membership = from_json(&membership_document, "membership")?;
+    let workspace_scope = ResourceScope {
+        workspace_id: Some(workspace_id),
+        ..Default::default()
+    };
+    if membership.principal_id != principal_id || !membership.grants(&workspace_scope) {
+        return Err(IncidentStoreError::NotFound);
+    }
+    Ok(())
+}
+
+fn validate_role_principals(
+    connection: &Connection,
+    workspace_id: Uuid,
+    mutation: &IncidentMutation,
+) -> Result<(), IncidentStoreError> {
+    for event in &mutation.events {
+        if event.kind != IncidentEventKind::RoleChanged {
+            continue;
+        }
+        let IncidentTimelinePayload::RoleChanged(payload) = &event.payload else {
+            continue;
+        };
+        if let Some(principal_id) = payload.current_principal_id {
+            ensure_principal_in_workspace(connection, workspace_id, principal_id)?;
+        }
+    }
+    Ok(())
+}
+
 /// Every appended event must continue the stored timeline contiguously, belong
 /// to this incident and appear exactly once per kind for one request.
 fn validate_events(
@@ -555,6 +671,21 @@ fn validate_events(
             .ok_or_else(|| invalid("event sequence overflow"))?;
     }
     Ok(())
+}
+
+/// Compares the immutable request content of two events while ignoring values
+/// regenerated for a retry (the event row ID, sequence and timestamp).
+fn event_content_matches(
+    stored: &IncidentTimelineEvent,
+    submitted: &IncidentTimelineEvent,
+) -> bool {
+    stored.incident_id == submitted.incident_id
+        && stored.kind == submitted.kind
+        && stored.actor_id == submitted.actor_id
+        && stored.reason == submitted.reason
+        && stored.request_id == submitted.request_id
+        && stored.policy_version == submitted.policy_version
+        && stored.payload == submitted.payload
 }
 
 fn insert_incident(
