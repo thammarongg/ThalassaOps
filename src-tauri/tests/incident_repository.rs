@@ -228,6 +228,27 @@ fn create_is_atomic_idempotent_and_timeline_is_immutable() {
 }
 
 #[test]
+fn idempotent_creation_replay_returns_only_creation_events() {
+    let mut fixture = fixture();
+    let record = creation_record(WORKSPACE, CREATE_REQUEST, 1);
+    let first = fixture
+        .repository
+        .create(record.clone())
+        .expect("first creation succeeds");
+    fixture
+        .repository
+        .apply_mutation(triage_mutation(&first.incident, SECOND_REQUEST, 3))
+        .expect("later mutation succeeds");
+
+    let replayed = fixture
+        .repository
+        .create(record)
+        .expect("replayed creation succeeds");
+
+    assert_eq!(replayed.events, first.events);
+}
+
+#[test]
 fn replaying_a_request_id_with_a_different_fingerprint_is_rejected() {
     let mut fixture = fixture();
     let record = creation_record(WORKSPACE, CREATE_REQUEST, 1);
@@ -246,7 +267,7 @@ fn replaying_a_request_id_with_a_different_fingerprint_is_rejected() {
 }
 
 #[test]
-fn a_failed_creation_leaves_no_state_and_no_orphan_events() {
+fn a_preflight_creation_failure_leaves_no_state_and_no_orphan_events() {
     let mut fixture = fixture();
     let mut record = creation_record(WORKSPACE, CREATE_REQUEST, 1);
     // Two triggers claiming one source identity violate the stored uniqueness
@@ -276,6 +297,46 @@ fn a_failed_creation_leaves_no_state_and_no_orphan_events() {
             })
             .expect("count succeeds");
         assert_eq!(count, 0, "{table} should be empty after a failed creation");
+    }
+}
+
+#[test]
+fn a_post_insert_creation_failure_rolls_back_every_incident_row() {
+    let mut fixture = fixture();
+    let mut record = creation_record(WORKSPACE, CREATE_REQUEST, 1);
+    // The first role insert succeeds, then the second role violates the
+    // active-exclusive-role index. This failure is deliberately after the
+    // incident, triggers and first role have been inserted in the transaction.
+    let duplicate_role = record.mutation.incident.roles[0].clone();
+    record.mutation.incident.roles.push(duplicate_role);
+    let incident_id = record.mutation.incident.id;
+
+    let error = fixture
+        .repository
+        .create(record)
+        .expect_err("a duplicate active role fails after partial inserts");
+    assert!(matches!(error, IncidentStoreError::Database(_)));
+
+    assert!(matches!(
+        fixture.repository.get(WORKSPACE, incident_id),
+        Err(IncidentStoreError::NotFound)
+    ));
+    let connection = rusqlite::Connection::open(&fixture.database_path).expect("database opens");
+    for table in [
+        "incident",
+        "incident_trigger",
+        "incident_role_assignment",
+        "incident_timeline_event",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count succeeds");
+        assert_eq!(
+            count, 0,
+            "{table} should be unchanged after a post-insert failure"
+        );
     }
 }
 

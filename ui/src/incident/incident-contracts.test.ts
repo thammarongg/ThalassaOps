@@ -233,6 +233,65 @@ describe("incident wire guards", () => {
     expect(isIncidentTriggerInput({ kind: "correlation_candidate", source_id: "x" })).toBe(false);
     expect(isIncidentTriggerInput({ kind: "alert" })).toBe(false);
   });
+
+  test("incident guards reject malformed RFC3339 timestamps", () => {
+    const malformedTimestamp = "not-a-timestamp";
+    expect(isIncident({ ...incidentFixture, created_at: malformedTimestamp })).toBe(false);
+    expect(isIncident({ ...incidentFixture, updated_at: malformedTimestamp })).toBe(false);
+    expect(
+      isIncident({
+        ...incidentFixture,
+        roles: [{ ...incidentFixture.roles[0], assigned_at: malformedTimestamp }]
+      })
+    ).toBe(false);
+    expect(
+      isIncidentTimelinePage({
+        ...timelineFixture,
+        events: [{ ...timelineFixture.events[0], occurred_at: malformedTimestamp }]
+      })
+    ).toBe(false);
+    expect(
+      isIncidentTriggerInput({
+        kind: "user_report",
+        reporter_id: ACTOR,
+        observed_at: malformedTimestamp,
+        summary: "customers report checkout failures",
+        scope
+      })
+    ).toBe(false);
+    expect(
+      isIncidentTriggerInput({
+        kind: "manual_report",
+        observed_at: malformedTimestamp,
+        summary: "checkout is returning errors",
+        scope
+      })
+    ).toBe(false);
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [
+          timelineEvent(EVENT_ONE, 1, "status_transitioned", {
+            kind: "status_transitioned",
+            data: {
+              from: "monitoring",
+              to: "resolved",
+              transition: {
+                target: "resolved",
+                context: {
+                  resolution_summary: "Checkout recovered",
+                  evidence_ids: ["evidence-checkout"],
+                  impact_ended_at: malformedTimestamp
+                }
+              }
+            }
+          })
+        ],
+        next_sequence: null
+      })
+    ).toBe(false);
+  });
+
   test("timeline events must match the page incident and payload kinds", () => {
     const foreignIncident = timelineEvent(EVENT_TWO, 2, "triggers_attached", {
       kind: "triggers_attached",

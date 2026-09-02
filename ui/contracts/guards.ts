@@ -1369,7 +1369,7 @@ const isIncidentRoleAssignment = (value: unknown): value is IncidentRoleAssignme
   isEnum(value.role, incidentRoles) &&
   isNonNilUuid(value.principal_id) &&
   isNonNilUuid(value.assigned_by) &&
-  isNonEmptyString(value.assigned_at);
+  isTimestamp(value.assigned_at);
 
 
 const isIncidentTransition = (value: unknown): value is IncidentTransition => {
@@ -1428,7 +1428,7 @@ const isIncidentTransition = (value: unknown): value is IncidentTransition => {
         isSafeBoundedText(context.resolution_summary, 4000) &&
         isIncidentEvidenceIds(context.evidence_ids) &&
         context.evidence_ids.length > 0 &&
-        isNonEmptyString(context.impact_ended_at)
+        isTimestamp(context.impact_ended_at)
       );
     case "closed":
       return (
@@ -1569,7 +1569,7 @@ const isIncidentTimelineEvent = (value: unknown): value is IncidentTimelineEvent
   isNonNilUuid(value.actor_id) &&
   (value.reason === null ||
     (isSafeBoundedText(value.reason, 4000) as boolean)) &&
-  isNonEmptyString(value.occurred_at) &&
+  isTimestamp(value.occurred_at) &&
   isNonNilUuid(value.request_id) &&
   typeof value.policy_version === "number" &&
   Number.isSafeInteger(value.policy_version) &&
@@ -1643,8 +1643,8 @@ export const isIncident = (value: unknown): value is Incident =>
   typeof value.version === "number" &&
   Number.isSafeInteger(value.version) &&
   value.version >= 1 &&
-  isNonEmptyString(value.created_at) &&
-  isNonEmptyString(value.updated_at) &&
+  isTimestamp(value.created_at) &&
+  isTimestamp(value.updated_at) &&
   /*
    * Frozen cross-field invariants: the owning team matches the scope, the
    * derived severity is exactly recomputed from the assessment, override
@@ -1712,7 +1712,7 @@ export const isIncidentTriggerInput = (
         "scope"
       ]) &&
       isNonNilUuid(value.reporter_id) &&
-      isNonEmptyString(value.observed_at) &&
+      isTimestamp(value.observed_at) &&
       isSafeBoundedText(value.summary, 200) &&
       isScope(value.scope)
     );
@@ -1720,7 +1720,7 @@ export const isIncidentTriggerInput = (
   if (value.kind === "manual_report") {
     return (
       hasExactKeys(value, ["kind", "observed_at", "summary", "scope"]) &&
-      isNonEmptyString(value.observed_at) &&
+      isTimestamp(value.observed_at) &&
       isSafeBoundedText(value.summary, 200) &&
       isScope(value.scope)
     );

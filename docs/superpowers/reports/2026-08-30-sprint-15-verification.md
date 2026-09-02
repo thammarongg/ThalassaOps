@@ -32,10 +32,35 @@ timeline stays ordered with non-nil actor attribution throughout.
 | --- | --- |
 | `cargo test -p thalassa-domain --test incident_contracts --test incident_lifecycle` | exit=0, 13 + 22 = 35 passed |
 | `cargo test -p thalassa-ipc --test contracts` | exit=0, 8 passed |
-| `cargo test -p thalassaops --test incident_repository --test incident_creation --test incident_mutations --test incident_ipc --test incident_acceptance` | exit=0, 10 + 8 + 8 + 9 + 5 = 40 passed |
-| `npm test -- ui/src/incident/incident-contracts.test.ts` | exit=0, 10 passed |
+| `cargo test -p thalassaops --test incident_repository --test incident_creation --test incident_mutations --test incident_ipc --test incident_acceptance` | exit=0, 12 + 8 + 11 + 9 + 5 = 45 passed |
+| `npm test -- ui/src/incident/incident-contracts.test.ts` | exit=0, 11 passed |
 
 `node_modules` was present, so `npm ci` was not required.
+
+## Review finding follow-up
+
+The review gate identified four defects, all resolved and covered by focused
+tests:
+
+1. Duplicate dispositions now resolve their target through the application
+   service in the caller's workspace before the aggregate mutation. The
+   repository repeats that check inside its `BEGIN IMMEDIATE` transaction, so
+   a concurrent delete cannot invalidate the reference before the current
+   state and immutable event commit; unknown and cross-workspace targets map
+   to stable `NotFound` and write nothing.
+2. Every incident timestamp guard now uses `isTimestamp`, including role
+   assignment `assigned_at`, resolved-transition `impact_ended_at`, timeline
+   `occurred_at`, incident `created_at`/`updated_at`, and report
+   `observed_at`. The incident contract suite rejects malformed timestamps at
+   each affected public guard surface.
+3. Rollback coverage retains the original preflight mismatch case and adds a
+   separate failure after the transaction has inserted the incident, triggers
+   and first role. A duplicate active exclusive role then fails, and the test
+   proves incident, trigger, role-assignment and timeline-event counts are all
+   unchanged.
+4. Idempotent creation replay now loads only events carrying the creation
+   request ID, bounded by the original creation event count, so replaying a
+   long-lived incident does not return its later timeline.
 
 ## Acceptance evidence (`src-tauri/tests/incident_acceptance.rs`, 5 tests)
 
@@ -75,13 +100,13 @@ Every gate was run unpiped with a real exit code.
 | --- | --- |
 | `cargo fmt --all -- --check` | exit=0 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | exit=0 |
-| `cargo test --workspace` | exit=0, 529 tests passed across 51 suites, 0 failed |
+| `cargo test --workspace` | exit=0, 534 tests passed across 51 suites, 0 failed |
 | `npm run format:check` | exit=0 |
 | `npm run lint` | exit=0 |
 | `npm run typecheck` | exit=0 |
-| `npm test` | exit=0, 132 tests passed across 17 files, 0 failed |
+| `npm test` | exit=0, 133 tests passed across 17 files, 0 failed |
 
-Observed totals: 529 Rust tests, 132 frontend tests.
+Observed totals: 534 Rust tests, 133 frontend tests.
 
 ## Pre-existing gate failures repaired inside Task 8
 

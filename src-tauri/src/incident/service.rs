@@ -241,6 +241,17 @@ impl IncidentService {
     ) -> Result<IncidentMutation, IncidentServiceError> {
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
+        if matches!(
+            request.command.disposition,
+            Some(thalassa_domain::IncidentDisposition::Duplicate)
+        ) {
+            if let Some(duplicate_of) = request.command.duplicate_of_incident_id {
+                // Duplicate references are resolved in the caller workspace before the
+                // aggregate can append the immutable disposition event.
+                self.repository
+                    .get(self.workspace(context)?, duplicate_of)?;
+            }
+        }
         let mutation = incident.set_disposition(
             request.expected_version,
             first_event_sequence,

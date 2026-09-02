@@ -171,7 +171,14 @@ impl SqliteIncidentRepository {
             let stored_id = parse_uuid(&stored_id, "incident id")?;
             let incident = load_incident(&transaction, workspace_id, stored_id)?
                 .ok_or(IncidentStoreError::NotFound)?;
-            let events = load_events(&transaction, stored_id, 0, i64::MAX)?;
+            let creation_event_limit = i64::try_from(record.mutation.events.len())
+                .map_err(|_| invalid("creation event count exceeds the stored integer range"))?;
+            let events = load_events_for_request(
+                &transaction,
+                stored_id,
+                create_request_id,
+                creation_event_limit,
+            )?;
             transaction.commit().map_err(database_error)?;
             return Ok(IncidentMutation { incident, events });
         }
@@ -249,6 +256,11 @@ impl SqliteIncidentRepository {
             .map_err(database_error)?;
         let highest = u64::try_from(highest).map_err(|_| corruption("event sequence"))?;
         validate_events(&mutation, highest)?;
+        // The service preflights this lookup for a stable workspace-scoped
+        // error. Recheck after BEGIN IMMEDIATE: SQLite serializes competing
+        // writes, so a concurrent delete cannot invalidate the reference
+        // between validation and the current-state update.
+        validate_duplicate_reference(&transaction, workspace_id, incident)?;
 
         let updated = transaction
             .execute(
@@ -483,6 +495,31 @@ fn workspace_of(incident: &Incident) -> Result<Uuid, IncidentStoreError> {
         .workspace_id
         .filter(|id| !id.is_nil())
         .ok_or_else(|| invalid("incident scope carries a workspace"))
+}
+
+fn validate_duplicate_reference(
+    connection: &Connection,
+    workspace_id: Uuid,
+    incident: &Incident,
+) -> Result<(), IncidentStoreError> {
+    if incident.disposition != Some(IncidentDisposition::Duplicate) {
+        return Ok(());
+    }
+    let duplicate_of = incident
+        .duplicate_of_incident_id
+        .ok_or_else(|| invalid("duplicate disposition carries a target incident"))?;
+    let exists: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM incident WHERE id = ?1 AND workspace_id = ?2",
+            [duplicate_of.to_string(), workspace_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    if exists.is_none() {
+        return Err(IncidentStoreError::NotFound);
+    }
+    Ok(())
 }
 
 /// Every appended event must continue the stored timeline contiguously, belong
@@ -874,6 +911,19 @@ fn hydrate_incident(
     })
 }
 
+type RawEventRow = (
+    String,
+    String,
+    i64,
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    i64,
+    String,
+);
+
 fn load_events(
     connection: &Connection,
     incident_id: IncidentId,
@@ -892,25 +942,57 @@ fn load_events(
     let rows = statement
         .query_map(
             rusqlite::params![incident_id.to_string(), after_sequence, limit],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, i64>(8)?,
-                    row.get::<_, String>(9)?,
-                ))
-            },
+            read_event_row,
         )
-        .map_err(database_error)?
+        .map_err(database_error)?;
+    decode_event_rows(rows)
+}
+
+fn load_events_for_request(
+    connection: &Connection,
+    incident_id: IncidentId,
+    request_id: Uuid,
+    limit: i64,
+) -> Result<Vec<IncidentTimelineEvent>, IncidentStoreError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, incident_id, sequence, event_kind, actor_id, reason,
+                    occurred_at, request_id, policy_version, payload_json
+             FROM incident_timeline_event
+             WHERE incident_id = ?1 AND request_id = ?2
+             ORDER BY sequence ASC LIMIT ?3",
+        )
+        .map_err(database_error)?;
+    let rows = statement
+        .query_map(
+            rusqlite::params![incident_id.to_string(), request_id.to_string(), limit],
+            read_event_row,
+        )
+        .map_err(database_error)?;
+    decode_event_rows(rows)
+}
+
+fn read_event_row(row: &Row<'_>) -> rusqlite::Result<RawEventRow> {
+    Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, i64>(2)?,
+        row.get::<_, String>(3)?,
+        row.get::<_, String>(4)?,
+        row.get::<_, Option<String>>(5)?,
+        row.get::<_, String>(6)?,
+        row.get::<_, String>(7)?,
+        row.get::<_, i64>(8)?,
+        row.get::<_, String>(9)?,
+    ))
+}
+
+fn decode_event_rows(
+    rows: impl Iterator<Item = rusqlite::Result<RawEventRow>>,
+) -> Result<Vec<IncidentTimelineEvent>, IncidentStoreError> {
+    let rows = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(database_error)?;
-
     let mut events = Vec::with_capacity(rows.len());
     for row in &rows {
         let payload: IncidentTimelinePayload = from_json(&row.9, "timeline payload")?;

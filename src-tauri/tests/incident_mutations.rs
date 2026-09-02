@@ -362,6 +362,132 @@ fn a_disposition_never_changes_status() {
 }
 
 #[test]
+fn duplicate_disposition_rejects_an_unknown_incident_without_writing() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let before_timeline = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let context = fixture.context();
+
+    let result = fixture.service.set_disposition(
+        &context,
+        IncidentDispositionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            command: IncidentDispositionCommand {
+                disposition: Some(IncidentDisposition::Duplicate),
+                duplicate_of_incident_id: Some(Uuid::from_u128(0xdead)),
+                reason: "This incident duplicates another report".into(),
+            },
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture
+            .service
+            .get(&fixture.read_context(), incident.id)
+            .expect("incident is readable"),
+        incident
+    );
+    assert_eq!(
+        fixture
+            .service
+            .timeline(&fixture.read_context(), incident.id, None, 100)
+            .expect("timeline is readable"),
+        before_timeline
+    );
+}
+
+#[test]
+fn duplicate_disposition_rejects_an_incident_from_another_workspace() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let mut other_context = fixture.context();
+    other_context.workspace_scope = ResourceScope::workspace(OTHER_WORKSPACE, TEAM, ORGANIZATION);
+    let other_incident = fixture
+        .service
+        .create(
+            &other_context,
+            IncidentCreateRequest {
+                summary: "Checkout report from another workspace".into(),
+                triggers: vec![IncidentTriggerInput::ManualReport {
+                    observed_at: now(),
+                    summary: "Checkout errors reported elsewhere".into(),
+                    scope: ResourceScope::workspace(OTHER_WORKSPACE, TEAM, ORGANIZATION),
+                }],
+                business_impact: business_impact(),
+                initial_roles: vec![],
+            },
+        )
+        .expect("other-workspace creation succeeds")
+        .incident;
+    let before = fixture
+        .service
+        .get(&fixture.read_context(), incident.id)
+        .expect("incident is readable");
+    let context = fixture.context();
+
+    let result = fixture.service.set_disposition(
+        &context,
+        IncidentDispositionRequest {
+            incident_id: incident.id,
+            expected_version: incident.version,
+            command: IncidentDispositionCommand {
+                disposition: Some(IncidentDisposition::Duplicate),
+                duplicate_of_incident_id: Some(other_incident.id),
+                reason: "This incident duplicates another report".into(),
+            },
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture
+            .service
+            .get(&fixture.read_context(), incident.id)
+            .expect("incident is readable"),
+        before
+    );
+}
+
+#[test]
+fn duplicate_disposition_accepts_an_incident_from_the_same_workspace() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let target = fixture.create_incident();
+    let context = fixture.context();
+
+    let dispositioned = fixture
+        .service
+        .set_disposition(
+            &context,
+            IncidentDispositionRequest {
+                incident_id: incident.id,
+                expected_version: incident.version,
+                command: IncidentDispositionCommand {
+                    disposition: Some(IncidentDisposition::Duplicate),
+                    duplicate_of_incident_id: Some(target.id),
+                    reason: "This incident duplicates the second report".into(),
+                },
+            },
+        )
+        .expect("same-workspace duplicate is accepted");
+
+    assert_eq!(
+        dispositioned.incident.disposition,
+        Some(IncidentDisposition::Duplicate)
+    );
+    assert_eq!(
+        dispositioned.incident.duplicate_of_incident_id,
+        Some(target.id)
+    );
+    assert_eq!(dispositioned.incident.version, 2);
+}
+
+#[test]
 fn severity_reassessment_and_override_are_attributed() {
     let mut fixture = Fixture::new();
     let incident = fixture.create_incident();
