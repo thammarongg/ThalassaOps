@@ -7,9 +7,10 @@ use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 use thalassa_domain::{
     BusinessImpact, EnterpriseIdentity, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
-    IncidentCreateCommand, IncidentMutation, IncidentReport, IncidentRole, IncidentRoleAssignment,
-    IncidentSourceKind, IncidentStatus, IncidentTransition, IncidentTrigger, Membership, Principal,
-    PrincipalId, PrincipalKind, ResourceScope, TriageContext,
+    IncidentCreateCommand, IncidentEventKind, IncidentMutation, IncidentReport, IncidentRole,
+    IncidentRoleAssignment, IncidentSourceKind, IncidentStatus, IncidentTransition,
+    IncidentTrigger, Membership, Principal, PrincipalId, PrincipalKind, ResourceScope,
+    TriageContext,
 };
 use thalassaops::incident::{IncidentCreationRecord, IncidentStoreError, SqliteIncidentRepository};
 use uuid::Uuid;
@@ -548,6 +549,81 @@ fn event_sequences_are_reallocated_to_continue_the_stored_timeline() {
         .events;
     let sequences: Vec<u64> = events.iter().map(|event| event.sequence).collect();
     assert_eq!(sequences, vec![1, 2, 3]);
+}
+
+#[test]
+fn multi_event_rebase_preserves_mutation_event_order() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let highest_before = fixture
+        .repository
+        .highest_event_sequence(WORKSPACE, created.incident.id)
+        .expect("highest event sequence is readable");
+
+    let mut changed_impact = business_impact();
+    changed_impact.summary = "Checkout unavailable for every customer".into();
+    let mutation = created
+        .incident
+        .transition(
+            created.incident.version,
+            9,
+            IncidentTransition::Triage(TriageContext {
+                business_impact: changed_impact,
+                owner: REPLACEMENT,
+                duplicate_checked: true,
+            }),
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("triage transition emits three events");
+
+    let expected_kinds = vec![
+        IncidentEventKind::StatusTransitioned,
+        IncidentEventKind::SeverityChanged,
+        IncidentEventKind::RoleChanged,
+    ];
+    assert_eq!(
+        mutation
+            .events
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>(),
+        expected_kinds
+    );
+
+    fixture
+        .repository
+        .apply_mutation(mutation)
+        .expect("a gapped base sequence is rebased");
+
+    let stored_events = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events;
+    let appended_events: Vec<_> = stored_events
+        .iter()
+        .filter(|event| event.sequence > highest_before)
+        .collect();
+    assert_eq!(
+        appended_events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![highest_before + 1, highest_before + 2, highest_before + 3]
+    );
+    assert_eq!(
+        appended_events
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>(),
+        expected_kinds
+    );
 }
 
 #[test]

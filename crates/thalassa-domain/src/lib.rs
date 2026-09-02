@@ -1251,6 +1251,9 @@ impl Incident {
 
     /// Validates and applies one lifecycle transition and returns the new
     /// state plus the appended timeline event.
+    /// `first_event_sequence` is an aggregate-local base used only to number
+    /// a multi-event mutation consistently; the repository rebases the whole
+    /// block onto the real timeline tail inside the write transaction.
     #[allow(clippy::too_many_arguments)]
     pub fn transition(
         &self,
