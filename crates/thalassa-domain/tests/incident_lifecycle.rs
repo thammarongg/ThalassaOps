@@ -350,6 +350,38 @@ fn creation_rejects_unresolvable_or_unsafe_commands() {
 }
 
 #[test]
+fn creation_rejects_report_observation_times_outside_server_window() {
+    for source_kind in [
+        IncidentSourceKind::ManualReport,
+        IncidentSourceKind::UserReport,
+    ] {
+        let mut future = incident_create_fixture();
+        future.command.triggers[0].source_kind = source_kind;
+        future.command.triggers[0].observed_at = future.now + chrono::Duration::minutes(6);
+        assert!(matches!(
+            create_result(future),
+            Err(IncidentError::InvalidTrigger)
+        ));
+
+        let mut stale = incident_create_fixture();
+        stale.command.triggers[0].source_kind = source_kind;
+        stale.command.triggers[0].observed_at = stale.now - chrono::Duration::days(31);
+        assert!(matches!(
+            create_result(stale),
+            Err(IncidentError::InvalidTrigger)
+        ));
+
+        let mut recent = incident_create_fixture();
+        recent.command.triggers[0].source_kind = source_kind;
+        recent.command.triggers[0].observed_at = recent.now - chrono::Duration::hours(1);
+        assert!(
+            create_result(recent).is_ok(),
+            "{source_kind:?} must accept recent observations"
+        );
+    }
+}
+
+#[test]
 fn creation_validates_trigger_provenance_and_attribution() {
     let without_report = IncidentTrigger {
         report: None,

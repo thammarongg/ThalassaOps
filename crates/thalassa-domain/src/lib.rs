@@ -579,6 +579,10 @@ pub struct IncidentRoleAssignment {
 pub const INCIDENT_SUMMARY_MAXIMUM: usize = 200;
 /// Maximum characters for incident notes, reasons and transition context.
 pub const INCIDENT_NOTE_MAXIMUM: usize = 4_000;
+/// Maximum future clock skew accepted for client-supplied report observations.
+pub const INCIDENT_OBSERVED_AT_MAX_FUTURE_SKEW_SECONDS: i64 = 5 * 60;
+/// Maximum age accepted for client-supplied report observations.
+pub const INCIDENT_OBSERVED_AT_MAX_AGE_SECONDS: i64 = 30 * 24 * 60 * 60;
 /// Maximum characters for incident source identifiers and record digests.
 pub const INCIDENT_SOURCE_ID_MAXIMUM: usize = 200;
 /// Maximum characters for an opaque incident page cursor.
@@ -636,6 +640,26 @@ pub fn validate_incident_text(value: &str, maximum: usize) -> Result<(), Inciden
     }
     if value.chars().any(|character| character.is_control()) || contains_sensitive_marker(value) {
         return Err(IncidentError::UnsafeText);
+    }
+    Ok(())
+}
+
+fn validate_incident_report_observed_at(
+    observed_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Result<(), IncidentError> {
+    let earliest = now
+        .checked_sub_signed(chrono::Duration::seconds(
+            INCIDENT_OBSERVED_AT_MAX_AGE_SECONDS,
+        ))
+        .ok_or(IncidentError::InvalidTrigger)?;
+    let latest = now
+        .checked_add_signed(chrono::Duration::seconds(
+            INCIDENT_OBSERVED_AT_MAX_FUTURE_SKEW_SECONDS,
+        ))
+        .ok_or(IncidentError::InvalidTrigger)?;
+    if observed_at < earliest || observed_at > latest {
+        return Err(IncidentError::InvalidTrigger);
     }
     Ok(())
 }
@@ -1087,6 +1111,12 @@ impl Incident {
         let mut signal_ids = Vec::new();
         for trigger in &command.triggers {
             trigger.validate()?;
+            if matches!(
+                trigger.source_kind,
+                IncidentSourceKind::UserReport | IncidentSourceKind::ManualReport
+            ) {
+                validate_incident_report_observed_at(trigger.observed_at, now)?;
+            }
             if trigger.evidence_ids.is_empty() {
                 return Err(IncidentError::InvalidTrigger);
             }
