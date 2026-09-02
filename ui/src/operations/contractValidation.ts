@@ -1,5 +1,4 @@
 import type {
-  BusinessImpact,
   ChangeStreamItem,
   ChangeStreamStatus,
   ConsoleHealthState,

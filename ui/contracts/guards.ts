@@ -33,7 +33,6 @@ import type {
   IncidentDisposition,
   IncidentSeverity,
   IncidentRoleAssignment,
-  IncidentRoleAssignmentInput,
   IncidentEventKind,
   IncidentRole,
   IncidentSeverityOverride,
@@ -1691,6 +1690,9 @@ export const isIncidentTriggerInput = (
   value: unknown
 ): value is IncidentTriggerInput => {
   if (!isRecord(value) || !isString(value.kind)) return false;
+  // The six trigger wire values are a frozen contract; membership gates the
+  // per-kind shape checks below.
+  if (!isEnum(value.kind, incidentSourceKinds)) return false;
   if (
     value.kind === "alert" ||
     value.kind === "anomaly" ||

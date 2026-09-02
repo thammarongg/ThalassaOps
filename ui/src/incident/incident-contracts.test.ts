@@ -79,16 +79,10 @@ const incidentFixture: Incident = {
   duplicate_of_incident_id: null,
   trigger_ids: [TRIGGER],
   signal_ids: [],
-  evidence_ids: [
-    "evidence-checkout",
-    "evidence-manual-report",
-    "evidence-override"
-  ],
+  evidence_ids: ["evidence-checkout", "evidence-manual-report", "evidence-override"],
   hypothesis_ids: [],
   action_ids: [],
-  roles: [
-    { role: "owner", principal_id: ACTOR, assigned_by: ACTOR, assigned_at: AT }
-  ],
+  roles: [{ role: "owner", principal_id: ACTOR, assigned_by: ACTOR, assigned_at: AT }],
   version: 1,
   created_at: AT,
   updated_at: AT
@@ -141,9 +135,7 @@ describe("incident wire guards", () => {
   });
 
   test("incident guards reject unknown status", () => {
-    expect(
-      isIncident({ ...incidentFixture, status: "acknowledged" })
-    ).toBe(false);
+    expect(isIncident({ ...incidentFixture, status: "acknowledged" })).toBe(false);
   });
 
   test("incident timeline guards reject unordered events", () => {
@@ -165,9 +157,7 @@ describe("incident wire guards", () => {
       })
     ).toBe(false);
     expect(isIncident({ ...incidentFixture, version: 1.5 })).toBe(false);
-    expect(
-      isIncidentTimelinePage({ ...timelineFixture, unexpected: true })
-    ).toBe(false);
+    expect(isIncidentTimelinePage({ ...timelineFixture, unexpected: true })).toBe(false);
   });
 
   test("severity payloads carry explicit override state before and after", () => {
@@ -240,9 +230,7 @@ describe("incident wire guards", () => {
       scope
     };
     expect(isIncidentTriggerInput(manualReport)).toBe(true);
-    expect(
-      isIncidentTriggerInput({ kind: "correlation_candidate", source_id: "x" })
-    ).toBe(false);
+    expect(isIncidentTriggerInput({ kind: "correlation_candidate", source_id: "x" })).toBe(false);
     expect(isIncidentTriggerInput({ kind: "alert" })).toBe(false);
   });
   test("timeline events must match the page incident and payload kinds", () => {
@@ -304,12 +292,8 @@ describe("incident wire guards", () => {
   });
 
   test("incidents enforce cross-field ownership severity and closure", () => {
-    expect(
-      isIncident({ ...incidentFixture, owning_team_id: ACTOR })
-    ).toBe(false);
-    expect(
-      isIncident({ ...incidentFixture, derived_severity: "S3" })
-    ).toBe(false);
+    expect(isIncident({ ...incidentFixture, owning_team_id: ACTOR })).toBe(false);
+    expect(isIncident({ ...incidentFixture, derived_severity: "S3" })).toBe(false);
     expect(
       isIncident({
         ...incidentFixture,
