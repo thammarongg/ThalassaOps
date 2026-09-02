@@ -148,6 +148,27 @@ If `create_and_store_incident`, `highest_event_sequence` or `timeline` do not
 exist under those names in this file, use whatever the file already provides and
 say so in your `worker_done` body. Do not add a new fixture struct.
 
+**The existing `event_sequences_must_continue_the_stored_timeline` test will
+fail after this change, and that is expected.** It asserts that a gapped caller
+sequence is rejected. Once the repository assigns positions itself, a gapped
+stored timeline is impossible by construction, so that assertion is obsolete
+rather than wrong. Do not invert it into "gaps are accepted". Rewrite it to the
+stronger property and rename it, for example
+`stored_event_sequences_are_contiguous_regardless_of_the_supplied_base`,
+asserting that a gapped or stale base is accepted, that stored sequences start
+at `highest_before + 1`, that they are contiguous, and — the case the old test
+never covered — that a multi-event mutation keeps its **relative event order**
+after rebasing. A transition can emit status, severity and role events together;
+if rebasing reorders them the audit timeline is silently wrong and no other test
+would catch it.
+
+`first_event_sequence` stays in the domain signatures. The pure aggregate has no
+database access and still needs a base to number a multi-event mutation
+consistently; the repository rebases that block onto the real tail. Add a
+comment at the aggregate saying so so the argument does not read as dead.
+Removing the parameter would change every mutation signature and every caller,
+which is a separate task and is not in this sprint.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p thalassaops --test incident_repository concurrent_appends -- --nocapture`
