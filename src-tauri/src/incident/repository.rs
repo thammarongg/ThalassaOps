@@ -16,7 +16,7 @@ use thalassa_domain::{
     IncidentId, IncidentMutation, IncidentPage, IncidentRole, IncidentRoleAssignment,
     IncidentSeverity, IncidentSeverityOverride, IncidentSourceKind, IncidentStatus,
     IncidentTimelineEvent, IncidentTimelinePage, IncidentTimelinePayload, IncidentTrigger,
-    IncidentTriggerId, PrincipalId, ResourceScope, SignalId, INCIDENT_CURSOR_MAXIMUM,
+    IncidentTriggerId, Membership, PrincipalId, ResourceScope, SignalId, INCIDENT_CURSOR_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -282,6 +282,7 @@ impl SqliteIncidentRepository {
         // writes, so a concurrent delete cannot invalidate the reference
         // between validation and the current-state update.
         validate_duplicate_reference(&transaction, workspace_id, incident)?;
+        validate_role_principals(&transaction, workspace_id, &mutation)?;
 
         let updated = transaction
             .execute(
@@ -412,6 +413,17 @@ impl SqliteIncidentRepository {
     ) -> Result<Incident, IncidentStoreError> {
         load_incident(&self.connection, workspace_id, incident_id)?
             .ok_or(IncidentStoreError::NotFound)
+    }
+
+    /// Resolves a principal against the caller's workspace membership.  A
+    /// principal in another workspace is intentionally indistinguishable from
+    /// an unknown principal to callers.
+    pub(crate) fn ensure_principal_in_workspace(
+        &self,
+        workspace_id: Uuid,
+        principal_id: PrincipalId,
+    ) -> Result<(), IncidentStoreError> {
+        ensure_principal_in_workspace(&self.connection, workspace_id, principal_id)
     }
 
     /// Reads one bounded page of workspace incidents, newest update first.
@@ -564,6 +576,64 @@ fn validate_duplicate_reference(
         .map_err(database_error)?;
     if exists.is_none() {
         return Err(IncidentStoreError::NotFound);
+    }
+    Ok(())
+}
+
+fn ensure_principal_in_workspace(
+    connection: &Connection,
+    workspace_id: Uuid,
+    principal_id: PrincipalId,
+) -> Result<(), IncidentStoreError> {
+    let principal_exists: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM principals WHERE id = ?1",
+            [principal_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    if principal_exists.is_none() {
+        return Err(IncidentStoreError::NotFound);
+    }
+
+    let membership_document: Option<String> = connection
+        .query_row(
+            "SELECT document_json FROM memberships WHERE id = ?1",
+            [principal_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let Some(membership_document) = membership_document else {
+        return Err(IncidentStoreError::NotFound);
+    };
+    let membership: Membership = from_json(&membership_document, "membership")?;
+    let workspace_scope = ResourceScope {
+        workspace_id: Some(workspace_id),
+        ..Default::default()
+    };
+    if membership.principal_id != principal_id || !membership.grants(&workspace_scope) {
+        return Err(IncidentStoreError::NotFound);
+    }
+    Ok(())
+}
+
+fn validate_role_principals(
+    connection: &Connection,
+    workspace_id: Uuid,
+    mutation: &IncidentMutation,
+) -> Result<(), IncidentStoreError> {
+    for event in &mutation.events {
+        if event.kind != IncidentEventKind::RoleChanged {
+            continue;
+        }
+        let IncidentTimelinePayload::RoleChanged(payload) = &event.payload else {
+            continue;
+        };
+        if let Some(principal_id) = payload.current_principal_id {
+            ensure_principal_in_workspace(connection, workspace_id, principal_id)?;
+        }
     }
     Ok(())
 }

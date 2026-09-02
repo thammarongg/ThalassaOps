@@ -11,12 +11,13 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use tempfile::{tempdir, TempDir};
 use thalassa_domain::{
-    BusinessImpact, ClosedContext, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
-    IncidentCreateRequest, IncidentDisposition, IncidentDispositionCommand,
-    IncidentDispositionRequest, IncidentRole, IncidentRoleAssignmentInput, IncidentRoleCommand,
-    IncidentRoleRequest, IncidentSeverity, IncidentSourceKind, IncidentStatus,
-    IncidentTimelinePage, IncidentTransition, IncidentTransitionRequest, IncidentTriggerInput,
-    InvestigatingContext, MitigatingContext, MonitoringContext, PrincipalId, ReopenedContext,
+    BusinessImpact, ClosedContext, EnterpriseIdentity, ImpactDimensions, ImpactLevel,
+    ImpactTrajectory, Incident, IncidentCreateRequest, IncidentDisposition,
+    IncidentDispositionCommand, IncidentDispositionRequest, IncidentRole,
+    IncidentRoleAssignmentInput, IncidentRoleCommand, IncidentRoleRequest, IncidentSeverity,
+    IncidentSourceKind, IncidentStatus, IncidentTimelinePage, IncidentTransition,
+    IncidentTransitionRequest, IncidentTriggerInput, InvestigatingContext, Membership,
+    MitigatingContext, MonitoringContext, Principal, PrincipalId, PrincipalKind, ReopenedContext,
     ResolvedContext, ResourceScope, TriageContext,
 };
 use thalassa_ipc::{Capability, CommandEnvelope, CommandName, IpcErrorCode};
@@ -87,12 +88,60 @@ struct Acceptance {
     next_request: u128,
 }
 
+fn seed_principals(database_path: &std::path::Path, workspace_id: Uuid, ids: &[PrincipalId]) {
+    let connection = rusqlite::Connection::open(database_path).expect("the database opens");
+    connection
+        .execute_batch(include_str!("../migrations/0001_local_workspace.sql"))
+        .expect("the identity schema applies");
+    for principal_id in ids {
+        let principal = Principal {
+            id: *principal_id,
+            kind: PrincipalKind::Local,
+            display_name: format!("Principal {principal_id}"),
+            identity: EnterpriseIdentity {
+                subject: principal_id.to_string(),
+                ..Default::default()
+            },
+            created_at: now(),
+        };
+        let membership = Membership::workspace_owner(*principal_id, workspace_id);
+        connection
+            .execute(
+                "INSERT INTO principals (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&principal).expect("principal serializes")
+                ],
+            )
+            .expect("principal inserts");
+        connection
+            .execute(
+                "INSERT INTO memberships (id, document_json) VALUES (?1, ?2)",
+                rusqlite::params![
+                    principal_id.to_string(),
+                    serde_json::to_string(&membership).expect("membership serializes")
+                ],
+            )
+            .expect("membership inserts");
+    }
+}
+
 impl Acceptance {
     fn new() -> Self {
         let directory = tempdir().expect("temporary directory");
         let repository =
             SqliteIncidentRepository::open(&directory.path().join("incidents.sqlite3"))
                 .expect("repository opens");
+        seed_principals(
+            &directory.path().join("incidents.sqlite3"),
+            WORKSPACE,
+            &[
+                ACTOR,
+                COMMANDER,
+                Uuid::from_u128(0xa5),
+                Uuid::from_u128(0xa6),
+            ],
+        );
         let mut records = SourceRecordStore::with_scope(environment_scope());
         let resolver = IncidentSourceResolver::replay(&environment_scope(), &mut records)
             .expect("the committed replay catalog resolves");

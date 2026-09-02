@@ -312,6 +312,14 @@ impl IncidentService {
         }
         let (incident, first_event_sequence) =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
+        if let IncidentRoleCommand::Assign { principal_id, .. }
+        | IncidentRoleCommand::Replace { principal_id, .. } = &request.command
+        {
+            if !principal_id.is_nil() {
+                self.repository
+                    .ensure_principal_in_workspace(self.workspace(context)?, *principal_id)?;
+            }
+        }
         let mutation = incident.assign_role(
             request.expected_version,
             first_event_sequence,
