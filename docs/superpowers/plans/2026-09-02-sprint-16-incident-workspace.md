@@ -100,35 +100,53 @@ Today `IncidentService::load_for_write` reads `highest_event_sequence` and adds 
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `src-tauri/tests/incident_repository.rs`:
+Add to `src-tauri/tests/incident_repository.rs`, using the fixture helpers that
+already exist in that file — `fixture()` and
+`triage_mutation(incident, request_id, sequence)`. Do not invent new fixture
+types.
+
+A true two-writer race cannot be staged before Task 3, because every write today
+carries a version predicate that rejects the losing writer first. What *can* be
+staged now is the underlying defect: the caller's sequence is trusted. Build a
+valid mutation and overwrite its event sequence with one that is already taken,
+which is exactly what a stale external allocation produces.
 
 ```rust
 #[test]
-fn concurrent_appends_do_not_collide_on_sequence() {
-    let fixture = RepositoryFixture::new();
-    let incident = fixture.create_incident();
+fn a_stale_event_sequence_is_reallocated_rather_than_rejected() {
+    let fixture = fixture();
+    let incident = fixture.create_and_store_incident();
+    let highest_before = fixture.highest_event_sequence(incident.id);
 
-    // Two mutations built from the SAME stale view of the timeline: both
-    // believe the next free sequence is the same number.  Before the fix the
-    // second insert violates UNIQUE (incident_id, sequence).
-    let stale_sequence = fixture.highest_event_sequence(incident.id) + 1;
-    let first = fixture.build_comment_like_mutation(&incident, stale_sequence, "first");
-    let second = fixture.build_comment_like_mutation(&incident, stale_sequence, "second");
+    let mut mutation = triage_mutation(&incident, REQUEST_B, highest_before + 1);
+    // Simulate a stale read: the caller believes sequence 1 is still free.
+    mutation.events[0].sequence = 1;
 
-    fixture.repository().apply_mutation(fixture.workspace_id(), first).expect("first append");
     fixture
-        .repository()
-        .apply_mutation(fixture.workspace_id(), second)
-        .expect("second append is re-sequenced, not rejected");
+        .repository
+        .apply_mutation(WORKSPACE, mutation)
+        .expect("a stale sequence is reallocated, not rejected");
 
-    let events = fixture.timeline(incident.id);
-    let sequences: Vec<u64> = events.iter().map(|event| event.sequence).collect();
-    let mut sorted = sequences.clone();
-    sorted.sort_unstable();
-    sorted.dedup();
-    assert_eq!(sequences.len(), sorted.len(), "sequences must be unique");
+    let sequences: Vec<u64> = fixture
+        .timeline(incident.id)
+        .iter()
+        .map(|event| event.sequence)
+        .collect();
+    let mut unique = sequences.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(sequences.len(), unique.len(), "sequences must stay unique");
+    assert_eq!(
+        *sequences.iter().max().expect("at least one event"),
+        highest_before + 1,
+        "the appended event takes the next free sequence"
+    );
 }
 ```
+
+If `create_and_store_incident`, `highest_event_sequence` or `timeline` do not
+exist under those names in this file, use whatever the file already provides and
+say so in your `worker_done` body. Do not add a new fixture struct.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -215,18 +233,59 @@ Expected: PASS, including every test that existed before this task.
 
 - [ ] **Step 7: Add the contention-exhausted test**
 
+Forcing SQLite to collide three times in a row is not worth a fault-injection
+seam in production code. Extract the retry as a pure helper in
+`repository.rs` and unit-test it directly:
+
+```rust
+pub(crate) fn with_sequence_retry<T>(
+    budget: usize,
+    mut attempt: impl FnMut(usize) -> Result<T, IncidentStoreError>,
+) -> Result<T, IncidentStoreError> {
+    for tries in 0..budget {
+        match attempt(tries) {
+            Err(IncidentStoreError::SequenceCollision) => continue,
+            other => return other,
+        }
+    }
+    Err(IncidentStoreError::WriteContention)
+}
+```
+
+`SequenceCollision` is an internal variant that never escapes the repository;
+`with_sequence_retry` is the only place that converts it to `WriteContention`.
+
 ```rust
 #[test]
 fn exhausted_sequence_retries_report_write_contention_not_version_conflict() {
-    let fixture = RepositoryFixture::new();
-    let incident = fixture.create_incident();
-    let error = fixture.apply_with_forced_sequence_collision(&incident, SEQUENCE_RETRY_BUDGET + 1);
+    let mut attempts = 0;
+    let outcome: Result<(), IncidentStoreError> =
+        with_sequence_retry(SEQUENCE_RETRY_BUDGET, |_| {
+            attempts += 1;
+            Err(IncidentStoreError::SequenceCollision)
+        });
+
+    assert_eq!(attempts, SEQUENCE_RETRY_BUDGET, "the budget is respected exactly");
     assert!(
-        matches!(error, IncidentStoreError::WriteContention),
-        "contention must not be reported as a version conflict: {error:?}"
+        matches!(outcome, Err(IncidentStoreError::WriteContention)),
+        "contention must not be reported as a version conflict: {outcome:?}"
     );
 }
+
+#[test]
+fn a_succeeding_attempt_stops_retrying() {
+    let mut attempts = 0;
+    let outcome = with_sequence_retry(SEQUENCE_RETRY_BUDGET, |tries| {
+        attempts += 1;
+        if tries == 0 { Err(IncidentStoreError::SequenceCollision) } else { Ok(7) }
+    });
+    assert_eq!(attempts, 2);
+    assert!(matches!(outcome, Ok(7)));
+}
 ```
+
+The genuine two-writer concurrency test — a comment racing a status transition —
+is deferred to Task 3, where a version-free write finally exists to race with.
 
 - [ ] **Step 8: Run the full Rust gate**
 
@@ -534,6 +593,32 @@ fn a_comment_on_an_unknown_incident_is_not_found() {
         )
         .expect_err("an unknown incident is rejected");
     assert!(matches!(error, IncidentServiceError::NotFound));
+}
+
+#[test]
+fn a_comment_racing_a_transition_does_not_collide_on_sequence() {
+    // The real two-writer race, deferred here from Task 1: a comment carries no
+    // version predicate, so this is the first write that can genuinely contend.
+    let mut fixture = ServiceFixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+
+    // Both callers act on the same observed timeline height.
+    let comment = IncidentCommentRequest {
+        incident_id: incident.id,
+        body: "racing the transition".into(),
+    };
+    fixture.service().add_comment(&context, comment).expect("comment lands");
+    fixture
+        .service()
+        .transition(&context.with_new_request_id(), triage_request(&incident))
+        .expect("the transition still lands after the comment moved the timeline");
+
+    let sequences: Vec<u64> = fixture.timeline(incident.id).iter().map(|e| e.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(sequences.len(), unique.len(), "sequences must stay unique");
 }
 
 #[test]
