@@ -190,6 +190,82 @@ pub fn change_evidence_descriptor() -> CommandDescriptor {
     )
 }
 
+/// Stable descriptors for the Sprint 15 incident command surface.  Reads use
+/// `IncidentRead` plus `Permission::Read`; writes use `IncidentWrite` plus
+/// `Permission::ManageIncident`.  Descriptor scopes stay unbounded so the
+/// application layer resolves the active workspace per request.
+pub fn incident_create_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "create",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
+pub fn incident_get_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "get",
+        Capability::IncidentRead,
+        Permission::Read,
+    )
+}
+
+pub fn incident_list_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "list",
+        Capability::IncidentRead,
+        Permission::Read,
+    )
+}
+
+pub fn incident_timeline_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "timeline",
+        Capability::IncidentRead,
+        Permission::Read,
+    )
+}
+
+pub fn incident_transition_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "transition",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
+pub fn incident_set_severity_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "set_severity",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
+pub fn incident_set_disposition_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "set_disposition",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
+pub fn incident_assign_role_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "assign_role",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,
@@ -213,6 +289,10 @@ pub enum IpcErrorCode {
     ConnectorUnavailable,
     #[serde(rename = "MALFORMED_RESPONSE")]
     MalformedResponse,
+    #[serde(rename = "INVALID_EVENT_SEQUENCE")]
+    InvalidEventSequence,
+    #[serde(rename = "INVALID_SEVERITY_OVERRIDE")]
+    InvalidSeverityOverride,
     #[serde(rename = "INTERNAL_ERROR")]
     InternalError,
 }

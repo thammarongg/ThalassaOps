@@ -25,6 +25,24 @@ import type {
   EvidenceSourceKind,
   FindingAssetKind,
   FindingSeverity,
+  BusinessImpact,
+  ImpactDimensions,
+  ImpactLevel,
+  ImpactTrajectory,
+  Incident,
+  IncidentDisposition,
+  IncidentSeverity,
+  IncidentRoleAssignment,
+  IncidentEventKind,
+  IncidentRole,
+  IncidentSeverityOverride,
+  IncidentSourceKind,
+  IncidentStatus,
+  IncidentTimelineEvent,
+  IncidentTimelinePage,
+  IncidentTimelinePayload,
+  IncidentTransition,
+  IncidentTriggerInput,
   ResourceScope,
   Signal,
   SignalKind,
@@ -144,7 +162,7 @@ const isUuid = (value: unknown): value is string =>
   isString(value) &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-const isNonNilUuid = (value: unknown): value is string =>
+export const isNonNilUuid = (value: unknown): value is string =>
   isUuid(value) && value.toLowerCase() !== "00000000-0000-0000-0000-000000000000";
 
 export const isNullableSafeDisplayText = (value: unknown): value is string | null =>
@@ -1132,4 +1150,580 @@ export const isChangeSnapshot = (value: unknown): value is ChangeSnapshot => {
   }
 
   return snapshot.source_statuses.every((status) => closesOverEvidence(status.evidence_ids));
+};
+
+/*
+ * Sprint 15 incident contracts.  These guards reject unknown keys, non-nil
+ * UUID violations, oversized or unsafe display text, and unordered timeline
+ * sequences so the React layer can trust every accepted incident value.
+ */
+
+export const hasExactKeys = (
+  value: unknown,
+  keys: readonly string[]
+): value is UnknownRecord =>
+  isRecord(value) &&
+  Object.keys(value).length === keys.length &&
+  keys.every((key) => key in value);
+
+const incidentStatuses: IncidentStatus[] = [
+  "detected",
+  "triage",
+  "investigating",
+  "mitigating",
+  "monitoring",
+  "resolved",
+  "closed",
+  "reopened"
+];
+const incidentDispositions: IncidentDisposition[] = [
+  "duplicate",
+  "false_positive",
+  "suppressed",
+  "cancelled",
+  "informational"
+];
+const incidentRoles: IncidentRole[] = [
+  "owner",
+  "incident_commander",
+  "technical_lead",
+  "communications_lead",
+  "approver",
+  "change_owner",
+  "stakeholder"
+];
+const incidentSourceKinds: IncidentSourceKind[] = [
+  "alert",
+  "anomaly",
+  "user_report",
+  "scheduled_health_check",
+  "vulnerability_finding",
+  "manual_report"
+];
+const incidentEventKinds: IncidentEventKind[] = [
+  "incident_created",
+  "triggers_attached",
+  "status_transitioned",
+  "severity_changed",
+  "disposition_changed",
+  "role_changed"
+];
+const incidentImpactLevels: ImpactLevel[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "none",
+  "unknown"
+];
+const incidentImpactTrajectories: ImpactTrajectory[] = [
+  "expanding",
+  "stable",
+  "improving",
+  "unknown"
+];
+const incidentSeverities = ["S1", "S2", "S3", "S4", "S5"] as const;
+
+const isIncidentSeverity = (value: unknown): value is IncidentSeverity =>
+  isEnum(value, incidentSeverities);
+
+const isSafeBoundedText = (value: unknown, maximum: number): value is string =>
+  isSafeDisplayText(value) && [...value].length <= maximum;
+
+/*
+ * Evidence references follow the Rust rule: unique regardless of order, at
+ * most 200 Unicode scalar values, and free of whitespace and control
+ * characters.
+ */
+const isIncidentEvidenceIds = (value: unknown): value is string[] =>
+  isSafeStringArray(value) &&
+  value.every(
+    (id) =>
+      isSafeDisplayText(id) &&
+      [...id].length <= 200 &&
+      !/\s/.test(id) &&
+      ![...id].some((character) => {
+        const code = character.charCodeAt(0);
+        return code <= 0x1f || code === 0x7f;
+      })
+  ) &&
+  new Set(value).size === value.length;
+
+const isImpactDimensions = (value: unknown): value is ImpactDimensions =>
+  hasExactKeys(value, [
+    "availability",
+    "customer_reach",
+    "business_criticality",
+    "data_integrity",
+    "security_privacy",
+    "financial_contractual",
+    "trajectory",
+    "production"
+  ]) &&
+  isEnum(value.availability, incidentImpactLevels) &&
+  isEnum(value.customer_reach, incidentImpactLevels) &&
+  isEnum(value.business_criticality, incidentImpactLevels) &&
+  isEnum(value.data_integrity, incidentImpactLevels) &&
+  isEnum(value.security_privacy, incidentImpactLevels) &&
+  isEnum(value.financial_contractual, incidentImpactLevels) &&
+  isEnum(value.trajectory, incidentImpactTrajectories) &&
+  isBoolean(value.production);
+
+const impactRank: Record<ImpactLevel, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  none: 1,
+  unknown: 0
+};
+
+const highestConfirmedImpact = (dimensions: ImpactDimensions): ImpactLevel =>
+  [
+    dimensions.availability,
+    dimensions.customer_reach,
+    dimensions.business_criticality,
+    dimensions.data_integrity,
+    dimensions.security_privacy,
+    dimensions.financial_contractual
+  ].reduce<ImpactLevel>(
+    (best, level) => (impactRank[level] > impactRank[best] ? level : best),
+    "unknown"
+  );
+
+const severityRank: Record<IncidentSeverity, number> = {
+  S1: 5,
+  S2: 4,
+  S3: 3,
+  S4: 2,
+  S5: 1
+};
+
+/*
+ * Exact mirror of the Rust severity derivation: the highest confirmed
+ * dimension maps onto S1-S5, and a rapidly expanding production scope with
+ * unknown reach is never ranked below S2.
+ */
+const derivedIncidentSeverity = (dimensions: ImpactDimensions): IncidentSeverity => {
+  const highest = highestConfirmedImpact(dimensions);
+  const severity: IncidentSeverity =
+    highest === "critical"
+      ? "S1"
+      : highest === "high"
+        ? "S2"
+        : highest === "medium"
+          ? "S3"
+          : highest === "low"
+            ? "S4"
+            : "S5";
+  if (
+    dimensions.production &&
+    dimensions.trajectory === "expanding" &&
+    dimensions.customer_reach === "unknown" &&
+    severityRank[severity] < severityRank.S2
+  ) {
+    return "S2";
+  }
+  return severity;
+};
+
+export const isIncidentBusinessImpact = (value: unknown): value is BusinessImpact =>
+  hasExactKeys(value, [
+    "level",
+    "summary",
+    "customer_scope",
+    "service_criticality",
+    "trajectory",
+    "dimensions",
+    "evidence_ids"
+  ]) &&
+  isEnum(value.level, incidentImpactLevels) &&
+  isSafeBoundedText(value.summary, 1000) &&
+  isSafeBoundedText(value.customer_scope, 1000) &&
+  isSafeBoundedText(value.service_criticality, 1000) &&
+  isEnum(value.trajectory, incidentImpactTrajectories) &&
+  isImpactDimensions(value.dimensions) &&
+  value.trajectory === value.dimensions.trajectory &&
+  value.level === highestConfirmedImpact(value.dimensions) &&
+  isIncidentEvidenceIds(value.evidence_ids) && value.evidence_ids.length > 0;
+
+const isIncidentSeverityOverride = (
+  value: unknown
+): value is IncidentSeverityOverride =>
+  hasExactKeys(value, [
+    "derived",
+    "selected",
+    "actor_id",
+    "reason",
+    "evidence_ids"
+  ]) &&
+  isIncidentSeverity(value.derived) &&
+  isIncidentSeverity(value.selected) &&
+  value.selected !== value.derived &&
+  isNonNilUuid(value.actor_id) &&
+  isSafeBoundedText(value.reason, 4000) &&
+  isIncidentEvidenceIds(value.evidence_ids) && value.evidence_ids.length > 0;
+
+const isIncidentRoleAssignment = (value: unknown): value is IncidentRoleAssignment =>
+  hasExactKeys(value, ["role", "principal_id", "assigned_by", "assigned_at"]) &&
+  isEnum(value.role, incidentRoles) &&
+  isNonNilUuid(value.principal_id) &&
+  isNonNilUuid(value.assigned_by) &&
+  isTimestamp(value.assigned_at);
+
+
+const isIncidentTransition = (value: unknown): value is IncidentTransition => {
+  if (!isRecord(value) || !hasExactKeys(value, ["target", "context"])) {
+    return false;
+  }
+  const context = value.context;
+  if (!isRecord(context)) return false;
+  switch (value.target) {
+    case "triage":
+      return (
+        hasExactKeys(context, ["business_impact", "owner", "duplicate_checked"]) &&
+        isIncidentBusinessImpact(context.business_impact) &&
+        isNonNilUuid(context.owner) &&
+        isBoolean(context.duplicate_checked)
+      );
+    case "investigating":
+      return (
+        hasExactKeys(context, ["note", "evidence_ids"]) &&
+        isSafeBoundedText(context.note, 4000) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
+        context.evidence_ids.length > 0
+      );
+    case "mitigating":
+      return (
+        hasExactKeys(context, [
+          "action_description",
+          "executor",
+          "expected_impact"
+        ]) &&
+        isSafeBoundedText(context.action_description, 4000) &&
+        isNonNilUuid(context.executor) &&
+        isSafeBoundedText(context.expected_impact, 4000)
+      );
+    case "monitoring":
+      return (
+        hasExactKeys(context, [
+          "verification_seconds",
+          "success_criteria",
+          "watch_owner"
+        ]) &&
+        typeof context.verification_seconds === "number" &&
+        Number.isSafeInteger(context.verification_seconds) &&
+        context.verification_seconds >= 1 &&
+        context.verification_seconds <= 86_400 &&
+        isSafeBoundedText(context.success_criteria, 4000) &&
+        isNonNilUuid(context.watch_owner)
+      );
+    case "resolved":
+      return (
+        hasExactKeys(context, [
+          "resolution_summary",
+          "evidence_ids",
+          "impact_ended_at"
+        ]) &&
+        isSafeBoundedText(context.resolution_summary, 4000) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
+        context.evidence_ids.length > 0 &&
+        isTimestamp(context.impact_ended_at)
+      );
+    case "closed":
+      return (
+        hasExactKeys(context, ["closure_notes", "follow_up_ids"]) &&
+        isSafeBoundedText(context.closure_notes, 4000) &&
+        isSafeStringArray(context.follow_up_ids) &&
+        context.follow_up_ids.length > 0 &&
+        context.follow_up_ids.every((id) => !/\s/.test(id)) &&
+        new Set(context.follow_up_ids).size === context.follow_up_ids.length
+      );
+    case "reopened":
+      return (
+        hasExactKeys(context, [
+          "reason",
+          "evidence_ids",
+          "recurrence_signal_id"
+        ]) &&
+        isSafeBoundedText(context.reason, 4000) &&
+        isIncidentEvidenceIds(context.evidence_ids) &&
+        (context.recurrence_signal_id === null ||
+          isNonNilUuid(context.recurrence_signal_id)) &&
+        (context.evidence_ids.length > 0 ||
+          context.recurrence_signal_id !== null)
+      );
+    default:
+      return false;
+  }
+};
+
+const isIncidentTimelinePayload = (
+  value: unknown
+): value is IncidentTimelinePayload => {
+  if (!isRecord(value) || !hasExactKeys(value, ["kind", "data"])) {
+    return false;
+  }
+  const data = value.data;
+  if (!isRecord(data)) return false;
+  switch (value.kind) {
+    case "created":
+      return (
+        hasExactKeys(data, [
+          "summary",
+          "scope",
+          "owning_team_id",
+          "derived_severity",
+          "trigger_ids",
+          "initial_roles"
+        ]) &&
+        isSafeBoundedText(data.summary, 200) &&
+        isScope(data.scope) &&
+        isNonNilUuid(data.owning_team_id) &&
+        isIncidentSeverity(data.derived_severity) &&
+        isSortedUniqueUuidArray(data.trigger_ids) &&
+        Array.isArray(data.initial_roles) &&
+        data.initial_roles.every(isIncidentRoleAssignment)
+      );
+    case "triggers_attached":
+      return (
+        hasExactKeys(data, ["trigger_ids"]) &&
+        isSortedUniqueUuidArray(data.trigger_ids)
+      );
+    case "status_transitioned":
+      return (
+        hasExactKeys(data, ["from", "to", "transition"]) &&
+        isEnum(data.from, incidentStatuses) &&
+        isEnum(data.to, incidentStatuses) &&
+        isIncidentTransition(data.transition) &&
+        data.to === data.transition.target
+      );
+    case "severity_changed":
+      return (
+        hasExactKeys(data, [
+          "previous_impact",
+          "current_impact",
+          "previous_severity",
+          "current_severity",
+          "previous_override",
+          "current_override"
+        ]) &&
+        isIncidentBusinessImpact(data.previous_impact) &&
+        isIncidentBusinessImpact(data.current_impact) &&
+        isIncidentSeverity(data.previous_severity) &&
+        isIncidentSeverity(data.current_severity) &&
+        (data.previous_override === null ||
+          isIncidentSeverityOverride(data.previous_override)) &&
+        (data.current_override === null ||
+          isIncidentSeverityOverride(data.current_override))
+      );
+    case "disposition_changed":
+      return (
+        hasExactKeys(data, [
+          "previous",
+          "current",
+          "duplicate_of_incident_id"
+        ]) &&
+        (data.previous === null || isEnum(data.previous, incidentDispositions)) &&
+        (data.current === null || isEnum(data.current, incidentDispositions)) &&
+        (data.duplicate_of_incident_id === null ||
+          isNonNilUuid(data.duplicate_of_incident_id))
+      );
+    case "role_changed":
+      return (
+        hasExactKeys(data, [
+          "role",
+          "previous_principal_ids",
+          "current_principal_id"
+        ]) &&
+        isEnum(data.role, incidentRoles) &&
+        Array.isArray(data.previous_principal_ids) &&
+        data.previous_principal_ids.every(isNonNilUuid) &&
+        (data.current_principal_id === null ||
+          isNonNilUuid(data.current_principal_id))
+      );
+    default:
+      return false;
+  }
+};
+
+const isIncidentTimelineEvent = (value: unknown): value is IncidentTimelineEvent =>
+  hasExactKeys(value, [
+    "id",
+    "incident_id",
+    "sequence",
+    "kind",
+    "actor_id",
+    "reason",
+    "occurred_at",
+    "request_id",
+    "policy_version",
+    "payload"
+  ]) &&
+  isNonNilUuid(value.id) &&
+  isNonNilUuid(value.incident_id) &&
+  typeof value.sequence === "number" &&
+  Number.isSafeInteger(value.sequence) &&
+  value.sequence >= 1 &&
+  isEnum(value.kind, incidentEventKinds) &&
+  isNonNilUuid(value.actor_id) &&
+  (value.reason === null ||
+    (isSafeBoundedText(value.reason, 4000) as boolean)) &&
+  isTimestamp(value.occurred_at) &&
+  isNonNilUuid(value.request_id) &&
+  typeof value.policy_version === "number" &&
+  Number.isSafeInteger(value.policy_version) &&
+  value.policy_version >= 0 &&
+  isIncidentTimelinePayload(value.payload) &&
+  /*
+   * The event kind must agree with the payload tag; creation is the one
+   * asymmetry because the wire kind is `incident_created` while the payload
+   * tag is `created`.
+   */
+  value.payload.kind ===
+    (value.kind === "incident_created" ? "created" : value.kind);
+
+const isWorkspaceBoundedScope = (value: unknown): value is ResourceScope =>
+  isScope(value) &&
+  value.organization_id !== undefined &&
+  value.organization_id !== null &&
+  isNonNilUuid(value.organization_id) &&
+  value.team_id !== undefined &&
+  value.team_id !== null &&
+  isNonNilUuid(value.team_id) &&
+  value.workspace_id !== undefined &&
+  value.workspace_id !== null &&
+  isNonNilUuid(value.workspace_id) &&
+  (value.environment_id === undefined ||
+    value.environment_id === null ||
+    isNonNilUuid(value.environment_id)) &&
+  value.resource_ids.every(isNonNilUuid);
+
+export const isIncident = (value: unknown): value is Incident =>
+  hasExactKeys(value, [
+    "id",
+    "summary",
+    "scope",
+    "owning_team_id",
+    "business_impact",
+    "derived_severity",
+    "severity_override",
+    "status",
+    "disposition",
+    "duplicate_of_incident_id",
+    "trigger_ids",
+    "signal_ids",
+    "evidence_ids",
+    "hypothesis_ids",
+    "action_ids",
+    "roles",
+    "version",
+    "created_at",
+    "updated_at"
+  ]) &&
+  isNonNilUuid(value.id) &&
+  isSafeBoundedText(value.summary, 200) &&
+  isWorkspaceBoundedScope(value.scope) &&
+  isNonNilUuid(value.owning_team_id) &&
+  isIncidentBusinessImpact(value.business_impact) &&
+  isIncidentSeverity(value.derived_severity) &&
+  (value.severity_override === null ||
+    isIncidentSeverityOverride(value.severity_override)) &&
+  isEnum(value.status, incidentStatuses) &&
+  (value.disposition === null || isEnum(value.disposition, incidentDispositions)) &&
+  (value.duplicate_of_incident_id === null ||
+    isNonNilUuid(value.duplicate_of_incident_id)) &&
+  isSortedUniqueUuidArray(value.trigger_ids) &&
+  isSortedUniqueUuidArray(value.signal_ids) &&
+  isIncidentEvidenceIds(value.evidence_ids) &&
+  isSortedUniqueUuidArray(value.hypothesis_ids) &&
+  isSortedUniqueUuidArray(value.action_ids) &&
+  Array.isArray(value.roles) &&
+  value.roles.every(isIncidentRoleAssignment) &&
+  typeof value.version === "number" &&
+  Number.isSafeInteger(value.version) &&
+  value.version >= 1 &&
+  isTimestamp(value.created_at) &&
+  isTimestamp(value.updated_at) &&
+  /*
+   * Frozen cross-field invariants: the owning team matches the scope, the
+   * derived severity is exactly recomputed from the assessment, override
+   * derivation matches, evidence closes over impact and override evidence,
+   * and duplicate fields agree.
+   */
+  value.owning_team_id === value.scope.team_id &&
+  value.derived_severity ===
+    derivedIncidentSeverity(value.business_impact.dimensions) &&
+  (value.severity_override === null ||
+    value.severity_override.derived === value.derived_severity) &&
+  (() => {
+    const aggregate = new Set(value.evidence_ids);
+    if (!value.business_impact.evidence_ids.every((id) => aggregate.has(id))) {
+      return false;
+    }
+    return (
+      value.severity_override === null ||
+      value.severity_override.evidence_ids.every((id) => aggregate.has(id))
+    );
+  })() &&
+  (value.disposition === "duplicate") ===
+    (value.duplicate_of_incident_id !== null);
+
+export const isIncidentTimelinePage = (
+  value: unknown
+): value is IncidentTimelinePage =>
+  hasExactKeys(value, ["incident_id", "events", "next_sequence"]) &&
+  isNonNilUuid(value.incident_id) &&
+  Array.isArray(value.events) &&
+  value.events.every(isIncidentTimelineEvent) &&
+  value.events.every((event) => event.incident_id === value.incident_id) &&
+  value.events.every(
+    (event, index, events) =>
+      index === 0 || events[index - 1].sequence < event.sequence
+  ) &&
+  (value.next_sequence === null ||
+    (typeof value.next_sequence === "number" &&
+      Number.isSafeInteger(value.next_sequence) &&
+      value.next_sequence >= 1));
+
+export const isIncidentTriggerInput = (
+  value: unknown
+): value is IncidentTriggerInput => {
+  if (!isRecord(value) || !isString(value.kind)) return false;
+  // The six trigger wire values are a frozen contract; membership gates the
+  // per-kind shape checks below.
+  if (!isEnum(value.kind, incidentSourceKinds)) return false;
+  if (
+    value.kind === "alert" ||
+    value.kind === "anomaly" ||
+    value.kind === "scheduled_health_check" ||
+    value.kind === "vulnerability_finding"
+  ) {
+    return hasExactKeys(value, ["kind", "source_id"]) &&
+      isSafeBoundedText(value.source_id, 200);
+  }
+  if (value.kind === "user_report") {
+    return (
+      hasExactKeys(value, [
+        "kind",
+        "reporter_id",
+        "observed_at",
+        "summary",
+        "scope"
+      ]) &&
+      isNonNilUuid(value.reporter_id) &&
+      isTimestamp(value.observed_at) &&
+      isSafeBoundedText(value.summary, 200) &&
+      isScope(value.scope)
+    );
+  }
+  if (value.kind === "manual_report") {
+    return (
+      hasExactKeys(value, ["kind", "observed_at", "summary", "scope"]) &&
+      isTimestamp(value.observed_at) &&
+      isSafeBoundedText(value.summary, 200) &&
+      isScope(value.scope)
+    );
+  }
+  return false;
 };

@@ -90,3 +90,32 @@ fn change_commands_expose_read_only_descriptors() {
     assert_eq!(evidence.required_permission, Permission::Read);
     assert!(!evidence.scope.is_bounded());
 }
+
+#[test]
+fn incident_commands_separate_reads_from_writes() {
+    for (descriptor, name) in [
+        (incident_get_descriptor(), "incident.get"),
+        (incident_list_descriptor(), "incident.list"),
+        (incident_timeline_descriptor(), "incident.timeline"),
+    ] {
+        assert_eq!(descriptor.name.to_string(), name);
+        assert_eq!(descriptor.required_capability, Capability::IncidentRead);
+        assert_eq!(descriptor.required_permission, Permission::Read);
+        assert!(!descriptor.scope.is_bounded());
+    }
+    for (descriptor, name) in [
+        (incident_create_descriptor(), "incident.create"),
+        (incident_transition_descriptor(), "incident.transition"),
+        (incident_set_severity_descriptor(), "incident.set_severity"),
+        (
+            incident_set_disposition_descriptor(),
+            "incident.set_disposition",
+        ),
+        (incident_assign_role_descriptor(), "incident.assign_role"),
+    ] {
+        assert_eq!(descriptor.name.to_string(), name);
+        assert_eq!(descriptor.required_capability, Capability::IncidentWrite);
+        assert_eq!(descriptor.required_permission, Permission::ManageIncident);
+        assert!(!descriptor.scope.is_bounded());
+    }
+}

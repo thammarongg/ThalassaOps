@@ -491,6 +491,7 @@ fn project_alerts(
             &alert.labels,
             alert_summary(alert),
             impact_from_severity(severity),
+            vec![evidence_id.clone()],
         );
         let priority = priority_from_labels(&alert.labels);
         let last_update = parse_timestamp(&alert.ends_at)
@@ -687,6 +688,8 @@ fn project_anomalies(
                 customer_scope: "scope represented by source evidence".into(),
                 service_criticality: service_criticality_from_impact(impact).into(),
                 trajectory: ImpactTrajectory::Unknown,
+                dimensions: ImpactDimensions::single_dimension(impact, ImpactTrajectory::Unknown),
+                evidence_ids: vec![evidence_id.clone()],
             },
             scope: signal.scope.clone(),
             detected_at: signal.observed_at.clone(),
@@ -876,6 +879,11 @@ fn project_health_checks(
                     customer_scope: "scope represented by health-check evidence".into(),
                     service_criticality: service_criticality_from_impact(impact).into(),
                     trajectory: ImpactTrajectory::Unknown,
+                    dimensions: ImpactDimensions::single_dimension(
+                        impact,
+                        ImpactTrajectory::Unknown,
+                    ),
+                    evidence_ids: vec![evidence_id.clone()],
                 },
                 scope: schedule.scope.clone(),
                 detected_at: result.observed_at.clone(),
@@ -1398,6 +1406,18 @@ fn health_summary(
             customer_scope: "no customers currently identified".into(),
             service_criticality: "none".into(),
             trajectory: ImpactTrajectory::Improving,
+            dimensions: ImpactDimensions::single_dimension(
+                ImpactLevel::None,
+                ImpactTrajectory::Improving,
+            ),
+            evidence_ids: fallback_ids(
+                Vec::new(),
+                "headline",
+                EvidenceSourceKind::Fixture,
+                "operations:headline",
+                now,
+                evidence,
+            ),
         });
 
     let mut active_by_severity = Vec::new();
@@ -1848,8 +1868,18 @@ fn business_impact_from_labels(
     labels: &BTreeMap<String, String>,
     summary: String,
     fallback: ImpactLevel,
+    evidence_ids: Vec<ConsoleEvidenceId>,
 ) -> BusinessImpact {
     let level = impact_from_labels(labels, fallback);
+    let trajectory = labels
+        .get("trajectory")
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "expanding" => Some(ImpactTrajectory::Expanding),
+            "stable" => Some(ImpactTrajectory::Stable),
+            "improving" => Some(ImpactTrajectory::Improving),
+            _ => None,
+        })
+        .unwrap_or(ImpactTrajectory::Unknown);
     BusinessImpact {
         level,
         summary: safe_text(&summary, "Business impact requires attention"),
@@ -1867,15 +1897,9 @@ fn business_impact_from_labels(
                 .unwrap_or_else(|| service_criticality_from_impact(level)),
             service_criticality_from_impact(level),
         ),
-        trajectory: labels
-            .get("trajectory")
-            .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
-                "expanding" => Some(ImpactTrajectory::Expanding),
-                "stable" => Some(ImpactTrajectory::Stable),
-                "improving" => Some(ImpactTrajectory::Improving),
-                _ => None,
-            })
-            .unwrap_or(ImpactTrajectory::Unknown),
+        trajectory,
+        dimensions: ImpactDimensions::single_dimension(level, trajectory),
+        evidence_ids,
     }
 }
 

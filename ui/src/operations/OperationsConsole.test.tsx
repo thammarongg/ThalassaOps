@@ -73,6 +73,17 @@ const impactFor = (overrides: Partial<BusinessImpact> = {}): BusinessImpact => (
   customer_scope: "none",
   service_criticality: "none",
   trajectory: "improving",
+  dimensions: {
+    availability: "none",
+    customer_reach: "none",
+    business_criticality: "none",
+    data_integrity: "none",
+    security_privacy: "none",
+    financial_contractual: "none",
+    trajectory: "improving",
+    production: true
+  },
+  evidence_ids: ["evidence-health"],
   ...overrides
 });
 
@@ -240,7 +251,17 @@ const anomalySnapshot = (): OperationsSnapshot => {
     summary: "Checkout API is affecting customers",
     customer_scope: "Checkout customers",
     service_criticality: "Tier 0",
-    trajectory: "expanding"
+    trajectory: "expanding",
+    dimensions: {
+      availability: "critical",
+      customer_reach: "none",
+      business_criticality: "none",
+      data_integrity: "none",
+      security_privacy: "none",
+      financial_contractual: "none",
+      trajectory: "expanding",
+      production: true
+    }
   });
   snapshot.health_summary.attention = numberFor(
     "attention",

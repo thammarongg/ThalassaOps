@@ -1,5 +1,4 @@
 import type {
-  BusinessImpact,
   ChangeStreamItem,
   ChangeStreamStatus,
   ConsoleHealthState,
@@ -26,6 +25,7 @@ import {
   isDrillDownTarget,
   isEnum,
   isEvidence,
+  isIncidentBusinessImpact,
   isNonEmptyString,
   isNullableString,
   isRecord,
@@ -87,16 +87,12 @@ const isFiniteDecimal = (value: unknown): value is string =>
 
 const sharesEvidence = (left: string[], right: string[]) => left.some((id) => right.includes(id));
 
-const isBusinessImpact = (value: unknown): value is BusinessImpact => {
-  if (!isRecord(value)) return false;
-  return (
-    isEnum(value.level, impactLevels) &&
-    isNonEmptyString(value.summary) &&
-    isNonEmptyString(value.customer_scope) &&
-    isNonEmptyString(value.service_criticality) &&
-    isEnum(value.trajectory, ["expanding", "stable", "improving", "unknown"])
-  );
-};
+/*
+ * Console projections carry the same structured assessment as incident
+ * writes: typed dimensions whose highest confirmed dimension must equal the
+ * impact level, plus non-empty unique safe evidence references.
+ */
+const isBusinessImpact = isIncidentBusinessImpact;
 
 const isCriticalNumber = (value: unknown): value is CriticalNumber => {
   if (!isRecord(value)) return false;

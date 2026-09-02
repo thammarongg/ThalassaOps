@@ -129,7 +129,18 @@ const operationsSnapshotFixture = (): OperationsSnapshot => {
         summary: "Checkout is affecting customers",
         customer_scope: "Checkout customers",
         service_criticality: "tier-0",
-        trajectory: "expanding"
+        trajectory: "expanding",
+        dimensions: {
+          availability: "critical",
+          customer_reach: "none",
+          business_criticality: "none",
+          data_integrity: "none",
+          security_privacy: "none",
+          financial_contractual: "none",
+          trajectory: "expanding",
+          production: true
+        },
+        evidence_ids: evidenceIds
       },
       attention,
       impacted_services: impactedServices,
@@ -151,7 +162,18 @@ const operationsSnapshotFixture = (): OperationsSnapshot => {
           summary: "Checkout is affecting customers",
           customer_scope: "Checkout customers",
           service_criticality: "tier-0",
-          trajectory: "expanding"
+          trajectory: "expanding",
+          dimensions: {
+            availability: "critical",
+            customer_reach: "none",
+            business_criticality: "none",
+            data_integrity: "none",
+            security_privacy: "none",
+            financial_contractual: "none",
+            trajectory: "expanding",
+            production: true
+          },
+          evidence_ids: evidenceIds
         },
         scope,
         detected_at: observedAt,
@@ -180,7 +202,18 @@ const operationsSnapshotFixture = (): OperationsSnapshot => {
           summary: "Checkout error rate is rising",
           customer_scope: "Checkout customers",
           service_criticality: "tier-1",
-          trajectory: "expanding"
+          trajectory: "expanding",
+          dimensions: {
+            availability: "high",
+            customer_reach: "none",
+            business_criticality: "none",
+            data_integrity: "none",
+            security_privacy: "none",
+            financial_contractual: "none",
+            trajectory: "expanding",
+            production: true
+          },
+          evidence_ids: evidenceIds
         },
         scope,
         detected_at: observedAt,

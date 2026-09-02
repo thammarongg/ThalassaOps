@@ -57,7 +57,18 @@ export const operationsSnapshotFor = (incidents: IncidentQueueItem[]): Operation
       summary: "No active business impact",
       customer_scope: "none",
       service_criticality: "none",
-      trajectory: "improving"
+      trajectory: "improving",
+      dimensions: {
+        availability: "none",
+        customer_reach: "none",
+        business_criticality: "none",
+        data_integrity: "none",
+        security_privacy: "none",
+        financial_contractual: "none",
+        trajectory: "improving",
+        production: true
+      },
+      evidence_ids: ["evidence-attention"]
     },
     attention: numberFor("attention", "evidence-attention"),
     impacted_services: numberFor("impacted_services", "evidence-services"),

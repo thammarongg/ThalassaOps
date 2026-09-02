@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use chrono::{TimeZone, Utc};
 use std::collections::BTreeMap;
 use thalassa_domain::*;
 
@@ -65,7 +66,31 @@ fn domain_entities_preserve_glossary_relationships_and_action_dimensions() {
         ExecutionMode::Approval,
         scope.clone(),
     );
-    let incident = Incident::new("API outage", IncidentSeverity::S2, scope.clone());
+    let now = Utc.with_ymd_and_hms(2026, 8, 28, 9, 0, 0).unwrap();
+    let incident = Incident::new(
+        "API outage",
+        team.id,
+        scope.clone(),
+        BusinessImpact {
+            level: ImpactLevel::High,
+            summary: "API is unavailable for customers".into(),
+            customer_scope: "production customers".into(),
+            service_criticality: "tier-0".into(),
+            trajectory: ImpactTrajectory::Stable,
+            dimensions: ImpactDimensions {
+                availability: ImpactLevel::High,
+                customer_reach: ImpactLevel::Medium,
+                business_criticality: ImpactLevel::Medium,
+                data_integrity: ImpactLevel::None,
+                security_privacy: ImpactLevel::None,
+                financial_contractual: ImpactLevel::Low,
+                trajectory: ImpactTrajectory::Stable,
+                production: true,
+            },
+            evidence_ids: vec!["evidence-api-outage".into()],
+        },
+        now,
+    );
     let policy = Policy::new("baseline", 1, scope.clone());
     let audit = Audit::new("incident.created", scope);
 
@@ -73,7 +98,12 @@ fn domain_entities_preserve_glossary_relationships_and_action_dimensions() {
     assert_eq!(hypothesis.evidence_ids, vec![evidence.id]);
     assert_eq!(action.risk_class, ActionRiskClass::Mutating);
     assert_eq!(action.execution_mode, ExecutionMode::Approval);
-    assert_eq!(incident.severity, IncidentSeverity::S2);
+    assert_eq!(
+        incident
+            .expect("business impact derives a valid incident")
+            .derived_severity,
+        IncidentSeverity::S2
+    );
     assert_eq!(policy.version, 1);
     assert_eq!(audit.event_type, "incident.created");
 }
