@@ -682,23 +682,54 @@ Change the `WriteContention` mapping. Task 1 pointed it at
 `incident_unavailable()`, which is `INTERNAL_ERROR` with no reason, because no
 caller could reach it yet. This task makes it reachable, and design section 7.3
 requires the caller to tell contention from a version conflict — they instruct
-opposite recoveries. Follow the convention `VersionConflict` already uses:
+opposite recoveries.
+
+`INVALID_REQUEST` with a distinct reason was the first attempt and is wrong:
+the request is by definition still valid and may be sent again unchanged.
+Contention gets its own code, added to `IpcErrorCode` and to
+`ui/contracts/ipc.ts` here rather than in Task 4, because Task 4 freezes the
+wire shapes:
 
 ```rust
-IncidentServiceError::WriteContention {} => {
-    invalid_incident_request("incident_write_contention")
-}
+#[serde(rename = "WRITE_CONTENTION")]
+WriteContention,
 ```
+
+```rust
+IncidentServiceError::WriteContention {} => IpcError::new(
+    IpcErrorCode::WriteContention,
+    "the incident timeline is under write contention",
+    serde_json::json!({ "reason": "incident_write_contention" }),
+),
+```
+
+Task 12 retries on this code without reloading; `incident_version_conflict`
+still forces a reload first.
+
+The typed path also has to be reachable in practice. `with_sequence_retry`
+retried only `SequenceCollision`, but SQLite reports a lost race for the write
+lock as `SQLITE_BUSY`/`SQLITE_LOCKED` at `BEGIN IMMEDIATE`, long before any
+sequence is allocated, so real contention escaped as a storage error. Classify
+those two codes at every transaction boundary as a retryable `LockContention`,
+give the connection a short `busy_timeout` so one attempt waits rather than
+failing instantly, and map any that still escapes to `WriteContention`.
 
 - [x] **Step 8: Write the failing IPC tests**
 
 `src-tauri/tests/incident_ipc.rs` builds state with `test_state()`, creates with
 `created(&state)` and wraps payloads with
-`envelope("add_comment", Capability::IncidentWrite, json!({ ... }))`. Three
+`envelope("add_comment", Capability::IncidentWrite, json!({ ... }))`. Four
 tests: the comment appears on the timeline with the right actor and body while
 the version holds; the wrong capability, an unknown key, a missing `body` and an
-empty `body` are all rejected; and a viewer's comment is denied without echoing
-the incident id, for both a missing and an existing incident.
+empty `body` are all rejected; a viewer's comment is denied without echoing the
+incident id, for both a missing and an existing incident; and a comment issued
+while a separate connection holds the write lock comes back as
+`WRITE_CONTENTION`, not an internal error.
+
+The repository proofs gain the same shape: two connections over one file
+rebasing onto each other, and a held write lock producing `WriteContention` for
+a comment and for a transition alike. The single-connection versions stage
+stale caller state, which is a different claim.
 
 Also extend the snake_case field loop at the tail of
 `crates/thalassa-domain/tests/incident_contracts.rs` to cover
