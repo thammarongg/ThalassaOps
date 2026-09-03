@@ -429,3 +429,44 @@ fn commented_event_wire_names_are_stable() {
         thalassa_domain::IncidentEventKind::Commented
     );
 }
+
+#[test]
+fn account_id_screening_flags_standalone_runs_and_not_digest_interiors() {
+    // Still rejected: an account identifier is a token of its own, whether it
+    // stands alone or is delimited by punctuation.
+    for unsafe_text in [
+        "the affected account is 123456789012",
+        "arn:aws:iam::123456789012:role/checkout",
+        "123456789012",
+        "account-123456789012",
+        "id=123456789012;",
+        "card 1234567890123456 was charged",
+    ] {
+        assert!(
+            thalassa_domain::validate_incident_text(unsafe_text, 4_000).is_err(),
+            "{unsafe_text:?} must still be rejected"
+        );
+    }
+
+    // Accepted: twelve adjacent digits wedged inside a longer alphanumeric
+    // token are the middle of a hex digest, not an account identifier.  A
+    // sixteen-character digest slice hits this roughly four percent of the
+    // time, which rejected that share of manual-report incidents.
+    for safe_text in [
+        "manual-report-3af366449386147c",
+        "evidence-manual-report-3af366449386147c",
+        "a123456789012b",
+        "deadbeef123456789012cafe",
+    ] {
+        assert!(
+            thalassa_domain::validate_incident_text(safe_text, 4_000).is_ok(),
+            "{safe_text:?} must be accepted"
+        );
+    }
+
+    // A UUID whose final group is all digits keeps its existing exemption.
+    assert!(
+        thalassa_domain::validate_incident_text("dcdd4879-9294-4bdd-90bf-123456789012", 4_000)
+            .is_ok()
+    );
+}

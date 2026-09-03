@@ -5056,18 +5056,31 @@ fn contains_sensitive_account_id(value: &str) -> bool {
     if looks_like_uuid(value) {
         return false;
     }
-    let mut run_length = 0usize;
-    for character in value.chars() {
-        if character.is_ascii_digit() {
-            run_length = run_length.saturating_add(1);
-        } else {
-            if run_length >= 12 {
-                return true;
-            }
-            run_length = 0;
+    // A cloud account identifier is a token of its own: standalone, or
+    // delimited by punctuation as in `arn:aws:iam::123456789012:role/x`.  A
+    // digit run wedged between letters is not one — it is the middle of a hex
+    // digest, and a 16-character digest slice hits twelve adjacent digits
+    // roughly four percent of the time.  Requiring both boundaries to be
+    // non-alphanumeric keeps every real shape and drops that false positive.
+    let characters: Vec<char> = value.chars().collect();
+    let mut start = 0usize;
+    while start < characters.len() {
+        if !characters[start].is_ascii_digit() {
+            start += 1;
+            continue;
         }
+        let mut end = start;
+        while end < characters.len() && characters[end].is_ascii_digit() {
+            end += 1;
+        }
+        let bounded_before = start == 0 || !characters[start - 1].is_alphanumeric();
+        let bounded_after = end == characters.len() || !characters[end].is_alphanumeric();
+        if end - start >= 12 && bounded_before && bounded_after {
+            return true;
+        }
+        start = end;
     }
-    run_length >= 12
+    false
 }
 
 fn looks_like_uuid(value: &str) -> bool {
