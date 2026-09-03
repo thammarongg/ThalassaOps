@@ -469,4 +469,22 @@ fn account_id_screening_flags_standalone_runs_and_not_digest_interiors() {
         thalassa_domain::validate_incident_text("dcdd4879-9294-4bdd-90bf-123456789012", 4_000)
             .is_ok()
     );
+
+    // Accepted as a deliberate trade-off: a run touching a letter on one side
+    // and a string edge on the other is structurally identical to a digest
+    // that happens to begin or end in digits, so it cannot be told apart from
+    // one.  The narrower rule is what lets the digest interiors above pass.
+    for tolerated in ["acct123456789012", "123456789012xyz"] {
+        assert!(
+            thalassa_domain::validate_incident_text(tolerated, 4_000).is_ok(),
+            "{tolerated:?} is a known, accepted trade-off"
+        );
+    }
+
+    // The residual false positive: a digest slice that is *all* digits is a
+    // standalone token and is still rejected.  Sixteen hex characters land
+    // there about one time in two thousand.
+    assert!(
+        thalassa_domain::validate_incident_text("manual-report-1234567890123456", 4_000).is_err()
+    );
 }
