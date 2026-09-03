@@ -947,7 +947,11 @@ export type IncidentEventKind =
   | "status_transitioned"
   | "severity_changed"
   | "disposition_changed"
-  | "role_changed";
+  | "role_changed"
+  | "commented";
+
+/** Mirrors `thalassa_domain::INCIDENT_NOTE_MAXIMUM`: Unicode scalar values. */
+export const INCIDENT_NOTE_MAXIMUM = 4000;
 
 export type IncidentSeverityOverride = {
   derived: IncidentSeverity;
@@ -1072,6 +1076,7 @@ export type RoleChangedPayload = {
   previous_principal_ids: UUID[];
   current_principal_id: UUID | null;
 };
+export type CommentedPayload = { body: string };
 
 export type IncidentTimelinePayload =
   | { kind: "created"; data: CreatedPayload }
@@ -1079,7 +1084,8 @@ export type IncidentTimelinePayload =
   | { kind: "status_transitioned"; data: StatusTransitionedPayload }
   | { kind: "severity_changed"; data: SeverityChangedPayload }
   | { kind: "disposition_changed"; data: DispositionChangedPayload }
-  | { kind: "role_changed"; data: RoleChangedPayload };
+  | { kind: "role_changed"; data: RoleChangedPayload }
+  | { kind: "commented"; data: CommentedPayload };
 
 export type IncidentTimelineEvent = {
   id: UUID;
@@ -1173,6 +1179,11 @@ export type IncidentRoleRequest = {
   expected_version: number;
   command: IncidentRoleCommand;
 };
+/*
+ * A comment carries no `expected_version`: it changes no incident state, so
+ * there is nothing for a concurrent writer to invalidate.
+ */
+export type IncidentCommentRequest = { incident_id: UUID; body: string };
 
 export type IncidentPage = {
   items: Incident[];

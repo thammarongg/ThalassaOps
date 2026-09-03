@@ -31,6 +31,7 @@ import type {
   ImpactTrajectory,
   Incident,
   IncidentDisposition,
+  IncidentPage,
   IncidentSeverity,
   IncidentRoleAssignment,
   IncidentEventKind,
@@ -57,6 +58,7 @@ import type {
   TimeWindow,
   VulnerabilityFinding
 } from "./ipc";
+import { INCIDENT_NOTE_MAXIMUM } from "./ipc";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -1206,7 +1208,8 @@ const incidentEventKinds: IncidentEventKind[] = [
   "status_transitioned",
   "severity_changed",
   "disposition_changed",
-  "role_changed"
+  "role_changed",
+  "commented"
 ];
 const incidentImpactLevels: ImpactLevel[] = [
   "critical",
@@ -1542,6 +1545,11 @@ const isIncidentTimelinePayload = (
         (data.current_principal_id === null ||
           isNonNilUuid(data.current_principal_id))
       );
+    case "commented":
+      return (
+        hasExactKeys(data, ["body"]) &&
+        isSafeBoundedText(data.body, INCIDENT_NOTE_MAXIMUM)
+      );
     default:
       return false;
   }
@@ -1668,6 +1676,30 @@ export const isIncident = (value: unknown): value is Incident =>
   })() &&
   (value.disposition === "duplicate") ===
     (value.duplicate_of_incident_id !== null);
+
+/*
+ * The list cursor is the repository's frozen `<rfc3339>|<uuid>` pair, bounded
+ * by `INCIDENT_CURSOR_MAXIMUM`.  A page only carries one when it has a last
+ * item to resume from.
+ */
+const INCIDENT_CURSOR_MAXIMUM = 200;
+
+const isIncidentCursor = (value: unknown): value is string => {
+  if (!isSafeBoundedText(value, INCIDENT_CURSOR_MAXIMUM)) return false;
+  const separator = value.indexOf("|");
+  if (separator === -1) return false;
+  return (
+    isTimestamp(value.slice(0, separator)) &&
+    isNonNilUuid(value.slice(separator + 1))
+  );
+};
+
+export const isIncidentPage = (value: unknown): value is IncidentPage =>
+  hasExactKeys(value, ["items", "next_cursor"]) &&
+  Array.isArray(value.items) &&
+  value.items.every(isIncident) &&
+  (value.next_cursor === null ||
+    (isIncidentCursor(value.next_cursor) && value.items.length > 0));
 
 export const isIncidentTimelinePage = (
   value: unknown

@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   isIncident,
   isIncidentBusinessImpact,
+  isIncidentPage,
   isIncidentTimelinePage,
   isIncidentTriggerInput
 } from "../../contracts/guards";
@@ -411,5 +412,86 @@ describe("incident wire guards", () => {
       evidence_ids: ["evidence-checkout", "evidence-checkout"]
     };
     expect(isIncidentBusinessImpact(duplicated)).toBe(false);
+  });
+
+  test("commented events carry a bounded body under the commented tag", () => {
+    const comment = timelineEvent(EVENT_ONE, 1, "commented", {
+      kind: "commented",
+      data: { body: "checked the checkout dashboards" }
+    });
+    const withPayload = (payload: unknown) => ({
+      incident_id: INCIDENT,
+      events: [{ ...comment, payload }],
+      next_sequence: null
+    });
+
+    expect(isIncidentTimelinePage(withPayload(comment.payload))).toBe(true);
+    expect(isIncidentTimelinePage(withPayload({ kind: "commented", data: {} }))).toBe(false);
+    expect(isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: 4 } }))).toBe(
+      false
+    );
+    expect(isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: "" } }))).toBe(
+      false
+    );
+    expect(isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: "   " } }))).toBe(
+      false
+    );
+    expect(
+      isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: "line\u0007break" } }))
+    ).toBe(false);
+    expect(
+      isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: "é".repeat(4000) } }))
+    ).toBe(true);
+    expect(
+      isIncidentTimelinePage(withPayload({ kind: "commented", data: { body: "é".repeat(4001) } }))
+    ).toBe(false);
+    expect(
+      isIncidentTimelinePage(
+        withPayload({ kind: "commented", data: { body: "noted", note: "extra" } })
+      )
+    ).toBe(false);
+  });
+
+  test("the commented kind and its payload tag must agree", () => {
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [
+          timelineEvent(EVENT_ONE, 1, "commented", {
+            kind: "triggers_attached",
+            data: { trigger_ids: [TRIGGER] }
+          })
+        ],
+        next_sequence: null
+      })
+    ).toBe(false);
+    expect(
+      isIncidentTimelinePage({
+        incident_id: INCIDENT,
+        events: [
+          timelineEvent(EVENT_ONE, 1, "triggers_attached", {
+            kind: "commented",
+            data: { body: "noted" }
+          })
+        ],
+        next_sequence: null
+      })
+    ).toBe(false);
+  });
+
+  test("incident pages accept the frozen cursor form and an empty page", () => {
+    const page = { items: [incidentFixture], next_cursor: null };
+    expect(isIncidentPage(page)).toBe(true);
+    expect(isIncidentPage({ ...page, next_cursor: `${AT}|${INCIDENT}` })).toBe(true);
+    expect(isIncidentPage({ items: [], next_cursor: null })).toBe(true);
+    expect(isIncidentPage({ ...page, next_cursor: "" })).toBe(false);
+    expect(isIncidentPage({ ...page, next_cursor: AT })).toBe(false);
+    expect(isIncidentPage({ ...page, next_cursor: `${AT}|not-a-uuid` })).toBe(false);
+    expect(isIncidentPage({ ...page, next_cursor: `not-a-timestamp|${INCIDENT}` })).toBe(false);
+    expect(isIncidentPage({ items: [], next_cursor: `${AT}|${INCIDENT}` })).toBe(false);
+    expect(
+      isIncidentPage({ ...page, items: [{ ...incidentFixture, status: "acknowledged" }] })
+    ).toBe(false);
+    expect(isIncidentPage({ ...page, unexpected: true })).toBe(false);
   });
 });
