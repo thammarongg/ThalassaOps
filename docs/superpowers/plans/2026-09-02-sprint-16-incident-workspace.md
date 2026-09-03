@@ -888,8 +888,16 @@ Rust is next open.
 ### Task 5: Locale Key Parity Test
 
 This lands before the components so every later task is forced to add both
-languages. `en.ts` and `th.ts` currently hold 801 keys each with no drift, so
-this test passes on existing content the moment it is written.
+languages. `en.ts` and `th.ts` hold 729 key paths each with no drift — not the
+801 stated here, which was wrong by 72 — so the test passes on existing content
+the moment it is written.
+
+The check is not new in kind. Two namespace-scoped copies already exist, inline
+and each with its own `keyPaths`: `ui/src/topology/TopologyWorkspace.test.tsx`
+and `ui/src/correlation/correlation-contracts.test.ts`. Neither covers a
+namespace nobody thought to write one for, which is exactly what the Sprint 16
+rule needs. Both are subsumed by the file below and can go when those two files
+are next open; this task does not touch them.
 
 **Files:**
 - Create: `ui/src/locales/locales.test.ts`
@@ -899,67 +907,76 @@ this test passes on existing content the moment it is written.
 - Consumes: nothing.
 - Produces: an `incident` namespace in both locale files that later tasks extend.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
+
+One recursive walker over the catalog, since the key list is the leaf list with
+the values dropped:
 
 ```ts
-import { describe, expect, it } from "vitest";
-import en from "./en";
-import th from "./th";
-
-function keyPaths(value: unknown, prefix = ""): string[] {
-  if (typeof value !== "object" || value === null) return [prefix];
-  return Object.entries(value).flatMap(([key, child]) =>
-    keyPaths(child, prefix ? `${prefix}.${key}` : key)
+const leaves = (value: unknown, prefix = ""): [string, unknown][] =>
+  Object.entries(value as Record<string, unknown>).flatMap(([key, inner]) =>
+    typeof inner === "object" && inner !== null
+      ? leaves(inner, `${prefix}${key}.`)
+      : [[`${prefix}${key}`, inner] as [string, unknown]]
   );
-}
 
-describe("locale parity", () => {
-  it("defines exactly the same key paths in en and th", () => {
-    const enKeys = keyPaths(en).sort();
-    const thKeys = keyPaths(th).sort();
-    expect(thKeys.filter((key) => !enKeys.includes(key))).toEqual([]);
-    expect(enKeys.filter((key) => !thKeys.includes(key))).toEqual([]);
-  });
-});
+const keyPaths = (value: unknown): string[] => leaves(value).map(([key]) => key);
 ```
 
-- [ ] **Step 2: Run it to confirm the existing files already pass**
+The first assertion is set difference in both directions, which names the drift
+rather than diffing 729 keys.
 
-Run: `npm test -- ui/src/locales/locales.test.ts`
-Expected: PASS. If it fails, the drift is pre-existing — fix the missing keys in
-this task before continuing, and say so in the commit body.
+A second assertion covers what key parity alone misses: a key stubbed on one
+side with an empty value. It cannot simply require non-empty text — `units.count`
+is deliberately `""` in the `operations`, `correlation` and `topology`
+namespaces, where a count renders bare and the other units append a suffix. So
+the rule is that a key blank in one catalog must be blank in the other, and
+every leaf must be a string.
 
-- [ ] **Step 3: Add the incident namespace to both files**
+- [x] **Step 2: Run it to confirm the existing files already pass**
 
-In `en.ts`:
+Run: `npx vitest run ui/src/locales/locales.test.ts`
+Result: PASS. There is no pre-existing key drift.
+
+- [x] **Step 3: Add the incident namespace to both files**
+
+Appended after `topology`, the last namespace, following the file's ordering by
+feature rather than alphabetically. Values follow the house convention
+`Loading <thing>…` / `กำลังโหลด<thing>…` rather than a bare `Loading…`:
 
 ```ts
   incident: {
     queueTitle: "Incidents",
     detailTitle: "Incident",
     emptyQueue: "No incidents match this filter",
-    loading: "Loading…"
-  },
+    loading: "Loading incidents…"
+  }
 ```
-
-In `th.ts`, the same key paths with Thai values:
 
 ```ts
   incident: {
     queueTitle: "เหตุการณ์",
     detailTitle: "รายละเอียดเหตุการณ์",
     emptyQueue: "ไม่มีเหตุการณ์ที่ตรงกับตัวกรองนี้",
-    loading: "กำลังโหลด…"
-  },
+    loading: "กำลังโหลดเหตุการณ์…"
+  }
 ```
 
-- [ ] **Step 4: Run the UI gate and commit**
+- [x] **Step 4: Run the UI gate and commit**
 
 ```bash
 npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/locales
-git commit -m "test(ui): assert en and th locale key parity"
+git commit -m "test(ui): assert en and th locale key parity across every namespace"
 ```
+
+Implemented on the branch as 87b628c with the full gate green: 138 UI tests.
+
+One finding this task deliberately did not fix. In `th.ts` the `topology`
+namespace still carries the English unit suffixes `" ms"` and `" s"`, where
+`operations` and `correlation` carry `" มิลลิวินาที"` and `" วินาที"`. The keys
+exist in both catalogs, so neither the constraint nor this test is violated —
+the strings are simply untranslated, and they belong to Sprint 13.
 
 ---
 
