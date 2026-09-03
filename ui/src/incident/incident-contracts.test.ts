@@ -483,6 +483,10 @@ describe("incident wire guards", () => {
     const page = { items: [incidentFixture], next_cursor: null };
     expect(isIncidentPage(page)).toBe(true);
     expect(isIncidentPage({ ...page, next_cursor: `${AT}|${INCIDENT}` })).toBe(true);
+    // `format_cursor` writes `to_rfc3339`, which emits the offset, not `Z`.
+    expect(isIncidentPage({ ...page, next_cursor: `2026-08-30T09:00:00+00:00|${INCIDENT}` })).toBe(
+      true
+    );
     expect(isIncidentPage({ items: [], next_cursor: null })).toBe(true);
     expect(isIncidentPage({ ...page, next_cursor: "" })).toBe(false);
     expect(isIncidentPage({ ...page, next_cursor: AT })).toBe(false);
