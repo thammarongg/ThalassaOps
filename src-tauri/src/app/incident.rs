@@ -576,6 +576,7 @@ fn incident_domain_reason(error: &thalassa_domain::IncidentError) -> &'static st
         IncidentError::InvalidDisposition => "incident_invalid_disposition",
         IncidentError::InvalidDuplicateReference => "incident_invalid_duplicate_reference",
         IncidentError::InvalidRole => "incident_invalid_role",
+        IncidentError::InvalidComment => "incident_invalid_comment",
         IncidentError::VersionConflict { .. } => "incident_version_conflict",
         IncidentError::InvalidEventSequence => "incident_invalid_event_sequence",
         IncidentError::InvalidPagination => "incident_invalid_pagination",

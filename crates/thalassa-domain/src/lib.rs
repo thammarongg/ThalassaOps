@@ -624,6 +624,8 @@ pub enum IncidentError {
     InvalidRole,
     #[error("incident version conflict: expected {expected}, actual {actual}")]
     VersionConflict { expected: u64, actual: u64 },
+    #[error("the comment body is empty, too long or unsafe")]
+    InvalidComment,
     #[error("incident event sequence must be positive with room for appended events")]
     InvalidEventSequence,
     #[error("incident page limits must be within 1..=100 and cursors non-empty, bounded and control-free")]
@@ -885,6 +887,8 @@ pub enum IncidentEventKind {
     DispositionChanged,
     #[serde(rename = "role_changed")]
     RoleChanged,
+    #[serde(rename = "commented")]
+    Commented,
 }
 
 /// One immutable, attributed incident timeline event.
@@ -918,6 +922,8 @@ pub enum IncidentTimelinePayload {
     DispositionChanged(DispositionChangedPayload),
     #[serde(rename = "role_changed")]
     RoleChanged(RoleChangedPayload),
+    #[serde(rename = "commented")]
+    Commented(CommentedPayload),
 }
 
 /// Creation audit values: identity, team, severity and initial assignments.
@@ -970,6 +976,12 @@ pub struct RoleChangedPayload {
     pub role: IncidentRole,
     pub previous_principal_ids: Vec<PrincipalId>,
     pub current_principal_id: Option<PrincipalId>,
+}
+
+/// Free text a responder attached to the incident timeline.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CommentedPayload {
+    pub body: String,
 }
 
 /// New aggregate state plus the ordered events the write transaction appends.
@@ -1694,6 +1706,51 @@ impl Incident {
         };
         next.version += 1;
         next.updated_at = now;
+        let events = materialize_events(
+            self.id,
+            first_event_sequence,
+            vec![pending],
+            actor_id,
+            request_id,
+            policy_version,
+            now,
+        )?;
+        Ok(IncidentMutation {
+            incident: next,
+            events,
+        })
+    }
+
+    /// Appends one immutable responder comment.  A comment changes no incident
+    /// state, so it deliberately takes no `expected_version` and does not
+    /// advance the version; see the Sprint 16 design, section 7.5.
+    pub fn add_comment(
+        &self,
+        first_event_sequence: u64,
+        body: &str,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
+        ensure_id(actor_id)?;
+        ensure_id(request_id)?;
+        validate_incident_text(body, INCIDENT_NOTE_MAXIMUM)
+            .map_err(|_| IncidentError::InvalidComment)?;
+
+        let mut next = self.clone();
+        next.updated_at = now;
+
+        let pending = PendingEvent {
+            kind: IncidentEventKind::Commented,
+            reason: None,
+            payload: IncidentTimelinePayload::Commented(CommentedPayload {
+                body: body.to_owned(),
+            }),
+        };
         let events = materialize_events(
             self.id,
             first_event_sequence,

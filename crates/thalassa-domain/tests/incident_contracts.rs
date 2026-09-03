@@ -388,3 +388,27 @@ fn incident_requests_and_pages_keep_snake_case_wire_fields() {
     }
     assert_eq!(value["next_sequence"], json!(null));
 }
+
+#[test]
+fn commented_event_wire_names_are_stable() {
+    let payload =
+        thalassa_domain::IncidentTimelinePayload::Commented(thalassa_domain::CommentedPayload {
+            body: "note".into(),
+        });
+    let encoded = serde_json::to_value(&payload).expect("payload encodes");
+    assert_eq!(encoded["kind"], json!("commented"));
+    assert_eq!(encoded["data"]["body"], json!("note"));
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentTimelinePayload>(encoded).unwrap(),
+        payload
+    );
+
+    assert_eq!(
+        serde_json::to_value(thalassa_domain::IncidentEventKind::Commented).expect("kind encodes"),
+        json!("commented")
+    );
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentEventKind>(json!("commented")).unwrap(),
+        thalassa_domain::IncidentEventKind::Commented
+    );
+}

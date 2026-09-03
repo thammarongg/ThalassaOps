@@ -1377,6 +1377,7 @@ fn event_kind_wire(kind: IncidentEventKind) -> &'static str {
         IncidentEventKind::SeverityChanged => "severity_changed",
         IncidentEventKind::DispositionChanged => "disposition_changed",
         IncidentEventKind::RoleChanged => "role_changed",
+        IncidentEventKind::Commented => "commented",
     }
 }
 
@@ -1388,6 +1389,7 @@ fn parse_event_kind(value: &str) -> Result<IncidentEventKind, IncidentStoreError
         "severity_changed" => Ok(IncidentEventKind::SeverityChanged),
         "disposition_changed" => Ok(IncidentEventKind::DispositionChanged),
         "role_changed" => Ok(IncidentEventKind::RoleChanged),
+        "commented" => Ok(IncidentEventKind::Commented),
         _ => Err(corruption("incident event kind")),
     }
 }
