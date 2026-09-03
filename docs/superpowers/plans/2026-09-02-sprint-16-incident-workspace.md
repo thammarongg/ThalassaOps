@@ -982,78 +982,165 @@ the strings are simply untranslated, and they belong to Sprint 13.
 
 ### Task 6: Incident Data Hooks
 
-**Files:**
-- Create: `ui/src/incident/useIncidentList.ts`, `ui/src/incident/useIncidentTimeline.ts`
-- Create: `ui/src/incident/incident-fixtures.ts`
-- Test: `ui/src/incident/useIncidentList.test.ts`, `ui/src/incident/useIncidentTimeline.test.ts`
-
-**Interfaces:**
-- Consumes: `isIncidentPage`, `isIncidentTimelinePage` from Task 4.
-- Produces:
-  - `useIncidentList(invoke: Invoke): { incidents: IncidentSummary[]; loading: boolean; error: string | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
-  - `useIncidentTimeline(invoke: Invoke, incidentId: string | null): { events: IncidentTimelineEvent[]; loading: boolean; error: string | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
-  - `incidentFixturePage`, `incidentFixtureTimeline` — fixtures dated `2026-08-28`.
-
-- [ ] **Step 1: Write the fixtures and assert they are non-empty**
-
-In `incident-fixtures.ts`, build one page of three incidents and one timeline of
-six events, all timestamped on `2026-08-28`. Add this test first, in
-`useIncidentList.test.ts`:
+The code in this task was written against an `invoke` that does not exist. The
+real contract is `ui/contracts/ipc.ts:1198`:
 
 ```ts
-it("ships a non-empty fixture page", () => {
+export type Invoke = <T, U>(command: string, args: { envelope: CommandEnvelope<T> }) => Promise<IpcResult<U>>;
+```
+
+Two positional arguments, not one object: the Tauri command name
+(`incident_list`, `incident_timeline` — registered in `src-tauri/src/main.rs`)
+and an envelope whose `command` field carries the dotted IPC name
+(`incident.list`, `incident.timeline`) built with the `command()` helper. Every
+assertion in the original steps — `expect.objectContaining({ name: "incident.list" })`
+— would have passed against a hook that never called the real IPC at all.
+
+Three further corrections, each of which would have failed silently:
+
+- **The timeline does not page by cursor.** `IncidentTimelinePage` is
+  `{ incident_id, events, next_sequence }`, and the request field is
+  `after_sequence`. `IncidentPage` is `{ items, next_cursor }` as stated.
+- **Both resume tokens are the last returned item, and the server filters
+  strictly greater.** `repository.rs` sets `next_sequence` to
+  `events.last().sequence` and loads `WHERE sequence > ?2`; `list` sets
+  `next_cursor` to `format_cursor` of the *last item* and loads
+  `updated_at < ?2 OR (updated_at = ?2 AND id > ?3)`. So each hook sends the
+  token back verbatim. Adding one would skip an event; subtracting one would
+  replay it, and neither shows up as a failure — just a wrong page.
+- **`IncidentSummary` does not exist.** The list carries full `Incident`
+  values.
+
+The payloads are `#[serde(deny_unknown_fields)]` structs with a required
+`limit` (`src-tauri/src/app/incident.rs:50-65`), validated in `1..=100`, so the
+tests assert the whole payload with `toEqual` rather than `objectContaining`:
+an extra or missing key is a real IPC rejection, and `objectContaining` cannot
+see it.
+
+**Files:**
+- Create: `ui/src/incident/incident-envelope.ts`, `ui/src/incident/useIncidentList.ts`, `ui/src/incident/useIncidentTimeline.ts`, `ui/src/incident/incident-fixtures.ts`
+- Test: `ui/src/incident/useIncidentList.test.ts`, `ui/src/incident/useIncidentTimeline.test.ts`
+
+`incident-envelope.ts` is not in the original file list. Correlation and
+topology each inline their own envelope helper in the one component that uses
+it; the incident module cannot, because Tasks 11-12 need `IncidentWrite`
+envelopes from components that are not these hooks. One helper, one file.
+
+**Interfaces:**
+- Consumes: `isIncidentPage`, `isIncidentTimelinePage` from Task 4 — already in
+  `ui/contracts/guards.ts`, not in a module-local contracts file.
+- Produces:
+  - `incidentEnvelope(verb, capability, payload)` — `request_id: crypto.randomUUID()`, `command: command("incident", verb)`, `scope: { resource_ids: [] }`, following `CorrelationWorkspace`.
+  - `INCIDENT_PAGE_LIMIT = 25`, `INCIDENT_TIMELINE_LIMIT = 50` — both inside the validated `1..=100`, exported so the tests assert the payload rather than restating a literal.
+  - `useIncidentList(invoke: Invoke): { incidents: Incident[]; loading: boolean; error: IpcErrorCode | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
+  - `useIncidentTimeline(invoke: Invoke, incidentId: string | null): { events: IncidentTimelineEvent[]; loading: boolean; error: IpcErrorCode | null; loadMore: () => void; hasMore: boolean; reload: () => void }`
+  - `incidentFixturePage`, `incidentFixtureTimeline` — dated `2026-08-28`.
+
+`error` is an `IpcErrorCode`, not the `string` the original said. The hooks take
+no `t`, and every workspace in this repo translates a code through its own
+`localizedErrorKey` switch at the component. A guard failure reports
+`MALFORMED_RESPONSE`, a rejected promise `INTERNAL_ERROR`, and an IPC error its
+own code; Task 7 does the translating.
+
+- [ ] **Step 1: Write the fixtures and assert the guards accept them**
+
+In `incident-fixtures.ts`, one page of three incidents and one timeline of six
+events, all timestamped on `2026-08-28`, modelled on the literals in
+`incident-contracts.test.ts` — which are the only shapes known to satisfy
+`isIncident`'s cross-field invariants (`derived_severity` recomputed from the
+impact dimensions, evidence closure over impact and override, sorted unique id
+arrays, `owning_team_id === scope.team_id`). Item 0's summary mentions checkout,
+because Task 7's list test matches `/checkout/i`. The six events cover
+`incident_created`, `triggers_attached`, two `status_transitioned`,
+`severity_changed` and the `commented` kind Task 2 added, with strictly
+ascending sequences and one shared `incident_id`.
+
+The fixture's `next_cursor` uses the `+00:00` offset form `format_cursor`
+actually emits (pinned in `incident-contracts.test.ts` by 1e4cbcb), not `Z`.
+
+Assert the guards, not just the lengths. A fixture that fails `isIncident`
+produces exactly the symptom the Step 2 guard-failure test asserts — `error`
+set, `incidents` empty — so without this the next two hours go into the hook:
+
+```ts
+it("ships fixtures the Task 4 guards accept", () => {
   expect(incidentFixturePage.items.length).toBeGreaterThan(0);
+  expect(isIncidentPage(incidentFixturePage)).toBe(true);
   expect(incidentFixtureTimeline.events.length).toBeGreaterThan(0);
+  expect(isIncidentTimelinePage(incidentFixtureTimeline)).toBe(true);
 });
 ```
 
-- [ ] **Step 2: Write the failing hook test**
+- [ ] **Step 2: Write the failing hook tests**
 
 ```ts
-it("pages the incident list with the returned cursor", async () => {
-  const invoke = vi.fn<Invoke>()
-    .mockResolvedValueOnce({ ok: true, value: { items: incidentFixturePage.items, next_cursor: "c2" } })
-    .mockResolvedValueOnce({ ok: true, value: { items: [], next_cursor: null } });
+it("pages the incident list with the cursor the page returned", async () => {
+  const invoke = vi.fn().mockResolvedValueOnce(ok(incidentFixturePage))
+    .mockResolvedValueOnce(ok({ items: [], next_cursor: null }));
 
-  const { result } = renderHook(() => useIncidentList(invoke));
+  const { result } = renderHook(() => useIncidentList(invoke as unknown as Invoke));
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.hasMore).toBe(true);
 
   act(() => result.current.loadMore());
   await waitFor(() => expect(result.current.hasMore).toBe(false));
 
-  expect(invoke).toHaveBeenNthCalledWith(2, expect.objectContaining({
-    name: "incident.list",
-    payload: expect.objectContaining({ cursor: "c2" })
-  }));
+  expect(invoke.mock.calls[0][0]).toBe("incident_list");
+  expect(invoke.mock.calls[0][1].envelope.command).toBe("incident.list");
+  expect(invoke.mock.calls[0][1].envelope.capability).toBe("IncidentRead");
+  expect(invoke.mock.calls[0][1].envelope.payload).toEqual({
+    cursor: null,
+    limit: INCIDENT_PAGE_LIMIT
+  });
+  expect(invoke.mock.calls[1][1].envelope.payload).toEqual({
+    cursor: incidentFixturePage.next_cursor,
+    limit: INCIDENT_PAGE_LIMIT
+  });
 });
 
-it("reports a guard failure as an error rather than rendering unvalidated data", async () => {
-  const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: true, value: { items: [{ bogus: true }], next_cursor: null } });
-  const { result } = renderHook(() => useIncidentList(invoke));
-  await waitFor(() => expect(result.current.error).not.toBeNull());
+it("reports a guard failure as MALFORMED_RESPONSE rather than rendering unvalidated data", async () => {
+  const invoke = vi.fn().mockResolvedValue(ok({ items: [{ bogus: true }], next_cursor: null }));
+  const { result } = renderHook(() => useIncidentList(invoke as unknown as Invoke));
+  await waitFor(() => expect(result.current.error).toBe("MALFORMED_RESPONSE"));
   expect(result.current.incidents).toEqual([]);
 });
 ```
 
+and for the timeline, the three the original left unwritten:
+
+```ts
+it("resumes from next_sequence verbatim", /* payload toEqual { incident_id, after_sequence: page.next_sequence, limit: INCIDENT_TIMELINE_LIMIT } */);
+it("does not call invoke when no incident is selected", /* expect(invoke).not.toHaveBeenCalled() */);
+it("drops a page that arrives for a since-deselected incident", /* stale response, events stay empty */);
+```
+
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `npm test -- ui/src/incident/useIncidentList.test.ts`
-Expected: FAIL with "useIncidentList is not a function".
+Run: `npx vitest run ui/src/incident/useIncidentList.test.ts`
+Expected: FAIL — the module does not exist.
 
 - [ ] **Step 4: Implement both hooks**
 
-Each hook keeps `items`, `cursor`, `loading` and `error` in state, calls the
-command through `invoke`, runs the Task 4 guard on the response, and appends on
-`loadMore`. A guard failure sets `error` and leaves `items` untouched. Neither
-hook renders anything; neither is used outside the shell.
+Each hook keeps items, the resume token, `loading` and `error` in state, calls
+`invoke` with an `IncidentRead` envelope, runs the Task 4 guard on the response,
+and appends on `loadMore`. A guard failure sets `error` and leaves the items
+untouched. Neither hook renders anything.
 
-`useIncidentTimeline` returns immediately with empty state when `incidentId` is
-`null`, and refetches from scratch when it changes.
+Three behaviours the original did not state:
+
+- A `useRef` request counter discards stale responses, as `CorrelationWorkspace`
+  does. `useIncidentTimeline` also checks `value.incident_id === incidentId`
+  before accepting a page: the guard only proves a page is internally
+  consistent, so a *valid* page for the previous incident can still land after
+  the selection changed.
+- `loadMore()` is a no-op while `loading` or `!hasMore`, or a double click
+  appends the same page twice.
+- `incidentId === null` returns empty state with `loading: false` and calls no
+  command.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- ui/src/incident/useIncidentList.test.ts ui/src/incident/useIncidentTimeline.test.ts`
+Run: `npx vitest run ui/src/incident/useIncidentList.test.ts ui/src/incident/useIncidentTimeline.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Run the UI gate and commit**
