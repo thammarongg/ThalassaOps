@@ -1070,3 +1070,92 @@ fn two_comments_allocated_from_the_same_observation_do_not_collide() {
     unique.dedup();
     assert_eq!(sequences, unique, "timeline sequences stay unique");
 }
+
+#[test]
+fn the_version_free_path_refuses_an_event_that_carries_state() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+
+    // A transition event through the comment path would be recorded on the
+    // timeline while none of its aggregate state was ever applied.
+    let transition = triage_mutation(&created.incident, SECOND_REQUEST, 3);
+    assert!(matches!(
+        fixture.repository.append_comment(transition),
+        Err(IncidentStoreError::InvalidMutation(_))
+    ));
+
+    let mut with_reason = created
+        .incident
+        .add_comment(
+            1,
+            "carries a reason",
+            ACTOR,
+            THIRD_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+    with_reason.events[0].reason = Some("not a comment field".into());
+    assert!(matches!(
+        fixture.repository.append_comment(with_reason),
+        Err(IncidentStoreError::InvalidMutation(_))
+    ));
+
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len(),
+        "a rejected append writes nothing"
+    );
+}
+
+#[test]
+fn a_late_comment_never_drags_updated_at_backwards() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // The comment is built at `now()`; the transition that beats it to the
+    // store is stamped `later()`.  `updated_at` orders the incident queue, so
+    // letting the comment win would reshuffle it.
+    let comment = incident
+        .add_comment(
+            1,
+            "built earlier",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            now(),
+        )
+        .expect("the comment is valid");
+    fixture
+        .repository
+        .apply_mutation(triage_mutation(&incident, THIRD_REQUEST, 3))
+        .expect("the transition lands first");
+
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the comment still appends");
+
+    assert_eq!(stored.incident.updated_at, later());
+    assert_eq!(
+        fixture
+            .repository
+            .get(WORKSPACE, incident.id)
+            .expect("incident is readable")
+            .updated_at,
+        later(),
+        "the stored timestamp does not move backwards"
+    );
+}

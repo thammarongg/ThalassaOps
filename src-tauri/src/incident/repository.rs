@@ -383,15 +383,20 @@ impl SqliteIncidentRepository {
     ) -> Result<IncidentMutation, IncidentStoreError> {
         let workspace_id = workspace_of(&mutation.incident)?;
         let incident_id = mutation.incident.id;
-        let updated_at = mutation.incident.updated_at;
-        let request_id = mutation
-            .events
-            .first()
-            .ok_or_else(|| invalid("a comment appends exactly one event"))?
-            .request_id;
-        if mutation.events.len() != 1 {
+        let commented_at = mutation.incident.updated_at;
+        // This path discards every aggregate field but `updated_at`, so an
+        // event that carries state would be recorded on the timeline without
+        // ever being applied.  Only a comment may travel through it.
+        let [event] = mutation.events.as_slice() else {
             return Err(invalid("a comment appends exactly one event"));
+        };
+        if event.kind != IncidentEventKind::Commented
+            || !matches!(event.payload, IncidentTimelinePayload::Commented(_))
+            || event.reason.is_some()
+        {
+            return Err(invalid("only a comment may append without a version"));
         }
+        let request_id = event.request_id;
 
         let mutation_template = mutation;
         with_sequence_retry(SEQUENCE_RETRY_BUDGET, |_| {
@@ -421,6 +426,10 @@ impl SqliteIncidentRepository {
             mutation.events[0].sequence = highest.checked_add(1).ok_or_else(|| {
                 invalid("incident timeline sequence exceeds the stored integer range")
             })?;
+            // A comment that was built before a later write must not drag the
+            // stored timestamp backwards: `updated_at` orders the incident
+            // queue, so a regression would reshuffle it.
+            let updated_at = stored_incident.updated_at.max(commented_at);
             mutation.incident = stored_incident;
             mutation.incident.updated_at = updated_at;
             validate_events(&mutation, highest)?;
