@@ -873,6 +873,12 @@ const th = {
       health_check: "การตรวจสอบสุขภาพ",
       fixture: "ข้อมูลตัวอย่าง"
     }
+  },
+  incident: {
+    queueTitle: "เหตุการณ์",
+    detailTitle: "รายละเอียดเหตุการณ์",
+    emptyQueue: "ไม่มีเหตุการณ์ที่ตรงกับตัวกรองนี้",
+    loading: "กำลังโหลดเหตุการณ์…"
   }
 } as const;
 

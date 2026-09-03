@@ -876,6 +876,12 @@ const en = {
       health_check: "Health check",
       fixture: "Fixture"
     }
+  },
+  incident: {
+    queueTitle: "Incidents",
+    detailTitle: "Incident",
+    emptyQueue: "No incidents match this filter",
+    loading: "Loading incidents…"
   }
 } as const;
 
