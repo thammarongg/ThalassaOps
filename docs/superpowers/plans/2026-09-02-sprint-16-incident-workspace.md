@@ -517,175 +517,80 @@ git commit -m "feat(incident): add the commented timeline event kind"
 ### Task 3: Expose incident.add_comment Through the Service and IPC
 
 **Files:**
+- Modify: `crates/thalassa-domain/src/lib.rs` (`IncidentCommentRequest`, beside `IncidentRoleRequest`)
 - Modify: `crates/thalassa-ipc/src/lib.rs` (beside `incident_assign_role_descriptor`)
+- Modify: `src-tauri/src/incident/repository.rs` (`append_comment`)
 - Modify: `src-tauri/src/incident/service.rs`
 - Modify: `src-tauri/src/app/incident.rs`
 - Modify: `src-tauri/src/main.rs`
-- Test: `crates/thalassa-ipc/tests/contracts.rs`, `src-tauri/tests/incident_mutations.rs`, `src-tauri/tests/incident_ipc.rs`
+- Test: `crates/thalassa-ipc/tests/contracts.rs`, `crates/thalassa-domain/tests/incident_contracts.rs`, `src-tauri/tests/incident_repository.rs`, `src-tauri/tests/incident_mutations.rs`, `src-tauri/tests/incident_ipc.rs`
 
 **Interfaces:**
-- Consumes: `Incident::add_comment` and `CommentedPayload` from Task 2; `IncidentServiceError::WriteContention` from Task 1.
+- Consumes: `Incident::add_comment` and `CommentedPayload` from Task 2; `IncidentStoreError::WriteContention` and `with_sequence_retry` from Task 1.
 - Produces:
+  - `IncidentCommentRequest { pub incident_id: IncidentId, pub body: String }` in `thalassa_domain` — no `expected_version` field.
+  - `SqliteIncidentRepository::append_comment(&mut self, mutation) -> Result<IncidentMutation, IncidentStoreError>` — the version-free write path.
   - `incident_add_comment_descriptor() -> CommandDescriptor` with name `incident.add_comment`, `Capability::IncidentWrite`, `Permission::ManageIncident`.
-  - `IncidentCommentRequest { pub incident_id: IncidentId, pub body: String }` in `thalassa_domain`.
-  - `IncidentService::add_comment(&mut self, context: &IncidentCommandContext, request: IncidentCommentRequest) -> Result<IncidentMutation, IncidentServiceError>`.
-  - IPC error code `"incident_write_contention"` for the contention case.
+  - `IncidentService::add_comment(&mut self, context, request) -> Result<IncidentMutation, IncidentServiceError>`.
+  - IPC reason `"incident_write_contention"` for the contention case.
 
-- [ ] **Step 1: Write the failing descriptor test**
+**The step the first draft of this plan missed.** Its service code called
+`repository.apply_mutation`, which cannot carry a comment. `apply_mutation`
+derives `expected_version` as `incident.version - 1` and its `UPDATE` carries
+`WHERE ... AND version = ?`. A comment leaves the version alone, so that
+subtraction underflows on a fresh incident and the predicate rejects the comment
+outright the moment any other write lands in between — the exact failure the
+"comment writes must not read or write the `version` column" constraint exists
+to prevent. Task 3 therefore starts at the repository, not the service. (The
+plan's File Map always assigned "comment append" to `repository.rs`; only the
+steps forgot.)
 
-Add to `crates/thalassa-ipc/tests/contracts.rs`, in the existing descriptor table:
+- [x] **Step 1: Write the failing repository tests**
 
-```rust
-(incident_add_comment_descriptor(), "incident.add_comment"),
-```
+In `src-tauri/tests/incident_repository.rs`, using the helpers already there —
+`fixture()`, `creation_record()`, `triage_mutation()`, `scope_for()` and the
+`CREATE_REQUEST`/`SECOND_REQUEST`/`THIRD_REQUEST` constants:
 
-and assert its capability and permission:
+1. `a_comment_appends_after_a_racing_transition_without_writing_the_version` —
+   this is the two-writer race deferred from Task 1 in c1aa5a3. Build the
+   comment mutation from the aggregate as first observed, apply a triage
+   mutation so the stored row is a version ahead and the timeline two events
+   taller, then append the stale comment. It must succeed, its sequence must
+   land after the triage events, the stored `version` and `status` must be the
+   triage writer's, `updated_at` must be the comment's, and every timeline
+   sequence must stay unique.
+2. `replaying_a_comment_request_id_returns_the_stored_comment` — a second
+   `append_comment` with the same request id returns the stored event and
+   appends nothing.
+3. `a_comment_on_an_incident_from_another_workspace_is_not_found` — build the
+   incident in `OTHER_WORKSPACE`, point its scope at `WORKSPACE`, and assert
+   `IncidentStoreError::NotFound` with the foreign timeline untouched.
 
-```rust
-#[test]
-fn add_comment_reuses_the_incident_write_capability() {
-    let descriptor = incident_add_comment_descriptor();
-    assert_eq!(descriptor.required_capability, Capability::IncidentWrite);
-    assert_eq!(descriptor.required_permission, Permission::ManageIncident);
-}
-```
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 2: Run test to verify it fails**
+Run: `cargo test -p thalassaops --test incident_repository 2>&1 | tail -20`
+Expected: FAIL with "no method named `append_comment`".
 
-Run: `cargo test -p thalassa-ipc --test contracts 2>&1 | tail -20`
-Expected: FAIL with "cannot find function `incident_add_comment_descriptor`".
+- [x] **Step 3: Implement the version-free repository path**
 
-- [ ] **Step 3: Add the descriptor**
+`append_comment` mirrors `apply_mutation` inside `with_sequence_retry` and
+`BEGIN IMMEDIATE`, minus everything a comment cannot touch:
 
-```rust
-/// Stable command descriptor for appending one responder comment.
-pub fn incident_add_comment_descriptor() -> CommandDescriptor {
-    CommandDescriptor::new(
-        "incident",
-        "add_comment",
-        Capability::IncidentWrite,
-        Permission::ManageIncident,
-    )
-}
-```
+- no `expected_version` derivation and no version predicate; the `UPDATE` is
+  `SET updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3`;
+- no `reconcile_roles`, no duplicate-reference or role-principal validation —
+  a comment changes none of them;
+- the replay check, the in-transaction sequence allocation and `validate_events`
+  are kept unchanged;
+- the returned mutation carries the **stored** incident with `updated_at`
+  moved, not the caller's copy, so a comment never hands back a stale version.
 
-- [ ] **Step 4: Write the failing service test**
+It rejects a mutation that is not exactly one event.
 
-Add to `src-tauri/tests/incident_mutations.rs`:
+- [x] **Step 4: Add the request type and the service path**
 
-```rust
-#[test]
-fn adding_a_comment_appends_an_event_and_leaves_the_version_alone() {
-    let mut fixture = ServiceFixture::new();
-    let incident = fixture.create_incident();
-    let before = incident.version;
-
-    let mutation = fixture
-        .service()
-        .add_comment(
-            &fixture.context(),
-            IncidentCommentRequest {
-                incident_id: incident.id,
-                body: "paged the database on-call".into(),
-            },
-        )
-        .expect("the comment is accepted");
-
-    assert_eq!(mutation.events.len(), 1);
-    assert_eq!(mutation.incident.version, before);
-}
-
-#[test]
-fn replaying_a_comment_request_id_returns_the_stored_comment() {
-    let mut fixture = ServiceFixture::new();
-    let incident = fixture.create_incident();
-    let context = fixture.context();
-    let request = IncidentCommentRequest {
-        incident_id: incident.id,
-        body: "same text".into(),
-    };
-
-    let first = fixture.service().add_comment(&context, request.clone()).expect("first");
-    let replay = fixture.service().add_comment(&context, request).expect("replay");
-
-    assert_eq!(first.events[0].id, replay.events[0].id);
-    assert_eq!(fixture.timeline(incident.id).len(), first.events.len() + 1);
-}
-
-#[test]
-fn a_comment_on_an_unknown_incident_is_not_found() {
-    let mut fixture = ServiceFixture::new();
-    let error = fixture
-        .service()
-        .add_comment(
-            &fixture.context(),
-            IncidentCommentRequest {
-                incident_id: Uuid::new_v4(),
-                body: "orphan".into(),
-            },
-        )
-        .expect_err("an unknown incident is rejected");
-    assert!(matches!(error, IncidentServiceError::NotFound));
-}
-
-#[test]
-fn a_comment_racing_a_transition_does_not_collide_on_sequence() {
-    // The real two-writer race, deferred here from Task 1: a comment carries no
-    // version predicate, so this is the first write that can genuinely contend.
-    let mut fixture = ServiceFixture::new();
-    let incident = fixture.create_incident();
-    let context = fixture.context();
-
-    // Both callers act on the same observed timeline height.
-    let comment = IncidentCommentRequest {
-        incident_id: incident.id,
-        body: "racing the transition".into(),
-    };
-    fixture.service().add_comment(&context, comment).expect("comment lands");
-    fixture
-        .service()
-        .transition(&context.with_new_request_id(), triage_request(&incident))
-        .expect("the transition still lands after the comment moved the timeline");
-
-    let sequences: Vec<u64> = fixture.timeline(incident.id).iter().map(|e| e.sequence).collect();
-    let mut unique = sequences.clone();
-    unique.sort_unstable();
-    unique.dedup();
-    assert_eq!(sequences.len(), unique.len(), "sequences must stay unique");
-}
-
-#[test]
-fn a_comment_on_another_workspaces_incident_is_indistinguishable_from_unknown() {
-    let mut fixture = ServiceFixture::new();
-    let foreign = fixture.create_incident_in_other_workspace();
-
-    let error = fixture
-        .service()
-        .add_comment(
-            &fixture.context(),
-            IncidentCommentRequest {
-                incident_id: foreign.id,
-                body: "should not land".into(),
-            },
-        )
-        .expect_err("a cross-workspace incident is rejected");
-
-    assert!(matches!(error, IncidentServiceError::NotFound));
-    assert!(
-        fixture.timeline_in_other_workspace(foreign.id).is_empty(),
-        "the foreign incident timeline must be untouched"
-    );
-}
-```
-
-- [ ] **Step 5: Run tests to verify they fail**
-
-Run: `cargo test -p thalassaops --test incident_mutations adding_a_comment 2>&1 | tail -20`
-Expected: FAIL with "no method named `add_comment`" on the service.
-
-- [ ] **Step 6: Implement the service path**
-
-In `src-tauri/src/incident/service.rs`:
+`IncidentCommentRequest` goes in `crates/thalassa-domain/src/lib.rs` beside
+`IncidentRoleRequest`, without `expected_version`.
 
 ```rust
 pub fn add_comment(
@@ -701,9 +606,6 @@ pub fn add_comment(
     )? {
         return Ok(replayed);
     }
-    if context.request_id.is_nil() || context.actor_id.is_nil() {
-        return Err(IncidentServiceError::InvalidRequest);
-    }
     let workspace_id = self.workspace(context)?;
     let incident = self.repository.get(workspace_id, request.incident_id)?;
     let mutation = incident.add_comment(
@@ -714,70 +616,102 @@ pub fn add_comment(
         context.policy_version,
         context.now,
     )?;
-    self.repository.apply_mutation(workspace_id, mutation)
-        .map_err(IncidentServiceError::from)
-}
-
-fn comment_replay_matches(events: &[IncidentTimelineEvent], body: &str) -> bool {
-    let Some(event) = events.first() else {
-        return false;
-    };
-    events.len() == 1
-        && event.kind == IncidentEventKind::Commented
-        && matches!(
-            &event.payload,
-            IncidentTimelinePayload::Commented(payload) if payload.body == body
-        )
+    Ok(self.repository.append_comment(mutation)?)
 }
 ```
 
-Note this path calls `repository.get` rather than `load_for_write`: there is no
-version to check.
+`comment_replay_matches` sits beside `role_replay_matches` and follows its
+shape: one event, kind `Commented`, no reason, matching body. Note the service
+takes `repository.get`, not `load_for_write` — there is no version to check —
+and that the sequence `1` is advisory, since Task 1 made the repository
+reallocate it inside the transaction. `replay_if_matching` already rejects a nil
+request or actor id, so the service needs no separate guard.
 
-- [ ] **Step 7: Wire the IPC command**
+- [x] **Step 5: Write the failing service tests**
 
-In `src-tauri/src/app/incident.rs`, add `incident_add_comment` following the
-shape of `incident_assign_role`: authorize with the new descriptor, parse the
-payload, call the service, and map errors. Add the contention mapping:
+The fixture in `src-tauri/tests/incident_mutations.rs` is `Fixture`, not
+`ServiceFixture`; the service is the field `fixture.service`, contexts come from
+`fixture.context()` (which increments the request id on each call) and
+`fixture.read_context()`, and there is no `timeline` helper — read through
+`fixture.service.timeline(...)` or count rows with `fixture.persisted_counts()`.
+A foreign incident is staged the way
+`duplicate_disposition_rejects_an_incident_from_another_workspace` stages one:
+override `context.workspace_scope` and create through the service.
+
+Seven tests: the happy path with an unchanged version; a replayed request id;
+a reused request id with different text rejected as `IdempotencyConflict`;
+empty and sensitive bodies rejected with nothing written; an unknown incident
+as `NotFound`; a cross-workspace incident as `NotFound` with its rows untouched;
+and a transition carrying the pre-comment `expected_version` still landing after
+a comment, which is what proves the comment moved the timeline but not the
+version.
+
+- [x] **Step 6: Add the descriptor**
 
 ```rust
-IncidentServiceError::WriteContention => "incident_write_contention",
-```
-
-Register the command in `src-tauri/src/main.rs` beside the other incident
-commands.
-
-- [ ] **Step 8: Write the failing IPC test**
-
-Add to `src-tauri/tests/incident_ipc.rs`:
-
-```rust
-#[test]
-fn add_comment_command_appends_to_the_timeline() {
-    let mut state = ipc_fixture();
-    let incident = state.create_incident();
-    let result = state.incident_add_comment(envelope(serde_json::json!({
-        "incident_id": incident.id,
-        "body": "checked the dashboards"
-    })));
-    assert!(matches!(result, IpcResult::Ok { .. }));
+/// Stable command descriptor for appending one responder comment.
+pub fn incident_add_comment_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "add_comment",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
 }
 ```
 
-- [ ] **Step 9: Run tests to verify they pass**
+Add `(incident_add_comment_descriptor(), "incident.add_comment")` to the
+existing write-descriptor table in `crates/thalassa-ipc/tests/contracts.rs`,
+which already asserts the capability, the permission and an unbounded scope for
+every row — no separate test is needed.
 
-Run: `cargo test -p thalassaops --test incident_mutations --test incident_ipc && cargo test -p thalassa-ipc --test contracts 2>&1 | tail -20`
+- [x] **Step 7: Wire the IPC command**
+
+In `src-tauri/src/app/incident.rs`, add `CommentPayload { incident_id, body }`
+with `#[serde(deny_unknown_fields)]` beside `RolePayload`, and
+`incident_add_comment` following the shape of `incident_assign_role`. Register
+the command in `src-tauri/src/main.rs`.
+
+Change the `WriteContention` mapping. Task 1 pointed it at
+`incident_unavailable()`, which is `INTERNAL_ERROR` with no reason, because no
+caller could reach it yet. This task makes it reachable, and design section 7.3
+requires the caller to tell contention from a version conflict — they instruct
+opposite recoveries. Follow the convention `VersionConflict` already uses:
+
+```rust
+IncidentServiceError::WriteContention {} => {
+    invalid_incident_request("incident_write_contention")
+}
+```
+
+- [x] **Step 8: Write the failing IPC tests**
+
+`src-tauri/tests/incident_ipc.rs` builds state with `test_state()`, creates with
+`created(&state)` and wraps payloads with
+`envelope("add_comment", Capability::IncidentWrite, json!({ ... }))`. Three
+tests: the comment appears on the timeline with the right actor and body while
+the version holds; the wrong capability, an unknown key, a missing `body` and an
+empty `body` are all rejected; and a viewer's comment is denied without echoing
+the incident id, for both a missing and an existing incident.
+
+Also extend the snake_case field loop at the tail of
+`crates/thalassa-domain/tests/incident_contracts.rs` to cover
+`IncidentCommentRequest` and to assert it carries no `expected_version`.
+
+- [x] **Step 9: Run tests to verify they pass**
+
+Run: `cargo test -p thalassaops --test incident_repository --test incident_mutations --test incident_ipc && cargo test -p thalassa-ipc --test contracts 2>&1 | tail -20`
 Expected: PASS.
 
-- [ ] **Step 10: Run the full Rust gate**
+- [x] **Step 10: Run the full Rust gate**
 
 Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
 Expected: all green.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
-git add crates/thalassa-ipc src-tauri/src src-tauri/tests
+git add crates/thalassa-domain crates/thalassa-ipc src-tauri/src src-tauri/tests
 git commit -m "feat(incident): expose incident.add_comment over IPC"
 ```
 
