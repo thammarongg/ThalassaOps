@@ -16,7 +16,7 @@
 - Comment body validation uses `validate_incident_text(body, INCIDENT_NOTE_MAXIMUM)`. `INCIDENT_NOTE_MAXIMUM` is 4000.
 - `incident.add_comment` uses `Capability::IncidentWrite` and `Permission::ManageIncident`. Do not add a new capability or permission.
 - No migration. `incident_timeline_event.event_kind` is plain `TEXT` with no `CHECK` constraint.
-- Comment writes must not read or write the `version` column.
+- Comment writes must not predicate on or mutate the `version` column. Loading the aggregate necessarily reads it, and the result deliberately carries the stored version so a comment never hands back a stale one; what is forbidden is a version predicate and a version write.
 - The sequence-contention error must be a distinct variant. Never reuse `VersionConflict` for it.
 - Panels never call IPC. Only the shell and the two hooks in Task 6 do.
 - Evidence commands must never be called with an empty or duplicated identifier list.
