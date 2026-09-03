@@ -368,6 +368,80 @@ impl SqliteIncidentRepository {
         })
     }
 
+    /// Appends one version-free event — today, a responder comment.  A comment
+    /// records what a responder said, never what the system did, so it changes
+    /// no incident state: the `version` column is neither used as a predicate
+    /// nor written, and only `updated_at` moves.  Without this path a comment
+    /// would have to run through `apply_mutation`, whose `AND version = ?`
+    /// predicate would reject it whenever any other write landed in between.
+    ///
+    /// The caller is handed the stored incident, not its own possibly stale
+    /// copy, so a comment never hands back a version that has moved on.
+    pub fn append_comment(
+        &mut self,
+        mutation: IncidentMutation,
+    ) -> Result<IncidentMutation, IncidentStoreError> {
+        let workspace_id = workspace_of(&mutation.incident)?;
+        let incident_id = mutation.incident.id;
+        let updated_at = mutation.incident.updated_at;
+        let request_id = mutation
+            .events
+            .first()
+            .ok_or_else(|| invalid("a comment appends exactly one event"))?
+            .request_id;
+        if mutation.events.len() != 1 {
+            return Err(invalid("a comment appends exactly one event"));
+        }
+
+        let mutation_template = mutation;
+        with_sequence_retry(SEQUENCE_RETRY_BUDGET, |_| {
+            let mut mutation = mutation_template.clone();
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(database_error)?;
+
+            let stored_incident = load_incident(&transaction, workspace_id, incident_id)?
+                .ok_or(IncidentStoreError::NotFound)?;
+            let stored_events = load_events_for_request(&transaction, incident_id, request_id, 2)?;
+            if !stored_events.is_empty() {
+                if stored_events.len() == 1
+                    && event_content_matches(&stored_events[0], &mutation.events[0])
+                {
+                    transaction.commit().map_err(database_error)?;
+                    return Ok(IncidentMutation {
+                        incident: stored_incident,
+                        events: stored_events,
+                    });
+                }
+                return Err(IncidentStoreError::IdempotencyConflict);
+            }
+
+            let highest = highest_event_sequence_in(&transaction, incident_id)?;
+            mutation.events[0].sequence = highest.checked_add(1).ok_or_else(|| {
+                invalid("incident timeline sequence exceeds the stored integer range")
+            })?;
+            mutation.incident = stored_incident;
+            mutation.incident.updated_at = updated_at;
+            validate_events(&mutation, highest)?;
+
+            transaction
+                .execute(
+                    "UPDATE incident SET updated_at = ?1
+                     WHERE id = ?2 AND workspace_id = ?3",
+                    rusqlite::params![
+                        updated_at.to_rfc3339(),
+                        incident_id.to_string(),
+                        workspace_id.to_string(),
+                    ],
+                )
+                .map_err(database_error)?;
+            insert_event_for_mutation(&transaction, &mutation.events[0])?;
+            transaction.commit().map_err(database_error)?;
+            Ok(mutation)
+        })
+    }
+
     /// Loads the current incident and a bounded set of events for a mutation
     /// request.  The service uses this before checking `expected_version`, so
     /// a retry can replay after the first write has advanced the version.

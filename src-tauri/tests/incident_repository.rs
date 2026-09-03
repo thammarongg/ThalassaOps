@@ -861,3 +861,164 @@ fn role_mutation_rejects_an_unknown_principal_inside_the_write_transaction() {
     assert_eq!(after_roles, before_roles);
     assert_eq!(after_events, before_events);
 }
+
+#[test]
+fn a_comment_appends_after_a_racing_transition_without_writing_the_version() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // The commenter builds its mutation from the aggregate it observed.  This
+    // is the two-writer race Task 1 could not stage: a comment carries no
+    // version predicate, so it is the first write that can genuinely contend.
+    let comment = incident
+        .add_comment(
+            1,
+            "checked the dashboards",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    // Another writer transitions first, so the stored row is a version ahead
+    // and the timeline is two events taller than the commenter believes.
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&incident, THIRD_REQUEST, 3))
+        .expect("the transition lands first");
+
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("a comment behind a concurrent transition still appends");
+
+    assert_eq!(stored.events.len(), 1);
+    assert_eq!(stored.events[0].kind, IncidentEventKind::Commented);
+    assert!(
+        stored.events[0].sequence
+            > applied
+                .events
+                .last()
+                .expect("the transition appended events")
+                .sequence,
+        "the comment is numbered after the transition it lost to"
+    );
+    assert_eq!(
+        stored.incident.version, applied.incident.version,
+        "the caller is handed the stored version, not its stale copy"
+    );
+
+    let reloaded = fixture
+        .repository
+        .get(WORKSPACE, incident.id)
+        .expect("incident is readable");
+    assert_eq!(
+        reloaded.version, applied.incident.version,
+        "a comment writes no version"
+    );
+    assert_eq!(
+        reloaded.status, applied.incident.status,
+        "a comment overwrites no incident state"
+    );
+    assert_eq!(
+        reloaded.updated_at,
+        later(),
+        "a comment touches only updated_at"
+    );
+
+    let timeline = fixture
+        .repository
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+    assert_eq!(
+        timeline.events.len(),
+        created.events.len() + applied.events.len() + 1
+    );
+}
+
+#[test]
+fn replaying_a_comment_request_id_returns_the_stored_comment() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let comment = created
+        .incident
+        .add_comment(
+            1,
+            "checked the dashboards",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(comment.clone())
+        .expect("the comment appends");
+    let replay = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the retry replays rather than appending twice");
+
+    assert_eq!(first.events, replay.events);
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len() + 1,
+        "a replayed comment appends nothing"
+    );
+}
+
+#[test]
+fn a_comment_on_an_incident_from_another_workspace_is_not_found() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(OTHER_WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let mut foreign = created.incident.clone();
+    foreign.scope = scope_for(WORKSPACE);
+
+    let comment = foreign
+        .add_comment(
+            1,
+            "should not land",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    assert!(matches!(
+        fixture.repository.append_comment(comment),
+        Err(IncidentStoreError::NotFound)
+    ));
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(OTHER_WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len(),
+        "the foreign timeline is untouched"
+    );
+}

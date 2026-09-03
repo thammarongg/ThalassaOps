@@ -112,6 +112,7 @@ fn incident_commands_separate_reads_from_writes() {
             "incident.set_disposition",
         ),
         (incident_assign_role_descriptor(), "incident.assign_role"),
+        (incident_add_comment_descriptor(), "incident.add_comment"),
     ] {
         assert_eq!(descriptor.name.to_string(), name);
         assert_eq!(descriptor.required_capability, Capability::IncidentWrite);

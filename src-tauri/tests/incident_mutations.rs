@@ -7,7 +7,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 use thalassa_domain::{
     BusinessImpact, ClosedContext, EnterpriseIdentity, ImpactDimensions, ImpactLevel,
-    ImpactTrajectory, Incident, IncidentCreateRequest, IncidentDisposition,
+    ImpactTrajectory, Incident, IncidentCommentRequest, IncidentCreateRequest, IncidentDisposition,
     IncidentDispositionCommand, IncidentDispositionRequest, IncidentEventKind, IncidentRole,
     IncidentRoleAssignmentInput, IncidentRoleCommand, IncidentRoleRequest, IncidentSeverity,
     IncidentSeverityCommand, IncidentSeverityRequest, IncidentSourceKind, IncidentStatus,
@@ -1150,4 +1150,220 @@ fn a_mutation_outside_the_workspace_is_not_found() {
         .expect("incident is readable");
     assert_eq!(stored.status, IncidentStatus::Detected);
     assert_eq!(stored.version, 1);
+}
+
+#[test]
+fn adding_a_comment_appends_an_event_and_leaves_the_version_alone() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+
+    let mutation = fixture
+        .service
+        .add_comment(
+            &context,
+            IncidentCommentRequest {
+                incident_id: incident.id,
+                body: "paged the database on-call".into(),
+            },
+        )
+        .expect("the comment is accepted");
+
+    assert_eq!(mutation.events.len(), 1);
+    assert_eq!(mutation.events[0].kind, IncidentEventKind::Commented);
+    assert_eq!(mutation.events[0].actor_id, ACTOR);
+    assert_eq!(
+        mutation.incident.version, incident.version,
+        "a comment does not advance the version"
+    );
+
+    let (_, _, events) = fixture.persisted_counts(incident.id);
+    assert_eq!(events, i64::try_from(mutation.events[0].sequence).unwrap());
+}
+
+#[test]
+fn retrying_a_comment_replays_the_original_event() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+    let request = IncidentCommentRequest {
+        incident_id: incident.id,
+        body: "same text".into(),
+    };
+
+    let first = fixture
+        .service
+        .add_comment(&context, request.clone())
+        .expect("the comment is accepted");
+    let replay = fixture
+        .service
+        .add_comment(&context, request)
+        .expect("the retry replays");
+
+    assert_eq!(first.events, replay.events);
+    let (_, _, events) = fixture.persisted_counts(incident.id);
+    assert_eq!(
+        events,
+        i64::try_from(first.events[0].sequence).unwrap(),
+        "a replayed comment appends nothing"
+    );
+}
+
+#[test]
+fn reusing_a_comment_request_id_with_different_text_is_rejected() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let context = fixture.context();
+
+    fixture
+        .service
+        .add_comment(
+            &context,
+            IncidentCommentRequest {
+                incident_id: incident.id,
+                body: "the original text".into(),
+            },
+        )
+        .expect("the comment is accepted");
+    let result = fixture.service.add_comment(
+        &context,
+        IncidentCommentRequest {
+            incident_id: incident.id,
+            body: "different text".into(),
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(IncidentServiceError::IdempotencyConflict)
+    ));
+}
+
+#[test]
+fn a_comment_rejects_empty_and_unsafe_text_without_writing() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+    let before = fixture.persisted_counts(incident.id);
+
+    for body in ["", "the password is rotated"] {
+        let context = fixture.context();
+        assert!(
+            fixture
+                .service
+                .add_comment(
+                    &context,
+                    IncidentCommentRequest {
+                        incident_id: incident.id,
+                        body: body.into(),
+                    },
+                )
+                .is_err(),
+            "body {body:?} must be rejected"
+        );
+    }
+
+    assert_eq!(fixture.persisted_counts(incident.id), before);
+}
+
+#[test]
+fn a_comment_on_an_unknown_incident_is_not_found() {
+    let mut fixture = Fixture::new();
+    let context = fixture.context();
+
+    let result = fixture.service.add_comment(
+        &context,
+        IncidentCommentRequest {
+            incident_id: Uuid::from_u128(0x7777),
+            body: "orphan".into(),
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+}
+
+#[test]
+fn a_comment_on_another_workspaces_incident_is_indistinguishable_from_unknown() {
+    let mut fixture = Fixture::new();
+    let mut other_context = fixture.context();
+    other_context.workspace_scope = ResourceScope::workspace(OTHER_WORKSPACE, TEAM, ORGANIZATION);
+    let foreign = fixture
+        .service
+        .create(
+            &other_context,
+            IncidentCreateRequest {
+                summary: "Checkout report from another workspace".into(),
+                triggers: vec![IncidentTriggerInput::ManualReport {
+                    observed_at: now(),
+                    summary: "Checkout errors reported elsewhere".into(),
+                    scope: ResourceScope::workspace(OTHER_WORKSPACE, TEAM, ORGANIZATION),
+                }],
+                business_impact: business_impact(),
+                initial_roles: vec![],
+            },
+        )
+        .expect("other-workspace creation succeeds")
+        .incident;
+    let before = fixture.persisted_counts(foreign.id);
+    let context = fixture.context();
+
+    let result = fixture.service.add_comment(
+        &context,
+        IncidentCommentRequest {
+            incident_id: foreign.id,
+            body: "should not land".into(),
+        },
+    );
+
+    assert!(matches!(result, Err(IncidentServiceError::NotFound)));
+    assert_eq!(
+        fixture.persisted_counts(foreign.id),
+        before,
+        "the foreign incident is untouched"
+    );
+}
+
+#[test]
+fn a_comment_does_not_block_a_transition_that_observed_the_earlier_timeline() {
+    let mut fixture = Fixture::new();
+    let incident = fixture.create_incident();
+
+    let context = fixture.context();
+    fixture
+        .service
+        .add_comment(
+            &context,
+            IncidentCommentRequest {
+                incident_id: incident.id,
+                body: "racing the transition".into(),
+            },
+        )
+        .expect("the comment lands first");
+
+    // The transition still carries the pre-comment version, which proves the
+    // comment moved the timeline without moving the version.
+    let context = fixture.context();
+    fixture
+        .service
+        .transition(
+            &context,
+            IncidentTransitionRequest {
+                incident_id: incident.id,
+                expected_version: incident.version,
+                transition: triage(),
+            },
+        )
+        .expect("the transition still lands after the comment");
+
+    let timeline = fixture
+        .service
+        .timeline(&fixture.read_context(), incident.id, None, 100)
+        .expect("timeline is readable");
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "sequences must stay unique");
+    assert!(timeline
+        .events
+        .iter()
+        .any(|event| event.kind == IncidentEventKind::Commented));
 }

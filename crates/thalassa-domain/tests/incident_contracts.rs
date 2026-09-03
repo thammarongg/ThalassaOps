@@ -377,6 +377,23 @@ fn incident_requests_and_pages_keep_snake_case_wire_fields() {
         assert!(value.get(field).is_some(), "{field} must stay snake_case");
     }
 
+    let comment_request = thalassa_domain::IncidentCommentRequest {
+        incident_id: Uuid::from_u128(0x21),
+        body: "checked the dashboards".into(),
+    };
+    let value = serde_json::to_value(&comment_request).unwrap();
+    for field in ["incident_id", "body"] {
+        assert!(value.get(field).is_some(), "{field} must stay snake_case");
+    }
+    assert!(
+        value.get("expected_version").is_none(),
+        "a comment carries no version predicate"
+    );
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentCommentRequest>(value).unwrap(),
+        comment_request
+    );
+
     let page = IncidentTimelinePage {
         incident_id: Uuid::from_u128(0x21),
         events: vec![],

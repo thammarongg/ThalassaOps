@@ -9,13 +9,13 @@
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use thalassa_domain::{
-    validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCreateCommand,
-    IncidentCreateRequest, IncidentDispositionRequest, IncidentError, IncidentEventKind,
-    IncidentId, IncidentMutation, IncidentPage, IncidentReport, IncidentRoleAssignment,
-    IncidentRoleCommand, IncidentRoleRequest, IncidentSeverityCommand, IncidentSeverityRequest,
-    IncidentSourceKind, IncidentTimelineEvent, IncidentTimelinePage, IncidentTimelinePayload,
-    IncidentTransitionRequest, IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope,
-    INCIDENT_SUMMARY_MAXIMUM,
+    validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCommentRequest,
+    IncidentCreateCommand, IncidentCreateRequest, IncidentDispositionRequest, IncidentError,
+    IncidentEventKind, IncidentId, IncidentMutation, IncidentPage, IncidentReport,
+    IncidentRoleAssignment, IncidentRoleCommand, IncidentRoleRequest, IncidentSeverityCommand,
+    IncidentSeverityRequest, IncidentSourceKind, IncidentTimelineEvent, IncidentTimelinePage,
+    IncidentTimelinePayload, IncidentTransitionRequest, IncidentTriggerId, IncidentTriggerInput,
+    PrincipalId, ResourceScope, INCIDENT_SUMMARY_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -335,6 +335,41 @@ impl IncidentService {
         Ok(self.repository.apply_mutation(mutation)?)
     }
 
+    /// Appends one immutable responder comment.  There is no
+    /// `expected_version`: a comment changes no incident state, so it neither
+    /// rejects a concurrent writer nor is rejected by one.  See the Sprint 16
+    /// design, sections 7.3 and 9.1.
+    pub fn add_comment(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentCommentRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            SINGLE_EVENT_REPLAY_MAX_EVENTS,
+            |events| comment_replay_matches(events, &request.body),
+        )? {
+            return Ok(replayed);
+        }
+        // The workspace lookup is the disclosure boundary: an unknown and a
+        // cross-workspace incident both surface as `NotFound` and write
+        // nothing.
+        let workspace_id = self.workspace(context)?;
+        let incident = self.repository.get(workspace_id, request.incident_id)?;
+        // The sequence is advisory; the repository reallocates it inside the
+        // write transaction.
+        let mutation = incident.add_comment(
+            1,
+            &request.body,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.append_comment(mutation)?)
+    }
+
     /// Reads one incident inside the caller's workspace.
     pub fn get(
         &self,
@@ -574,6 +609,22 @@ fn disposition_replay_matches(
     event.reason.as_deref() == Some(command.reason.as_str())
         && payload.current == command.disposition
         && payload.duplicate_of_incident_id == command.duplicate_of_incident_id
+}
+
+fn comment_replay_matches(events: &[IncidentTimelineEvent], body: &str) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    if events.len() != 1 || event.kind != IncidentEventKind::Commented {
+        return false;
+    }
+    if event.reason.is_some() {
+        return false;
+    }
+    matches!(
+        &event.payload,
+        IncidentTimelinePayload::Commented(payload) if payload.body == body
+    )
 }
 
 fn role_replay_matches(events: &[IncidentTimelineEvent], command: &IncidentRoleCommand) -> bool {

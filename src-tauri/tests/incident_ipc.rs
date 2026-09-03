@@ -462,3 +462,106 @@ fn envelope_list() -> CommandEnvelope<Value> {
         json!({ "cursor": null, "limit": 10 }),
     )
 }
+
+#[test]
+fn add_comment_appends_to_the_timeline_without_advancing_the_version() {
+    let (_directory, state) = test_state();
+    let mutation = created(&state);
+
+    let IpcResult::Ok {
+        value: commented, ..
+    } = state.incident_add_comment(envelope(
+        "add_comment",
+        Capability::IncidentWrite,
+        json!({
+            "incident_id": mutation.incident.id,
+            "body": "checked the dashboards"
+        }),
+    ))
+    else {
+        panic!("incident.add_comment should succeed")
+    };
+    assert_eq!(
+        commented.incident.version, mutation.incident.version,
+        "a comment does not advance the version"
+    );
+    assert_eq!(commented.incident.status, mutation.incident.status);
+
+    let IpcResult::Ok { value: page, .. } = state.incident_timeline(envelope(
+        "timeline",
+        Capability::IncidentRead,
+        json!({
+            "incident_id": mutation.incident.id,
+            "after_sequence": null,
+            "limit": 100
+        }),
+    )) else {
+        panic!("incident.timeline should succeed")
+    };
+    let comment = page
+        .events
+        .iter()
+        .find(|event| event.kind == thalassa_domain::IncidentEventKind::Commented)
+        .expect("the comment is on the timeline");
+    assert_eq!(comment.actor_id, state.bootstrap.principal.id);
+    assert!(matches!(
+        &comment.payload,
+        thalassa_domain::IncidentTimelinePayload::Commented(payload)
+            if payload.body == "checked the dashboards"
+    ));
+}
+
+#[test]
+fn add_comment_enforces_its_capability_and_exact_payload_keys() {
+    let (_directory, state) = test_state();
+    let mutation = created(&state);
+
+    assert_eq!(
+        error_of(state.incident_add_comment(envelope(
+            "add_comment",
+            Capability::IncidentRead,
+            json!({ "incident_id": mutation.incident.id, "body": "denied" })
+        )))
+        .code,
+        IpcErrorCode::PermissionDenied
+    );
+
+    for payload in [
+        json!({ "incident_id": mutation.incident.id, "body": "extra", "expected_version": 1 }),
+        json!({ "incident_id": mutation.incident.id }),
+        json!({ "incident_id": mutation.incident.id, "body": "" }),
+    ] {
+        assert_eq!(
+            error_of(state.incident_add_comment(envelope(
+                "add_comment",
+                Capability::IncidentWrite,
+                payload.clone()
+            )))
+            .code,
+            IpcErrorCode::InvalidRequest,
+            "payload {payload} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn an_unauthorized_comment_does_not_disclose_incident_existence() {
+    let (_directory, mut state) = test_state();
+    let mutation = created(&state);
+    state.bootstrap.membership.role = MembershipRole::Viewer;
+
+    for incident_id in [Uuid::new_v4(), mutation.incident.id] {
+        let error = error_of(state.incident_add_comment(envelope(
+            "add_comment",
+            Capability::IncidentWrite,
+            json!({ "incident_id": incident_id, "body": "should not land" }),
+        )));
+        assert_eq!(error.code, IpcErrorCode::PermissionDenied);
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains(&incident_id.to_string()),
+            "a denial must not echo the target identifier"
+        );
+    }
+}

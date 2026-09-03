@@ -1912,6 +1912,15 @@ pub struct IncidentRoleRequest {
     pub command: IncidentRoleCommand,
 }
 
+/// Untrusted IPC input for `incident.add_comment`.  A comment carries no
+/// `expected_version`: it changes no incident state, so there is nothing for a
+/// concurrent writer to invalidate.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentCommentRequest {
+    pub incident_id: IncidentId,
+    pub body: String,
+}
+
 /// One page of the incident list with an opaque continuation cursor.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct IncidentPage {

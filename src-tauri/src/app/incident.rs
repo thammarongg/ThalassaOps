@@ -23,8 +23,8 @@ use thalassa_domain::{
     MembershipStatus, ResourceScope,
 };
 use thalassa_ipc::{
-    incident_assign_role_descriptor, incident_create_descriptor, incident_get_descriptor,
-    incident_list_descriptor, incident_set_disposition_descriptor,
+    incident_add_comment_descriptor, incident_assign_role_descriptor, incident_create_descriptor,
+    incident_get_descriptor, incident_list_descriptor, incident_set_disposition_descriptor,
     incident_set_severity_descriptor, incident_timeline_descriptor, incident_transition_descriptor,
     CommandDescriptor, CommandEnvelope,
 };
@@ -98,6 +98,15 @@ struct RolePayload {
     incident_id: IncidentId,
     expected_version: u64,
     command: IncidentRoleCommand,
+}
+
+/// Exact `incident.add_comment` payload keys.  A comment carries no
+/// `expected_version`; see the Sprint 16 design, section 7.3.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommentPayload {
+    incident_id: IncidentId,
+    body: String,
 }
 
 impl AppState {
@@ -225,6 +234,31 @@ impl AppState {
                 incident_id: payload.incident_id,
                 expected_version: payload.expected_version,
                 command: payload.command,
+            },
+        );
+        self.finish_incident_write(result)
+    }
+
+    /// Appends one immutable responder comment to the incident timeline.
+    pub fn incident_add_comment(
+        &self,
+        envelope: CommandEnvelope<Value>,
+    ) -> IpcResult<IncidentMutation> {
+        let descriptor = incident_add_comment_descriptor();
+        let request_id = envelope.request_id;
+        let payload = match self.begin_incident_write::<CommentPayload>(&envelope, &descriptor) {
+            Ok(payload) => payload,
+            Err(error) => return IpcResult::Err { ok: false, error },
+        };
+        let mut service = match self.incident_service(false) {
+            Ok(service) => service,
+            Err(error) => return IpcResult::Err { ok: false, error },
+        };
+        let result = service.add_comment(
+            &self.incident_context(request_id),
+            thalassa_domain::IncidentCommentRequest {
+                incident_id: payload.incident_id,
+                body: payload.body,
             },
         );
         self.finish_incident_write(result)
@@ -507,7 +541,12 @@ fn incident_service_error(error: IncidentServiceError) -> IpcError {
         IncidentServiceError::VersionConflict { .. } => {
             invalid_incident_request("incident_version_conflict")
         }
-        IncidentServiceError::WriteContention {} => incident_unavailable(),
+        // Distinct from `incident_version_conflict` on purpose: the caller's
+        // copy is correct and the same request may simply be sent again, where
+        // a version conflict demands a reload first.  Sprint 16 design, 7.3.
+        IncidentServiceError::WriteContention {} => {
+            invalid_incident_request("incident_write_contention")
+        }
         IncidentServiceError::IdempotencyConflict => {
             invalid_incident_request("incident_idempotency_conflict")
         }

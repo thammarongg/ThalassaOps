@@ -266,6 +266,18 @@ pub fn incident_assign_role_descriptor() -> CommandDescriptor {
     )
 }
 
+/// Stable command descriptor for appending one responder comment.  A comment
+/// reuses the incident write capability and permission rather than adding a
+/// narrower one; see the Sprint 16 design, section 14, debt 1.
+pub fn incident_add_comment_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "incident",
+        "add_comment",
+        Capability::IncidentWrite,
+        Permission::ManageIncident,
+    )
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandEnvelope<T> {
     pub request_id: Uuid,
