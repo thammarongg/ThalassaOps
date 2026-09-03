@@ -565,6 +565,12 @@ In `src-tauri/tests/incident_repository.rs`, using the helpers already there —
 3. `a_comment_on_an_incident_from_another_workspace_is_not_found` — build the
    incident in `OTHER_WORKSPACE`, point its scope at `WORKSPACE`, and assert
    `IncidentStoreError::NotFound` with the foreign timeline untouched.
+4. `two_comments_allocated_from_the_same_observation_do_not_collide` — the
+   second case the design's repository row requires, and the distinct one:
+   build two comments from the same aggregate, both asking for the sequence
+   after the same observed height. Neither carries a version predicate, so
+   neither can be rejected; only the in-transaction reallocation keeps them off
+   the same sequence. Both must land, at consecutive sequences.
 
 - [x] **Step 2: Run tests to verify they fail**
 
