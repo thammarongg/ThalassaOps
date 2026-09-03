@@ -98,7 +98,7 @@ Today `IncidentService::load_for_write` reads `highest_event_sequence` and adds 
   - `IncidentServiceError::WriteContention { }` — new variant mapped from the store error.
   - `SqliteIncidentRepository::apply_mutation` keeps its signature; the `first_event_sequence` carried on the mutation is now treated as advisory and recomputed inside the transaction.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `src-tauri/tests/incident_repository.rs`, using the fixture helpers that
 already exist in that file — `fixture()` and
@@ -169,12 +169,12 @@ comment at the aggregate saying so so the argument does not read as dead.
 Removing the parameter would change every mutation signature and every caller,
 which is a separate task and is not in this sprint.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p thalassaops --test incident_repository concurrent_appends -- --nocapture`
 Expected: FAIL with a `UNIQUE constraint failed: incident_timeline_event.incident_id, incident_timeline_event.sequence` error surfaced as a database error.
 
-- [ ] **Step 3: Move allocation inside the transaction**
+- [x] **Step 3: Move allocation inside the transaction**
 
 In `repository.rs`, inside `apply_mutation` after the transaction is opened with `TransactionBehavior::Immediate` and after the existing version recheck, recompute the base sequence and renumber the mutation's events:
 
@@ -192,7 +192,7 @@ for (offset, event) in mutation.events.iter_mut().enumerate() {
 }
 ```
 
-- [ ] **Step 4: Add the bounded retry and the new error**
+- [x] **Step 4: Add the bounded retry and the new error**
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -210,7 +210,7 @@ Wrap the transaction body so a unique-constraint violation on
 `SEQUENCE_RETRY_BUDGET` times, then returns `IncidentStoreError::WriteContention`.
 Any other error propagates unchanged on the first occurrence.
 
-- [ ] **Step 5: Stop allocating outside the transaction**
+- [x] **Step 5: Stop allocating outside the transaction**
 
 In `service.rs`, `load_for_write` keeps the version check and stops calling
 `highest_event_sequence`. It returns only the incident:
@@ -247,12 +247,12 @@ Map the store error in `IncidentServiceError`:
 IncidentStoreError::WriteContention => Self::WriteContention,
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `cargo test -p thalassaops --test incident_repository --test incident_mutations --test incident_acceptance 2>&1 | tail -30`
 Expected: PASS, including every test that existed before this task.
 
-- [ ] **Step 7: Add the contention-exhausted test**
+- [x] **Step 7: Add the contention-exhausted test**
 
 Forcing SQLite to collide three times in a row is not worth a fault-injection
 seam in production code. Extract the retry as a pure helper in
@@ -308,12 +308,12 @@ fn a_succeeding_attempt_stops_retrying() {
 The genuine two-writer concurrency test — a comment racing a status transition —
 is deferred to Task 3, where a version-free write finally exists to race with.
 
-- [ ] **Step 8: Run the full Rust gate**
+- [x] **Step 8: Run the full Rust gate**
 
 Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
 Expected: all green, test count at or above the pre-task count.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src-tauri/src/incident/repository.rs src-tauri/src/incident/service.rs src-tauri/tests/incident_repository.rs
@@ -325,75 +325,54 @@ git commit -m "fix(incident): allocate timeline sequences inside the write trans
 ### Task 2: Add the Commented Event Kind and add_comment
 
 **Files:**
-- Modify: `crates/thalassa-domain/src/lib.rs` (near `IncidentEventKind` at line 875, `IncidentTimelinePayload` at line 908, and the aggregate methods near line 1567)
+- Modify: `crates/thalassa-domain/src/lib.rs` (`IncidentEventKind` at line 875, `IncidentTimelinePayload` at line 908, `IncidentError` at line 590, and the aggregate methods before `ensure_version`)
+- Modify: `src-tauri/src/incident/repository.rs` (`event_kind_wire`, `parse_event_kind`) — both are exhaustive matches, so the new variant breaks the build without them
+- Modify: `src-tauri/src/app/incident.rs` (`incident_domain_reason`) — likewise exhaustive over `IncidentError`
 - Test: `crates/thalassa-domain/tests/incident_lifecycle.rs`, `crates/thalassa-domain/tests/incident_contracts.rs`
 
 **Interfaces:**
 - Consumes: `IncidentStoreError::WriteContention` from Task 1 (indirectly; the domain crate does not reference it).
 - Produces:
-  - `IncidentEventKind::Commented` with serde rename `"commented"`.
-  - `CommentedPayload { pub body: String }` with serde rename `"commented"` on the payload variant.
+  - `IncidentEventKind::Commented` with serde rename `"commented"`, wire string `"commented"` in both repository mappings.
+  - `CommentedPayload { pub body: String }` behind `IncidentTimelinePayload::Commented`, renamed `"commented"`.
+  - `IncidentError::InvalidComment`, surfaced by IPC as the reason `"incident_invalid_comment"`.
   - `Incident::add_comment(&self, first_event_sequence: u64, body: &str, actor_id: PrincipalId, request_id: Uuid, policy_version: u64, now: DateTime<Utc>) -> Result<IncidentMutation, IncidentError>` — note there is **no** `expected_version` parameter.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-Add to `crates/thalassa-domain/tests/incident_lifecycle.rs`:
+`crates/thalassa-domain/tests/incident_lifecycle.rs` has no `investigating_incident()`
+fixture — `investigating()` there returns an `IncidentTransition`, not an
+aggregate. Build the aggregate from the helpers that do exist, `created()` and
+`transition(&incident, first_event_sequence, step)`; creation consumes sequences
+1 and 2, so triage starts at 3 and the comment under test at 5.
 
 ```rust
-#[test]
-fn add_comment_appends_one_attributed_event_without_touching_version() {
-    let incident = investigating_incident();
-    let before = incident.version;
-
-    let mutation = incident
-        .add_comment(1, "restarted the checkout pods", ACTOR, REQUEST, 7, now())
-        .expect("a valid comment is accepted");
-
-    assert_eq!(mutation.events.len(), 1);
-    let event = &mutation.events[0];
-    assert_eq!(event.kind, IncidentEventKind::Commented);
-    assert_eq!(event.actor_id, ACTOR);
-    assert!(matches!(
-        &event.payload,
-        IncidentTimelinePayload::Commented(payload)
-            if payload.body == "restarted the checkout pods"
-    ));
-    assert_eq!(
-        mutation.incident.version, before,
-        "a comment must not advance the incident version"
-    );
-}
-
-#[test]
-fn add_comment_rejects_empty_oversized_and_unsafe_bodies() {
-    let incident = investigating_incident();
-    let oversized = "x".repeat(INCIDENT_NOTE_MAXIMUM + 1);
-
-    for body in ["", oversized.as_str()] {
-        assert!(
-            incident.add_comment(1, body, ACTOR, REQUEST, 7, now()).is_err(),
-            "body {:?} must be rejected",
-            &body[..body.len().min(16)]
-        );
-    }
-}
-
-#[test]
-fn add_comment_rejects_nil_actor_and_request_ids() {
-    let incident = investigating_incident();
-    assert!(incident.add_comment(1, "ok", Uuid::nil(), REQUEST, 7, now()).is_err());
-    assert!(incident.add_comment(1, "ok", ACTOR, Uuid::nil(), 7, now()).is_err());
+fn investigating_incident() -> thalassa_domain::Incident {
+    let triaged = transition(&created(), 3, triage()).unwrap().incident;
+    transition(&triaged, 4, investigating()).unwrap().incident
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Three tests follow: one asserting a single attributed `Commented` event with the
+body in its payload and an unchanged `version`, `status`, `derived_severity` and
+`roles` (`Incident` has no `severity` field — the derived value is
+`derived_severity`); one walking empty, blank, oversized, control-bearing and
+sensitive-marker bodies to `IncidentError::InvalidComment` while a body of
+exactly `INCIDENT_NOTE_MAXIMUM` characters is accepted; and one asserting
+`IncidentError::InvalidId` for a nil actor or request and
+`IncidentError::InvalidEventSequence` for a zero sequence.
 
-Run: `cargo test -p thalassa-domain --test incident_lifecycle add_comment 2>&1 | tail -20`
-Expected: FAIL with "no method named `add_comment`".
+Add `IncidentTimelinePayload` and `INCIDENT_NOTE_MAXIMUM` to the file's `use`
+list.
 
-- [ ] **Step 3: Add the enum variants**
+- [x] **Step 2: Run tests to verify they fail**
 
-In `crates/thalassa-domain/src/lib.rs`, extend both enums:
+Run: `cargo test -p thalassa-domain --test incident_lifecycle --test incident_contracts 2>&1 | tail -20`
+Expected: FAIL with "no method named `add_comment`" and no `Commented` variant.
+
+- [x] **Step 3: Add the enum variants**
+
+In `crates/thalassa-domain/src/lib.rs`, extend both enums and add the payload:
 
 ```rust
 pub enum IncidentEventKind {
@@ -415,7 +394,7 @@ pub struct CommentedPayload {
 }
 ```
 
-- [ ] **Step 4: Implement add_comment**
+- [x] **Step 4: Implement add_comment**
 
 ```rust
 /// Appends one immutable responder comment.  A comment changes no incident
@@ -448,7 +427,8 @@ pub fn add_comment(
             body: body.to_owned(),
         }),
     };
-    let events = self.build_events(
+    let events = materialize_events(
+        self.id,
         first_event_sequence,
         vec![pending],
         actor_id,
@@ -456,47 +436,79 @@ pub fn add_comment(
         policy_version,
         now,
     )?;
-    Ok(IncidentMutation { incident: next, events })
+    Ok(IncidentMutation {
+        incident: next,
+        events,
+    })
 }
 ```
+
+The event builder is `materialize_events`, a free function taking the incident
+id first — there is no `build_events` method.
 
 Add `IncidentError::InvalidComment` to the error enum with the message
 `"the comment body is empty, too long or unsafe"`.
 
-- [ ] **Step 5: Add the wire-stability test**
+- [x] **Step 5: Close the exhaustive matches outside the domain crate**
 
-Add to `crates/thalassa-domain/tests/incident_contracts.rs`:
+The new variants break three `match` arms that the rest of the workspace relies
+on. Without these the Task 2 gate cannot compile, so they belong here and not in
+Task 3:
+
+- `src-tauri/src/incident/repository.rs`, `event_kind_wire`: `IncidentEventKind::Commented => "commented"`.
+- `src-tauri/src/incident/repository.rs`, `parse_event_kind`: `"commented" => Ok(IncidentEventKind::Commented)`.
+- `src-tauri/src/app/incident.rs`, `incident_domain_reason`: `IncidentError::InvalidComment => "incident_invalid_comment"`.
+
+`IncidentTimelinePayload` is only ever serialized as JSON into the payload
+column, so it needs no mapping arm.
+
+- [x] **Step 6: Add the wire-stability test**
+
+`IncidentTimelinePayload` is adjacently tagged — `#[serde(tag = "kind", content = "data")]`
+— so the body lives under `data`, not at the top level. Add to
+`crates/thalassa-domain/tests/incident_contracts.rs`:
 
 ```rust
 #[test]
 fn commented_event_wire_names_are_stable() {
-    let event = IncidentTimelinePayload::Commented(CommentedPayload {
-        body: "note".into(),
-    });
-    let encoded = serde_json::to_value(&event).expect("payload encodes");
-    assert_eq!(encoded["kind"], "commented");
-    assert_eq!(encoded["body"], "note");
+    let payload = thalassa_domain::IncidentTimelinePayload::Commented(
+        thalassa_domain::CommentedPayload { body: "note".into() },
+    );
+    let encoded = serde_json::to_value(&payload).expect("payload encodes");
+    assert_eq!(encoded["kind"], json!("commented"));
+    assert_eq!(encoded["data"]["body"], json!("note"));
     assert_eq!(
-        serde_json::to_value(IncidentEventKind::Commented).expect("kind encodes"),
-        serde_json::json!("commented")
+        serde_json::from_value::<thalassa_domain::IncidentTimelinePayload>(encoded).unwrap(),
+        payload
+    );
+
+    assert_eq!(
+        serde_json::to_value(thalassa_domain::IncidentEventKind::Commented).expect("kind encodes"),
+        json!("commented")
+    );
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentEventKind>(json!("commented")).unwrap(),
+        thalassa_domain::IncidentEventKind::Commented
     );
 }
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cargo test -p thalassa-domain --test incident_lifecycle --test incident_contracts 2>&1 | tail -20`
 Expected: PASS.
 
-- [ ] **Step 7: Run the full Rust gate**
+- [x] **Step 8: Run the full Rust gate**
 
 Run: `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test 2>&1 | tail -20`
 Expected: all green.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
-git add crates/thalassa-domain/src/lib.rs crates/thalassa-domain/tests/incident_lifecycle.rs crates/thalassa-domain/tests/incident_contracts.rs
+git add crates/thalassa-domain/src/lib.rs crates/thalassa-domain/tests/incident_lifecycle.rs \
+        crates/thalassa-domain/tests/incident_contracts.rs \
+        src-tauri/src/incident/repository.rs src-tauri/src/app/incident.rs
 git commit -m "feat(incident): add the commented timeline event kind"
 ```
 
