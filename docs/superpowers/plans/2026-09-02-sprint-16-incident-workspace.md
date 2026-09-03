@@ -63,8 +63,8 @@ Tasks 8, 9, 11, 12 and 13 are independent of one another and may run in parallel
 | `src-tauri/src/incident/service.rs` | drop external allocation, comment command | 1, 3 |
 | `crates/thalassa-domain/src/lib.rs` | `Commented` kind, `CommentedPayload`, `add_comment` | 2 |
 | `crates/thalassa-ipc/src/lib.rs` | `incident_add_comment_descriptor` | 3 |
-| `ui/contracts/guards.ts` | comment payload guard | 4 |
-| `ui/src/incident/contractValidation.ts` | incident payload guards | 4 |
+| `ui/contracts/ipc.ts` | `commented` wire shapes, `IncidentCommentRequest`, `INCIDENT_NOTE_MAXIMUM` | 4 |
+| `ui/contracts/guards.ts` | commented payload guard, `isIncidentPage` | 4 |
 | `ui/src/locales/en.ts`, `th.ts` | strings | 5 and every UI task |
 | `ui/src/incident/useIncidentList.ts` | incident page fetch and cursor paging | 6 |
 | `ui/src/incident/useIncidentTimeline.ts` | timeline page fetch and sequence paging | 6 |
@@ -757,107 +757,131 @@ git commit -m "feat(incident): expose incident.add_comment over IPC"
 ### Task 4: TypeScript Contracts and Runtime Guards
 
 **Files:**
+- Modify: `ui/contracts/ipc.ts`
 - Modify: `ui/contracts/guards.ts`
-- Create: `ui/src/incident/contractValidation.ts`
 - Test: `ui/src/incident/incident-contracts.test.ts` (exists; extend it)
 
+There is no `ui/src/incident/contractValidation.ts` and this task does not
+create one. Sprint 15 froze the incident wire guards into
+`ui/contracts/guards.ts` beside the types they check — `isIncident`,
+`isIncidentTimelinePage`, `isIncidentTriggerInput` — so a second module under
+`ui/src/incident/` would be a second source of truth for the same shapes.
+`ui/src/topology/contractValidation.ts` is the precedent for a snapshot whose
+guard was never frozen into the contract, not for these.
+
+The payload shape assumed here was also wrong. Serde tags the payload
+`#[serde(tag = "kind", content = "data")]`, so a comment arrives as
+`{ kind: "commented", data: { body } }`, not flat, and the event `kind` is a
+separate field whose only asymmetric pair is `incident_created`/`created`.
+
 **Interfaces:**
-- Consumes: the `commented` wire names from Task 2 and the `incident.add_comment` command from Task 3.
-- Produces:
-  - `type IncidentTimelineEvent` with a discriminated `payload` union including `{ kind: "commented"; body: string }`.
-  - `isIncidentTimelineEvent(value: unknown): value is IncidentTimelineEvent`
-  - `isIncidentTimelinePage(value: unknown): value is IncidentTimelinePage`
-  - `isIncidentPage(value: unknown): value is IncidentPage`
-  - `INCIDENT_NOTE_MAXIMUM = 4000` exported for the composer in Task 11.
+- Consumes: the `commented` wire names from Task 2 and the
+  `incident.add_comment` request from Task 3.
+- Produces in `ui/contracts/ipc.ts`:
+  - `"commented"` in `IncidentEventKind`, `CommentedPayload = { body: string }`,
+    and the `{ kind: "commented"; data: CommentedPayload }` arm of
+    `IncidentTimelinePayload`.
+  - `IncidentCommentRequest = { incident_id: UUID; body: string }`, which the
+    plan omitted and Task 11 sends. It carries no `expected_version`.
+  - `INCIDENT_NOTE_MAXIMUM = 4000`, mirroring the domain constant, for the
+    Task 11 composer. The existing literal `4000`s in `guards.ts` stay as they
+    are; rewriting them is not this task.
+- Produces in `ui/contracts/guards.ts`:
+  - the `commented` case of `isIncidentTimelinePayload`.
+  - `isIncidentPage(value: unknown): value is IncidentPage`, which did not
+    exist and which Task 6's list hook needs.
 
-- [ ] **Step 1: Write the failing test**
+`isIncidentTimelineEvent` and `isIncidentTimelinePage` already exist, so this
+task does not produce them. The event guard is module-private, and the tests
+reach it through `isIncidentTimelinePage`.
 
-Add to `ui/src/incident/incident-contracts.test.ts`:
+- [x] **Step 1: Write the failing tests**
+
+Extend the existing `describe("incident wire guards")` in
+`ui/src/incident/incident-contracts.test.ts`, which already has a
+`timelineEvent(id, sequence, kind, payload)` helper and an `incidentFixture`.
+Three tests:
 
 ```ts
-it("accepts a commented timeline event and rejects a malformed one", () => {
-  const event = {
-    id: "6f1c1b0e-0000-4000-8000-000000000001",
-    incident_id: "6f1c1b0e-0000-4000-8000-000000000002",
-    sequence: 4,
+test("commented events carry a bounded body under the commented tag", () => {
+  const comment = timelineEvent(EVENT_ONE, 1, "commented", {
     kind: "commented",
-    actor_id: "6f1c1b0e-0000-4000-8000-000000000003",
-    reason: null,
-    occurred_at: "2026-08-28T09:00:00Z",
-    request_id: "6f1c1b0e-0000-4000-8000-000000000004",
-    policy_version: 7,
-    payload: { kind: "commented", body: "checked the dashboards" }
-  };
+    data: { body: "checked the checkout dashboards" }
+  });
+  const withPayload = (payload: unknown) => ({
+    incident_id: INCIDENT,
+    events: [{ ...comment, payload }],
+    next_sequence: null
+  });
 
-  expect(isIncidentTimelineEvent(event)).toBe(true);
-  expect(isIncidentTimelineEvent({ ...event, payload: { kind: "commented" } })).toBe(false);
-  expect(isIncidentTimelineEvent({ ...event, payload: { kind: "commented", body: 4 } })).toBe(false);
+  expect(isIncidentTimelinePage(withPayload(comment.payload))).toBe(true);
+  // rejected: no body, a numeric body, "", "   ", a control character,
+  // 4001 scalars, and an extra key beside `body`; 4000 scalars accepted.
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+a second asserting the kind and the payload tag must agree in both directions,
+and a third for `isIncidentPage`: the canonical page, a page carrying the
+repository's `<rfc3339>|<uuid>` cursor, and an empty page all accepted; an
+empty, truncated, non-timestamp or non-UUID cursor rejected, a cursor on an
+empty page rejected, a malformed item rejected, and an unknown key rejected.
 
-Run: `npm test -- ui/src/incident/incident-contracts.test.ts`
-Expected: FAIL with "isIncidentTimelineEvent is not a function".
+- [x] **Step 2: Run the tests to verify they fail**
 
-- [ ] **Step 3: Implement the guards**
+Run: `npx vitest run ui/src/incident/incident-contracts.test.ts`
+Expected: FAIL. Not with "isIncidentTimelineEvent is not a function" — that
+guard exists and is private. The comment test fails on the accepted-comment
+assertion returning `false`, because `commented` is not yet in
+`incidentEventKinds`; `isIncidentPage` is genuinely not a function.
 
-In `ui/src/incident/contractValidation.ts`, follow the shape of
-`ui/src/topology/contractValidation.ts`:
+- [x] **Step 3: Implement the contract and the guards**
+
+`ui/contracts/ipc.ts` takes the four additions above. `ui/contracts/guards.ts`
+adds `"commented"` to `incidentEventKinds`, value-imports
+`INCIDENT_NOTE_MAXIMUM` from `./ipc` beside the existing type-only import, and
+adds one `case` to `isIncidentTimelinePayload`:
 
 ```ts
-export const INCIDENT_NOTE_MAXIMUM = 4000;
-
-export type IncidentTimelinePayload =
-  | { kind: "created"; summary: string }
-  | { kind: "triggers_attached" }
-  | { kind: "status_transitioned" }
-  | { kind: "severity_changed" }
-  | { kind: "disposition_changed" }
-  | { kind: "role_changed" }
-  | { kind: "commented"; body: string };
-
-export function isIncidentTimelineEvent(value: unknown): value is IncidentTimelineEvent {
-  if (!isRecord(value)) return false;
-  if (!isUuid(value.id) || !isUuid(value.incident_id) || !isUuid(value.actor_id)) return false;
-  if (!isPositiveInteger(value.sequence)) return false;
-  if (!isTimestamp(value.occurred_at)) return false;
-  if (value.reason !== null && !isBoundedText(value.reason, INCIDENT_NOTE_MAXIMUM)) return false;
-  return isIncidentTimelinePayload(value.payload);
-}
-
-function isIncidentTimelinePayload(value: unknown): value is IncidentTimelinePayload {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
-  if (value.kind === "commented") {
-    return isBoundedText(value.body, INCIDENT_NOTE_MAXIMUM);
-  }
-  return [
-    "created",
-    "triggers_attached",
-    "status_transitioned",
-    "severity_changed",
-    "disposition_changed",
-    "role_changed"
-  ].includes(value.kind);
-}
+case "commented":
+  return (
+    hasExactKeys(data, ["body"]) &&
+    isSafeBoundedText(data.body, INCIDENT_NOTE_MAXIMUM)
+  );
 ```
 
-Add `isIncidentTimelinePage` and `isIncidentPage` in the same file, each
-validating the item array with the element guard and the cursor field
-(`next_cursor: string | null`, `next_sequence: number | null`).
+`isSafeBoundedText` already matches `validate_incident_text`: it rejects
+whitespace-only text through `isNonEmptyString`'s `trim`, rejects control
+characters, and counts Unicode scalar values.
 
-- [ ] **Step 4: Run test to verify it passes**
+`isIncidentPage` validates the cursor as the repository writes it —
+`format_cursor` emits `"<rfc3339>|<uuid>"` and the service passes it through
+untouched — bounded by `INCIDENT_CURSOR_MAXIMUM`, and rejects a cursor on an
+empty page, which `list` never emits because the cursor is taken from the last
+item.
 
-Run: `npm test -- ui/src/incident/incident-contracts.test.ts`
-Expected: PASS.
+Nothing else in `ui/` needed a change: there is no TypeScript command-name
+registry and no enumeration of IPC error reasons, so `incident.add_comment`
+and `InvalidComment` have no second home to update.
 
-- [ ] **Step 5: Run the UI gate and commit**
+- [x] **Step 4: Run the tests to verify they pass**
+
+- [x] **Step 5: Run the UI gate and commit**
 
 ```bash
 npm run format:check && npm run lint && npm run typecheck && npm test
-git add ui/contracts/guards.ts ui/src/incident/contractValidation.ts ui/src/incident/incident-contracts.test.ts
-git commit -m "feat(incident): add TypeScript guards for incident timeline payloads"
+git add ui/contracts/ipc.ts ui/contracts/guards.ts ui/src/incident/incident-contracts.test.ts
+git commit -m "feat(incident): carry the commented event across the TypeScript contract"
 ```
+
+`format:check` does not cover `ui/contracts`; `eslint ui` and `tsc -b` do.
+Implemented on the branch as eb4ca86 and 1e4cbcb with the full gate green:
+136 UI tests, plus the two Rust tests that read `ui/contracts/ipc.ts`.
+
+One parity guard was deliberately not added. `crates/thalassa-ipc/tests/contracts.rs`
+asserts the TypeScript union carries `"WRITE_CONTENTION"`, and the same
+assertion for `"commented"` would catch this contract drifting from the domain
+— but it is a Rust change, and this task is confined to `ui/`. Worth doing when
+Rust is next open.
 
 ---
 
