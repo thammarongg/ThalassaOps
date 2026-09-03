@@ -305,6 +305,8 @@ pub enum IpcErrorCode {
     InvalidEventSequence,
     #[serde(rename = "INVALID_SEVERITY_OVERRIDE")]
     InvalidSeverityOverride,
+    #[serde(rename = "WRITE_CONTENTION")]
+    WriteContention,
     #[serde(rename = "INTERNAL_ERROR")]
     InternalError,
 }

@@ -25,6 +25,9 @@ const INCIDENT_MIGRATION: &str = include_str!("../../migrations/0006_incidents.s
 /// Maximum characters accepted for a stored creation fingerprint.
 const FINGERPRINT_MAXIMUM: usize = 200;
 const SEQUENCE_RETRY_BUDGET: usize = 3;
+/// How long one attempt waits for another writer's lock before giving up and
+/// letting `with_sequence_retry` spend a retry.
+const WRITE_LOCK_WAIT_MS: u64 = 250;
 
 /// Typed persistence failures.  Messages never carry provider payloads,
 /// credentials or report text.
@@ -53,10 +56,34 @@ pub enum IncidentStoreError {
     #[doc(hidden)]
     #[error("incident timeline sequence collided while writing")]
     SequenceCollision,
+    #[doc(hidden)]
+    #[error("another writer held the incident write lock")]
+    LockContention,
 }
 
 fn database_error(error: rusqlite::Error) -> IncidentStoreError {
     IncidentStoreError::Database(error.to_string())
+}
+
+/// Classifies the errors a competing writer produces.  SQLite reports a lost
+/// race for the write lock as `SQLITE_BUSY` or `SQLITE_LOCKED`, which is the
+/// same "your request is still valid, send it again" condition a sequence
+/// collision is — not a storage failure.  Everything else stays a database
+/// error.  Only the transaction boundaries use this: inside a held
+/// `BEGIN IMMEDIATE` the write lock is already ours.
+fn write_lock_error(error: rusqlite::Error) -> IncidentStoreError {
+    let busy = match &error {
+        rusqlite::Error::SqliteFailure(failure, _) => matches!(
+            failure.code,
+            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+        ),
+        _ => false,
+    };
+    if busy {
+        IncidentStoreError::LockContention
+    } else {
+        database_error(error)
+    }
 }
 
 fn serialization_error(error: serde_json::Error) -> IncidentStoreError {
@@ -77,7 +104,8 @@ pub(crate) fn with_sequence_retry<T>(
 ) -> Result<T, IncidentStoreError> {
     for tries in 0..budget {
         match attempt(tries) {
-            Err(IncidentStoreError::SequenceCollision) => continue,
+            Err(IncidentStoreError::SequenceCollision)
+            | Err(IncidentStoreError::LockContention) => continue,
             other => return other,
         }
     }
@@ -117,6 +145,12 @@ impl SqliteIncidentRepository {
     pub fn from_connection(connection: Connection) -> Result<Self, IncidentStoreError> {
         connection
             .pragma_update(None, "foreign_keys", "ON")
+            .map_err(database_error)?;
+        // Wait briefly for a competing writer rather than failing instantly.
+        // Three attempts at this bound keep the worst case under a second
+        // before the caller is told to retry.
+        connection
+            .busy_timeout(std::time::Duration::from_millis(WRITE_LOCK_WAIT_MS))
             .map_err(database_error)?;
         connection
             .execute_batch(INCIDENT_MIGRATION)
@@ -173,7 +207,7 @@ impl SqliteIncidentRepository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database_error)?;
+            .map_err(write_lock_error)?;
 
         let existing: Option<(String, String)> = transaction
             .query_row(
@@ -198,7 +232,7 @@ impl SqliteIncidentRepository {
                 create_request_id,
                 creation_event_limit,
             )?;
-            transaction.commit().map_err(database_error)?;
+            transaction.commit().map_err(write_lock_error)?;
             return Ok(IncidentMutation { incident, events });
         }
 
@@ -217,7 +251,7 @@ impl SqliteIncidentRepository {
         for event in &record.mutation.events {
             insert_event(&transaction, event)?;
         }
-        transaction.commit().map_err(database_error)?;
+        transaction.commit().map_err(write_lock_error)?;
         Ok(record.mutation)
     }
 
@@ -251,7 +285,7 @@ impl SqliteIncidentRepository {
             let transaction = self
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(database_error)?;
+                .map_err(write_lock_error)?;
 
             let stored_incident = load_incident(&transaction, workspace_id, incident_id)?
                 .ok_or(IncidentStoreError::NotFound)?;
@@ -273,7 +307,7 @@ impl SqliteIncidentRepository {
                         .zip(&mutation.events)
                         .all(|(stored, submitted)| event_content_matches(stored, submitted))
                 {
-                    transaction.commit().map_err(database_error)?;
+                    transaction.commit().map_err(write_lock_error)?;
                     return Ok(IncidentMutation {
                         incident: stored_incident,
                         events: stored_events,
@@ -363,7 +397,7 @@ impl SqliteIncidentRepository {
             for event in &mutation.events {
                 insert_event_for_mutation(&transaction, event)?;
             }
-            transaction.commit().map_err(database_error)?;
+            transaction.commit().map_err(write_lock_error)?;
             Ok(mutation)
         })
     }
@@ -404,7 +438,7 @@ impl SqliteIncidentRepository {
             let transaction = self
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(database_error)?;
+                .map_err(write_lock_error)?;
 
             let stored_incident = load_incident(&transaction, workspace_id, incident_id)?
                 .ok_or(IncidentStoreError::NotFound)?;
@@ -413,7 +447,7 @@ impl SqliteIncidentRepository {
                 if stored_events.len() == 1
                     && event_content_matches(&stored_events[0], &mutation.events[0])
                 {
-                    transaction.commit().map_err(database_error)?;
+                    transaction.commit().map_err(write_lock_error)?;
                     return Ok(IncidentMutation {
                         incident: stored_incident,
                         events: stored_events,
@@ -446,7 +480,7 @@ impl SqliteIncidentRepository {
                 )
                 .map_err(database_error)?;
             insert_event_for_mutation(&transaction, &mutation.events[0])?;
-            transaction.commit().map_err(database_error)?;
+            transaction.commit().map_err(write_lock_error)?;
             Ok(mutation)
         })
     }
@@ -464,11 +498,11 @@ impl SqliteIncidentRepository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database_error)?;
+            .map_err(write_lock_error)?;
         let incident = load_incident(&transaction, workspace_id, incident_id)?
             .ok_or(IncidentStoreError::NotFound)?;
         let events = load_events_for_request(&transaction, incident_id, request_id, event_limit)?;
-        transaction.commit().map_err(database_error)?;
+        transaction.commit().map_err(write_lock_error)?;
         if events.is_empty() {
             Ok(None)
         } else {

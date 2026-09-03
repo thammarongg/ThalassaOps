@@ -565,3 +565,26 @@ fn an_unauthorized_comment_does_not_disclose_incident_existence() {
         );
     }
 }
+
+#[test]
+fn a_contended_comment_surfaces_its_own_code_not_an_internal_error() {
+    let (directory, state) = test_state();
+    let mutation = created(&state);
+
+    // A separate writer holding the SQLite write lock is the one condition
+    // that tells the caller "send the same request again" rather than "reload
+    // and try something else".  It must not arrive as INTERNAL_ERROR.
+    let blocker = rusqlite::Connection::open(directory.path().join("thalassaops.sqlite"))
+        .expect("the blocker opens the store");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("the blocker takes the write lock");
+
+    let error = error_of(state.incident_add_comment(envelope(
+        "add_comment",
+        Capability::IncidentWrite,
+        json!({ "incident_id": mutation.incident.id, "body": "blocked" }),
+    )));
+    assert_eq!(error.code, IpcErrorCode::WriteContention);
+    assert_eq!(error.details["reason"], json!("incident_write_contention"));
+}

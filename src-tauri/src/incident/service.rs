@@ -80,7 +80,9 @@ impl From<IncidentStoreError> for IncidentServiceError {
             IncidentStoreError::VersionConflict { expected, actual } => {
                 Self::VersionConflict { expected, actual }
             }
-            IncidentStoreError::WriteContention => Self::WriteContention {},
+            IncidentStoreError::WriteContention | IncidentStoreError::LockContention => {
+                Self::WriteContention {}
+            }
             other => Self::Store(other),
         }
     }

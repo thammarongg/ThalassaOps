@@ -1159,3 +1159,106 @@ fn a_late_comment_never_drags_updated_at_backwards() {
         "the stored timestamp does not move backwards"
     );
 }
+
+#[test]
+fn two_connections_appending_comments_rebase_onto_each_other() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // A genuinely separate writer: its own connection over the same file, with
+    // no knowledge of what the first one allocated.
+    let mut other = SqliteIncidentRepository::open(&fixture.database_path)
+        .expect("a second connection opens the same store");
+
+    let first = incident
+        .add_comment(1, "first", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the first comment is valid");
+    let second = incident
+        .add_comment(1, "second", ACTOR, THIRD_REQUEST, POLICY_VERSION, later())
+        .expect("the second comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(first)
+        .expect("the first connection appends");
+    let second = other
+        .append_comment(second)
+        .expect("the second connection rebases rather than colliding");
+
+    assert_eq!(second.events[0].sequence, first.events[0].sequence + 1);
+    let timeline = other
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+}
+
+#[test]
+fn a_held_write_lock_reports_contention_rather_than_a_storage_failure() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let comment = created
+        .incident
+        .add_comment(1, "blocked", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the comment is valid");
+
+    // Hold the SQLite write lock from outside the repository for the whole
+    // call.  Every attempt loses the race for it, which is what a real
+    // concurrent writer does — and what `SequenceCollision` alone never
+    // reproduces.
+    let blocker = rusqlite::Connection::open(&fixture.database_path).expect("the blocker opens");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("the blocker takes the write lock");
+
+    let error = fixture
+        .repository
+        .append_comment(comment.clone())
+        .expect_err("a comment that never wins the lock is rejected");
+    assert!(
+        matches!(error, IncidentStoreError::WriteContention),
+        "a lost write lock is contention, not a storage failure: {error:?}"
+    );
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("the blocker releases the lock");
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the same request succeeds once the lock is free");
+    assert_eq!(stored.events.len(), 1);
+}
+
+#[test]
+fn a_held_write_lock_blocks_a_transition_as_contention_too() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let transition = triage_mutation(&created.incident, SECOND_REQUEST, 3);
+
+    let blocker = rusqlite::Connection::open(&fixture.database_path).expect("the blocker opens");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("the blocker takes the write lock");
+
+    let error = fixture
+        .repository
+        .apply_mutation(transition)
+        .expect_err("a transition that never wins the lock is rejected");
+    assert!(
+        matches!(error, IncidentStoreError::WriteContention),
+        "every write path classifies a lost lock the same way: {error:?}"
+    );
+}

@@ -120,3 +120,22 @@ fn incident_commands_separate_reads_from_writes() {
         assert!(!descriptor.scope.is_bounded());
     }
 }
+
+#[test]
+fn write_contention_has_its_own_wire_code() {
+    assert_eq!(
+        serde_json::to_value(IpcErrorCode::WriteContention).unwrap(),
+        serde_json::json!("WRITE_CONTENTION")
+    );
+    assert_ne!(IpcErrorCode::WriteContention, IpcErrorCode::InvalidRequest);
+    assert_ne!(IpcErrorCode::WriteContention, IpcErrorCode::InternalError);
+
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/contracts/ipc.ts"),
+    )
+    .expect("the TypeScript IPC contract is available");
+    assert!(
+        source.contains("\"WRITE_CONTENTION\""),
+        "the TypeScript IpcErrorCode union must carry the new code"
+    );
+}

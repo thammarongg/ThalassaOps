@@ -541,12 +541,15 @@ fn incident_service_error(error: IncidentServiceError) -> IpcError {
         IncidentServiceError::VersionConflict { .. } => {
             invalid_incident_request("incident_version_conflict")
         }
-        // Distinct from `incident_version_conflict` on purpose: the caller's
-        // copy is correct and the same request may simply be sent again, where
-        // a version conflict demands a reload first.  Sprint 16 design, 7.3.
-        IncidentServiceError::WriteContention {} => {
-            invalid_incident_request("incident_write_contention")
-        }
+        // Its own code, not `INVALID_REQUEST`: the request is valid and may be
+        // sent again unchanged, where a version conflict demands a reload
+        // first.  Collapsing the two would force a needless reload on every
+        // contended write.  Sprint 16 design, 7.3.
+        IncidentServiceError::WriteContention {} => IpcError::new(
+            IpcErrorCode::WriteContention,
+            "the incident timeline is under write contention",
+            serde_json::json!({ "reason": "incident_write_contention" }),
+        ),
         IncidentServiceError::IdempotencyConflict => {
             invalid_incident_request("incident_idempotency_conflict")
         }

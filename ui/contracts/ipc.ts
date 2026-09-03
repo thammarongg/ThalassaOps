@@ -52,6 +52,7 @@ export type IpcErrorCode =
   | "MALFORMED_RESPONSE"
   | "INVALID_EVENT_SEQUENCE"
   | "INVALID_SEVERITY_OVERRIDE"
+  | "WRITE_CONTENTION"
   | "INTERNAL_ERROR";
 
 export type IpcError = {
