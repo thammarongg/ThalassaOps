@@ -1022,3 +1022,51 @@ fn a_comment_on_an_incident_from_another_workspace_is_not_found() {
         "the foreign timeline is untouched"
     );
 }
+
+#[test]
+fn two_comments_allocated_from_the_same_observation_do_not_collide() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // Both writers read the same timeline height and both ask for the sequence
+    // after it.  Neither carries a version predicate, so neither can be
+    // rejected: only the in-transaction reallocation stands between them and a
+    // `UNIQUE (incident_id, sequence)` violation.
+    let first = incident
+        .add_comment(1, "first", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the first comment is valid");
+    let second = incident
+        .add_comment(1, "second", ACTOR, THIRD_REQUEST, POLICY_VERSION, later())
+        .expect("the second comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(first)
+        .expect("the first comment appends");
+    let second = fixture
+        .repository
+        .append_comment(second)
+        .expect("the second comment appends rather than colliding");
+
+    let highest_at_creation = created
+        .events
+        .last()
+        .expect("creation appended events")
+        .sequence;
+    assert_eq!(first.events[0].sequence, highest_at_creation + 1);
+    assert_eq!(second.events[0].sequence, highest_at_creation + 2);
+
+    let timeline = fixture
+        .repository
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    assert_eq!(timeline.events.len(), created.events.len() + 2);
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+}
