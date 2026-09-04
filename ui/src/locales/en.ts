@@ -881,7 +881,38 @@ const en = {
     queueTitle: "Incidents",
     detailTitle: "Incident",
     emptyQueue: "No incidents match this filter",
-    loading: "Loading incidents…"
+    loading: "Loading incidents…",
+    queueLabel: "Incident queue",
+    severityLabel: "Severity",
+    statusLabel: "Status",
+    loadMore: "Load more incidents",
+    detailEmpty: "Select an incident to see its detail",
+    filter: {
+      label: "Status filter",
+      all: "All statuses"
+    },
+    status: {
+      detected: "Detected",
+      triage: "Triage",
+      investigating: "Investigating",
+      mitigating: "Mitigating",
+      monitoring: "Monitoring",
+      resolved: "Resolved",
+      closed: "Closed",
+      reopened: "Reopened"
+    },
+    errors: {
+      invalidRequest: "The incident request was rejected as invalid.",
+      notFound: "That incident no longer exists.",
+      permissionDenied: "You do not have permission to read incidents.",
+      policyDenied: "Policy denied access to this incident.",
+      connectorUnavailable: "The incident store is unavailable.",
+      malformedResponse: "The incident response did not match the contract.",
+      invalidEventSequence: "The incident timeline arrived out of sequence.",
+      invalidSeverityOverride: "The severity override was rejected.",
+      writeContention: "Another change reached this incident first. Try again.",
+      internalError: "The incident could not be loaded."
+    }
   }
 } as const;
 

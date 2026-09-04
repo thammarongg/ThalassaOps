@@ -878,7 +878,38 @@ const th = {
     queueTitle: "เหตุการณ์",
     detailTitle: "รายละเอียดเหตุการณ์",
     emptyQueue: "ไม่มีเหตุการณ์ที่ตรงกับตัวกรองนี้",
-    loading: "กำลังโหลดเหตุการณ์…"
+    loading: "กำลังโหลดเหตุการณ์…",
+    queueLabel: "คิวเหตุการณ์",
+    severityLabel: "ระดับความรุนแรง",
+    statusLabel: "สถานะ",
+    loadMore: "โหลดเหตุการณ์เพิ่ม",
+    detailEmpty: "เลือกเหตุการณ์เพื่อดูรายละเอียด",
+    filter: {
+      label: "ตัวกรองสถานะ",
+      all: "ทุกสถานะ"
+    },
+    status: {
+      detected: "ตรวจพบ",
+      triage: "คัดกรอง",
+      investigating: "กำลังตรวจสอบ",
+      mitigating: "กำลังบรรเทา",
+      monitoring: "กำลังเฝ้าระวัง",
+      resolved: "แก้ไขแล้ว",
+      closed: "ปิดแล้ว",
+      reopened: "เปิดใหม่"
+    },
+    errors: {
+      invalidRequest: "คำขอเหตุการณ์ไม่ถูกต้องจึงถูกปฏิเสธ",
+      notFound: "ไม่พบเหตุการณ์นี้แล้ว",
+      permissionDenied: "คุณไม่มีสิทธิ์อ่านข้อมูลเหตุการณ์",
+      policyDenied: "นโยบายปฏิเสธการเข้าถึงเหตุการณ์นี้",
+      connectorUnavailable: "ระบบจัดเก็บเหตุการณ์ไม่พร้อมใช้งาน",
+      malformedResponse: "ข้อมูลเหตุการณ์ที่ได้รับไม่ตรงตามสัญญา",
+      invalidEventSequence: "ไทม์ไลน์เหตุการณ์มาไม่เรียงลำดับ",
+      invalidSeverityOverride: "การแทนที่ระดับความรุนแรงถูกปฏิเสธ",
+      writeContention: "มีการเปลี่ยนแปลงอื่นถึงเหตุการณ์นี้ก่อน กรุณาลองใหม่",
+      internalError: "ไม่สามารถโหลดเหตุการณ์ได้"
+    }
   }
 } as const;
 
