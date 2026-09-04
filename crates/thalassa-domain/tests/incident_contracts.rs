@@ -377,6 +377,23 @@ fn incident_requests_and_pages_keep_snake_case_wire_fields() {
         assert!(value.get(field).is_some(), "{field} must stay snake_case");
     }
 
+    let comment_request = thalassa_domain::IncidentCommentRequest {
+        incident_id: Uuid::from_u128(0x21),
+        body: "checked the dashboards".into(),
+    };
+    let value = serde_json::to_value(&comment_request).unwrap();
+    for field in ["incident_id", "body"] {
+        assert!(value.get(field).is_some(), "{field} must stay snake_case");
+    }
+    assert!(
+        value.get("expected_version").is_none(),
+        "a comment carries no version predicate"
+    );
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentCommentRequest>(value).unwrap(),
+        comment_request
+    );
+
     let page = IncidentTimelinePage {
         incident_id: Uuid::from_u128(0x21),
         events: vec![],
@@ -387,4 +404,87 @@ fn incident_requests_and_pages_keep_snake_case_wire_fields() {
         assert!(value.get(field).is_some(), "{field} must stay snake_case");
     }
     assert_eq!(value["next_sequence"], json!(null));
+}
+
+#[test]
+fn commented_event_wire_names_are_stable() {
+    let payload =
+        thalassa_domain::IncidentTimelinePayload::Commented(thalassa_domain::CommentedPayload {
+            body: "note".into(),
+        });
+    let encoded = serde_json::to_value(&payload).expect("payload encodes");
+    assert_eq!(encoded["kind"], json!("commented"));
+    assert_eq!(encoded["data"]["body"], json!("note"));
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentTimelinePayload>(encoded).unwrap(),
+        payload
+    );
+
+    assert_eq!(
+        serde_json::to_value(thalassa_domain::IncidentEventKind::Commented).expect("kind encodes"),
+        json!("commented")
+    );
+    assert_eq!(
+        serde_json::from_value::<thalassa_domain::IncidentEventKind>(json!("commented")).unwrap(),
+        thalassa_domain::IncidentEventKind::Commented
+    );
+}
+
+#[test]
+fn account_id_screening_flags_standalone_runs_and_not_digest_interiors() {
+    // Still rejected: an account identifier is a token of its own, whether it
+    // stands alone or is delimited by punctuation.
+    for unsafe_text in [
+        "the affected account is 123456789012",
+        "arn:aws:iam::123456789012:role/checkout",
+        "123456789012",
+        "account-123456789012",
+        "id=123456789012;",
+        "card 1234567890123456 was charged",
+    ] {
+        assert!(
+            thalassa_domain::validate_incident_text(unsafe_text, 4_000).is_err(),
+            "{unsafe_text:?} must still be rejected"
+        );
+    }
+
+    // Accepted: twelve adjacent digits wedged inside a longer alphanumeric
+    // token are the middle of a hex digest, not an account identifier.  A
+    // sixteen-character digest slice hits this roughly four percent of the
+    // time, which rejected that share of manual-report incidents.
+    for safe_text in [
+        "manual-report-3af366449386147c",
+        "evidence-manual-report-3af366449386147c",
+        "a123456789012b",
+        "deadbeef123456789012cafe",
+    ] {
+        assert!(
+            thalassa_domain::validate_incident_text(safe_text, 4_000).is_ok(),
+            "{safe_text:?} must be accepted"
+        );
+    }
+
+    // A UUID whose final group is all digits keeps its existing exemption.
+    assert!(
+        thalassa_domain::validate_incident_text("dcdd4879-9294-4bdd-90bf-123456789012", 4_000)
+            .is_ok()
+    );
+
+    // Accepted as a deliberate trade-off: a run touching a letter on one side
+    // and a string edge on the other is structurally identical to a digest
+    // that happens to begin or end in digits, so it cannot be told apart from
+    // one.  The narrower rule is what lets the digest interiors above pass.
+    for tolerated in ["acct123456789012", "123456789012xyz"] {
+        assert!(
+            thalassa_domain::validate_incident_text(tolerated, 4_000).is_ok(),
+            "{tolerated:?} is a known, accepted trade-off"
+        );
+    }
+
+    // The residual false positive: a digest slice that is *all* digits is a
+    // standalone token and is still rejected.  Sixteen hex characters land
+    // there about one time in two thousand.
+    assert!(
+        thalassa_domain::validate_incident_text("manual-report-1234567890123456", 4_000).is_err()
+    );
 }

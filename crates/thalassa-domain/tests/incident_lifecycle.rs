@@ -6,8 +6,9 @@ use thalassa_domain::{
     BusinessImpact, ImpactDimensions, ImpactLevel, ImpactTrajectory, IncidentCreateCommand,
     IncidentDisposition, IncidentDispositionCommand, IncidentError, IncidentEventKind,
     IncidentReport, IncidentRole, IncidentRoleAssignment, IncidentRoleCommand, IncidentSeverity,
-    IncidentSeverityCommand, IncidentSourceKind, IncidentStatus, IncidentTransition,
-    IncidentTrigger, PrincipalId, ResourceScope, TriageContext,
+    IncidentSeverityCommand, IncidentSourceKind, IncidentStatus, IncidentTimelinePayload,
+    IncidentTransition, IncidentTrigger, PrincipalId, ResourceScope, TriageContext,
+    INCIDENT_NOTE_MAXIMUM,
 };
 
 const ACTOR: uuid::Uuid = uuid::Uuid::from_u128(0xa0);
@@ -1586,4 +1587,96 @@ fn transitions_round_trip_through_tagged_wire_values() {
     assert_eq!(value["target"], json!("investigating"));
     let decoded: IncidentTransition = serde_json::from_value(value).unwrap();
     assert_eq!(decoded, investigating());
+}
+
+fn investigating_incident() -> thalassa_domain::Incident {
+    let triaged = transition(&created(), 3, triage()).unwrap().incident;
+    transition(&triaged, 4, investigating()).unwrap().incident
+}
+
+#[test]
+fn add_comment_appends_one_attributed_event_without_touching_version() {
+    let incident = investigating_incident();
+    let before = incident.version;
+
+    let mutation = incident
+        .add_comment(5, "restarted the checkout pods", ACTOR, REQUEST, 7, now())
+        .expect("a valid comment is accepted");
+
+    assert_eq!(mutation.events.len(), 1);
+    let event = &mutation.events[0];
+    assert_eq!(event.sequence, 5);
+    assert_eq!(event.kind, IncidentEventKind::Commented);
+    assert_eq!(event.actor_id, ACTOR);
+    assert_eq!(event.request_id, REQUEST);
+    assert_eq!(event.policy_version, 7);
+    assert!(event.reason.is_none(), "a comment carries no reason");
+    assert!(matches!(
+        &event.payload,
+        IncidentTimelinePayload::Commented(payload)
+            if payload.body == "restarted the checkout pods"
+    ));
+
+    assert_eq!(
+        mutation.incident.version, before,
+        "a comment must not advance the incident version"
+    );
+    assert_eq!(
+        mutation.incident.status, incident.status,
+        "a comment must not move the incident lifecycle"
+    );
+    assert_eq!(
+        mutation.incident.derived_severity,
+        incident.derived_severity
+    );
+    assert_eq!(mutation.incident.roles, incident.roles);
+}
+
+#[test]
+fn add_comment_rejects_empty_oversized_and_unsafe_bodies() {
+    let incident = investigating_incident();
+    let oversized = "x".repeat(INCIDENT_NOTE_MAXIMUM + 1);
+
+    for body in [
+        "",
+        "   ",
+        oversized.as_str(),
+        "restarted\nthe pods",
+        "the password is rotated",
+    ] {
+        assert!(
+            matches!(
+                incident.add_comment(5, body, ACTOR, REQUEST, 7, now()),
+                Err(IncidentError::InvalidComment)
+            ),
+            "body {:?} must be rejected",
+            &body[..body.len().min(16)]
+        );
+    }
+
+    let at_maximum = "x".repeat(INCIDENT_NOTE_MAXIMUM);
+    assert!(
+        incident
+            .add_comment(5, at_maximum.as_str(), ACTOR, REQUEST, 7, now())
+            .is_ok(),
+        "a body of exactly the maximum length is accepted"
+    );
+}
+
+#[test]
+fn add_comment_rejects_nil_ids_and_a_zero_sequence() {
+    let incident = investigating_incident();
+
+    assert!(matches!(
+        incident.add_comment(5, "ok", uuid::Uuid::nil(), REQUEST, 7, now()),
+        Err(IncidentError::InvalidId)
+    ));
+    assert!(matches!(
+        incident.add_comment(5, "ok", ACTOR, uuid::Uuid::nil(), 7, now()),
+        Err(IncidentError::InvalidId)
+    ));
+    assert!(matches!(
+        incident.add_comment(0, "ok", ACTOR, REQUEST, 7, now()),
+        Err(IncidentError::InvalidEventSequence)
+    ));
 }

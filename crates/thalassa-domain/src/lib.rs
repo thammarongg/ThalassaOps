@@ -624,6 +624,8 @@ pub enum IncidentError {
     InvalidRole,
     #[error("incident version conflict: expected {expected}, actual {actual}")]
     VersionConflict { expected: u64, actual: u64 },
+    #[error("the comment body is empty, too long or unsafe")]
+    InvalidComment,
     #[error("incident event sequence must be positive with room for appended events")]
     InvalidEventSequence,
     #[error("incident page limits must be within 1..=100 and cursors non-empty, bounded and control-free")]
@@ -885,6 +887,8 @@ pub enum IncidentEventKind {
     DispositionChanged,
     #[serde(rename = "role_changed")]
     RoleChanged,
+    #[serde(rename = "commented")]
+    Commented,
 }
 
 /// One immutable, attributed incident timeline event.
@@ -918,6 +922,8 @@ pub enum IncidentTimelinePayload {
     DispositionChanged(DispositionChangedPayload),
     #[serde(rename = "role_changed")]
     RoleChanged(RoleChangedPayload),
+    #[serde(rename = "commented")]
+    Commented(CommentedPayload),
 }
 
 /// Creation audit values: identity, team, severity and initial assignments.
@@ -970,6 +976,12 @@ pub struct RoleChangedPayload {
     pub role: IncidentRole,
     pub previous_principal_ids: Vec<PrincipalId>,
     pub current_principal_id: Option<PrincipalId>,
+}
+
+/// Free text a responder attached to the incident timeline.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CommentedPayload {
+    pub body: String,
 }
 
 /// New aggregate state plus the ordered events the write transaction appends.
@@ -1251,6 +1263,9 @@ impl Incident {
 
     /// Validates and applies one lifecycle transition and returns the new
     /// state plus the appended timeline event.
+    /// `first_event_sequence` is an aggregate-local base used only to number
+    /// a multi-event mutation consistently; the repository rebases the whole
+    /// block onto the real timeline tail inside the write transaction.
     #[allow(clippy::too_many_arguments)]
     pub fn transition(
         &self,
@@ -1706,6 +1721,51 @@ impl Incident {
         })
     }
 
+    /// Appends one immutable responder comment.  A comment changes no incident
+    /// state, so it deliberately takes no `expected_version` and does not
+    /// advance the version; see the Sprint 16 design, section 7.5.
+    pub fn add_comment(
+        &self,
+        first_event_sequence: u64,
+        body: &str,
+        actor_id: PrincipalId,
+        request_id: Uuid,
+        policy_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<IncidentMutation, IncidentError> {
+        if first_event_sequence == 0 {
+            return Err(IncidentError::InvalidEventSequence);
+        }
+        ensure_id(actor_id)?;
+        ensure_id(request_id)?;
+        validate_incident_text(body, INCIDENT_NOTE_MAXIMUM)
+            .map_err(|_| IncidentError::InvalidComment)?;
+
+        let mut next = self.clone();
+        next.updated_at = now;
+
+        let pending = PendingEvent {
+            kind: IncidentEventKind::Commented,
+            reason: None,
+            payload: IncidentTimelinePayload::Commented(CommentedPayload {
+                body: body.to_owned(),
+            }),
+        };
+        let events = materialize_events(
+            self.id,
+            first_event_sequence,
+            vec![pending],
+            actor_id,
+            request_id,
+            policy_version,
+            now,
+        )?;
+        Ok(IncidentMutation {
+            incident: next,
+            events,
+        })
+    }
+
     fn ensure_version(&self, expected_version: u64) -> Result<(), IncidentError> {
         if expected_version != self.version {
             return Err(IncidentError::VersionConflict {
@@ -1850,6 +1910,15 @@ pub struct IncidentRoleRequest {
     pub incident_id: IncidentId,
     pub expected_version: u64,
     pub command: IncidentRoleCommand,
+}
+
+/// Untrusted IPC input for `incident.add_comment`.  A comment carries no
+/// `expected_version`: it changes no incident state, so there is nothing for a
+/// concurrent writer to invalidate.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IncidentCommentRequest {
+    pub incident_id: IncidentId,
+    pub body: String,
 }
 
 /// One page of the incident list with an opaque continuation cursor.
@@ -4987,18 +5056,31 @@ fn contains_sensitive_account_id(value: &str) -> bool {
     if looks_like_uuid(value) {
         return false;
     }
-    let mut run_length = 0usize;
-    for character in value.chars() {
-        if character.is_ascii_digit() {
-            run_length = run_length.saturating_add(1);
-        } else {
-            if run_length >= 12 {
-                return true;
-            }
-            run_length = 0;
+    // A cloud account identifier is a token of its own: standalone, or
+    // delimited by punctuation as in `arn:aws:iam::123456789012:role/x`.  A
+    // digit run wedged between letters is not one — it is the middle of a hex
+    // digest, and a 16-character digest slice hits twelve adjacent digits
+    // roughly four percent of the time.  Requiring both boundaries to be
+    // non-alphanumeric keeps every real shape and drops that false positive.
+    let characters: Vec<char> = value.chars().collect();
+    let mut start = 0usize;
+    while start < characters.len() {
+        if !characters[start].is_ascii_digit() {
+            start += 1;
+            continue;
         }
+        let mut end = start;
+        while end < characters.len() && characters[end].is_ascii_digit() {
+            end += 1;
+        }
+        let bounded_before = start == 0 || !characters[start - 1].is_alphanumeric();
+        let bounded_after = end == characters.len() || !characters[end].is_alphanumeric();
+        if end - start >= 12 && bounded_before && bounded_after {
+            return true;
+        }
+        start = end;
     }
-    run_length >= 12
+    false
 }
 
 fn looks_like_uuid(value: &str) -> bool {

@@ -112,10 +112,30 @@ fn incident_commands_separate_reads_from_writes() {
             "incident.set_disposition",
         ),
         (incident_assign_role_descriptor(), "incident.assign_role"),
+        (incident_add_comment_descriptor(), "incident.add_comment"),
     ] {
         assert_eq!(descriptor.name.to_string(), name);
         assert_eq!(descriptor.required_capability, Capability::IncidentWrite);
         assert_eq!(descriptor.required_permission, Permission::ManageIncident);
         assert!(!descriptor.scope.is_bounded());
     }
+}
+
+#[test]
+fn write_contention_has_its_own_wire_code() {
+    assert_eq!(
+        serde_json::to_value(IpcErrorCode::WriteContention).unwrap(),
+        serde_json::json!("WRITE_CONTENTION")
+    );
+    assert_ne!(IpcErrorCode::WriteContention, IpcErrorCode::InvalidRequest);
+    assert_ne!(IpcErrorCode::WriteContention, IpcErrorCode::InternalError);
+
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/contracts/ipc.ts"),
+    )
+    .expect("the TypeScript IPC contract is available");
+    assert!(
+        source.contains("\"WRITE_CONTENTION\""),
+        "the TypeScript IpcErrorCode union must carry the new code"
+    );
 }

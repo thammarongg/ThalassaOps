@@ -7,9 +7,10 @@ use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 use thalassa_domain::{
     BusinessImpact, EnterpriseIdentity, ImpactDimensions, ImpactLevel, ImpactTrajectory, Incident,
-    IncidentCreateCommand, IncidentMutation, IncidentReport, IncidentRole, IncidentRoleAssignment,
-    IncidentSourceKind, IncidentStatus, IncidentTransition, IncidentTrigger, Membership, Principal,
-    PrincipalId, PrincipalKind, ResourceScope, TriageContext,
+    IncidentCreateCommand, IncidentEventKind, IncidentMutation, IncidentReport, IncidentRole,
+    IncidentRoleAssignment, IncidentSourceKind, IncidentStatus, IncidentTransition,
+    IncidentTrigger, Membership, Principal, PrincipalId, PrincipalKind, ResourceScope,
+    TriageContext,
 };
 use thalassaops::incident::{IncidentCreationRecord, IncidentStoreError, SqliteIncidentRepository};
 use uuid::Uuid;
@@ -487,7 +488,47 @@ fn stale_version_does_not_append_or_overwrite() {
 }
 
 #[test]
-fn event_sequences_must_continue_the_stored_timeline() {
+fn a_stale_event_sequence_is_reallocated_rather_than_rejected() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let highest_before = fixture
+        .repository
+        .highest_event_sequence(WORKSPACE, created.incident.id)
+        .expect("highest event sequence is readable");
+
+    let mut mutation = triage_mutation(&created.incident, SECOND_REQUEST, highest_before + 1);
+    // Simulate a stale read: the caller believes sequence 1 is still free.
+    mutation.events[0].sequence = 1;
+
+    fixture
+        .repository
+        .apply_mutation(mutation)
+        .expect("a stale sequence is reallocated, not rejected");
+
+    let sequences: Vec<u64> = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events
+        .iter()
+        .map(|event| event.sequence)
+        .collect();
+    let mut unique = sequences.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(sequences.len(), unique.len(), "sequences must stay unique");
+    assert_eq!(
+        *sequences.iter().max().expect("at least one event"),
+        highest_before + 1,
+        "the appended event takes the next free sequence"
+    );
+}
+
+#[test]
+fn event_sequences_are_reallocated_to_continue_the_stored_timeline() {
     let mut fixture = fixture();
     let created = fixture
         .repository
@@ -495,23 +536,93 @@ fn event_sequences_must_continue_the_stored_timeline() {
         .expect("creation succeeds");
 
     let gapped = triage_mutation(&created.incident, SECOND_REQUEST, 9);
-    let error = fixture
+    let applied = fixture
         .repository
         .apply_mutation(gapped)
-        .expect_err("a gapped sequence is rejected");
-    assert!(matches!(
-        error,
-        IncidentStoreError::InvalidEventSequence { .. }
-    ));
+        .expect("a caller-provided sequence is advisory");
+    assert_eq!(applied.events[0].sequence, 3);
 
+    let events = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events;
+    let sequences: Vec<u64> = events.iter().map(|event| event.sequence).collect();
+    assert_eq!(sequences, vec![1, 2, 3]);
+}
+
+#[test]
+fn multi_event_rebase_preserves_mutation_event_order() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let highest_before = fixture
+        .repository
+        .highest_event_sequence(WORKSPACE, created.incident.id)
+        .expect("highest event sequence is readable");
+
+    let mut changed_impact = business_impact();
+    changed_impact.summary = "Checkout unavailable for every customer".into();
+    let mutation = created
+        .incident
+        .transition(
+            created.incident.version,
+            9,
+            IncidentTransition::Triage(TriageContext {
+                business_impact: changed_impact,
+                owner: REPLACEMENT,
+                duplicate_checked: true,
+            }),
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("triage transition emits three events");
+
+    let expected_kinds = vec![
+        IncidentEventKind::StatusTransitioned,
+        IncidentEventKind::SeverityChanged,
+        IncidentEventKind::RoleChanged,
+    ];
     assert_eq!(
-        fixture
-            .repository
-            .timeline(WORKSPACE, created.incident.id, None, 100)
-            .expect("timeline is readable")
+        mutation
             .events
-            .len(),
-        2
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>(),
+        expected_kinds
+    );
+
+    fixture
+        .repository
+        .apply_mutation(mutation)
+        .expect("a gapped base sequence is rebased");
+
+    let stored_events = fixture
+        .repository
+        .timeline(WORKSPACE, created.incident.id, None, 100)
+        .expect("timeline is readable")
+        .events;
+    let appended_events: Vec<_> = stored_events
+        .iter()
+        .filter(|event| event.sequence > highest_before)
+        .collect();
+    assert_eq!(
+        appended_events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![highest_before + 1, highest_before + 2, highest_before + 3]
+    );
+    assert_eq!(
+        appended_events
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>(),
+        expected_kinds
     );
 }
 
@@ -749,4 +860,405 @@ fn role_mutation_rejects_an_unknown_principal_inside_the_write_transaction() {
         .expect("timeline count succeeds");
     assert_eq!(after_roles, before_roles);
     assert_eq!(after_events, before_events);
+}
+
+#[test]
+fn a_comment_appends_after_a_racing_transition_without_writing_the_version() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // The commenter builds its mutation from the aggregate it observed.  This
+    // is the two-writer race Task 1 could not stage: a comment carries no
+    // version predicate, so it is the first write that can genuinely contend.
+    let comment = incident
+        .add_comment(
+            1,
+            "checked the dashboards",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    // Another writer transitions first, so the stored row is a version ahead
+    // and the timeline is two events taller than the commenter believes.
+    let applied = fixture
+        .repository
+        .apply_mutation(triage_mutation(&incident, THIRD_REQUEST, 3))
+        .expect("the transition lands first");
+
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("a comment behind a concurrent transition still appends");
+
+    assert_eq!(stored.events.len(), 1);
+    assert_eq!(stored.events[0].kind, IncidentEventKind::Commented);
+    assert!(
+        stored.events[0].sequence
+            > applied
+                .events
+                .last()
+                .expect("the transition appended events")
+                .sequence,
+        "the comment is numbered after the transition it lost to"
+    );
+    assert_eq!(
+        stored.incident.version, applied.incident.version,
+        "the caller is handed the stored version, not its stale copy"
+    );
+
+    let reloaded = fixture
+        .repository
+        .get(WORKSPACE, incident.id)
+        .expect("incident is readable");
+    assert_eq!(
+        reloaded.version, applied.incident.version,
+        "a comment writes no version"
+    );
+    assert_eq!(
+        reloaded.status, applied.incident.status,
+        "a comment overwrites no incident state"
+    );
+    assert_eq!(
+        reloaded.updated_at,
+        later(),
+        "a comment touches only updated_at"
+    );
+
+    let timeline = fixture
+        .repository
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+    assert_eq!(
+        timeline.events.len(),
+        created.events.len() + applied.events.len() + 1
+    );
+}
+
+#[test]
+fn replaying_a_comment_request_id_returns_the_stored_comment() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let comment = created
+        .incident
+        .add_comment(
+            1,
+            "checked the dashboards",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(comment.clone())
+        .expect("the comment appends");
+    let replay = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the retry replays rather than appending twice");
+
+    assert_eq!(first.events, replay.events);
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len() + 1,
+        "a replayed comment appends nothing"
+    );
+}
+
+#[test]
+fn a_comment_on_an_incident_from_another_workspace_is_not_found() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(OTHER_WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let mut foreign = created.incident.clone();
+    foreign.scope = scope_for(WORKSPACE);
+
+    let comment = foreign
+        .add_comment(
+            1,
+            "should not land",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+
+    assert!(matches!(
+        fixture.repository.append_comment(comment),
+        Err(IncidentStoreError::NotFound)
+    ));
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(OTHER_WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len(),
+        "the foreign timeline is untouched"
+    );
+}
+
+#[test]
+fn two_comments_allocated_from_the_same_observation_do_not_collide() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // Both writers read the same timeline height and both ask for the sequence
+    // after it.  Neither carries a version predicate, so neither can be
+    // rejected: only the in-transaction reallocation stands between them and a
+    // `UNIQUE (incident_id, sequence)` violation.
+    let first = incident
+        .add_comment(1, "first", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the first comment is valid");
+    let second = incident
+        .add_comment(1, "second", ACTOR, THIRD_REQUEST, POLICY_VERSION, later())
+        .expect("the second comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(first)
+        .expect("the first comment appends");
+    let second = fixture
+        .repository
+        .append_comment(second)
+        .expect("the second comment appends rather than colliding");
+
+    let highest_at_creation = created
+        .events
+        .last()
+        .expect("creation appended events")
+        .sequence;
+    assert_eq!(first.events[0].sequence, highest_at_creation + 1);
+    assert_eq!(second.events[0].sequence, highest_at_creation + 2);
+
+    let timeline = fixture
+        .repository
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    assert_eq!(timeline.events.len(), created.events.len() + 2);
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+}
+
+#[test]
+fn the_version_free_path_refuses_an_event_that_carries_state() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+
+    // A transition event through the comment path would be recorded on the
+    // timeline while none of its aggregate state was ever applied.
+    let transition = triage_mutation(&created.incident, SECOND_REQUEST, 3);
+    assert!(matches!(
+        fixture.repository.append_comment(transition),
+        Err(IncidentStoreError::InvalidMutation(_))
+    ));
+
+    let mut with_reason = created
+        .incident
+        .add_comment(
+            1,
+            "carries a reason",
+            ACTOR,
+            THIRD_REQUEST,
+            POLICY_VERSION,
+            later(),
+        )
+        .expect("the comment is valid");
+    with_reason.events[0].reason = Some("not a comment field".into());
+    assert!(matches!(
+        fixture.repository.append_comment(with_reason),
+        Err(IncidentStoreError::InvalidMutation(_))
+    ));
+
+    assert_eq!(
+        fixture
+            .repository
+            .timeline(WORKSPACE, created.incident.id, None, 100)
+            .expect("timeline is readable")
+            .events
+            .len(),
+        created.events.len(),
+        "a rejected append writes nothing"
+    );
+}
+
+#[test]
+fn a_late_comment_never_drags_updated_at_backwards() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // The comment is built at `now()`; the transition that beats it to the
+    // store is stamped `later()`.  `updated_at` orders the incident queue, so
+    // letting the comment win would reshuffle it.
+    let comment = incident
+        .add_comment(
+            1,
+            "built earlier",
+            ACTOR,
+            SECOND_REQUEST,
+            POLICY_VERSION,
+            now(),
+        )
+        .expect("the comment is valid");
+    fixture
+        .repository
+        .apply_mutation(triage_mutation(&incident, THIRD_REQUEST, 3))
+        .expect("the transition lands first");
+
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the comment still appends");
+
+    assert_eq!(stored.incident.updated_at, later());
+    assert_eq!(
+        fixture
+            .repository
+            .get(WORKSPACE, incident.id)
+            .expect("incident is readable")
+            .updated_at,
+        later(),
+        "the stored timestamp does not move backwards"
+    );
+}
+
+#[test]
+fn two_connections_appending_comments_rebase_onto_each_other() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let incident = created.incident.clone();
+
+    // A genuinely separate writer: its own connection over the same file, with
+    // no knowledge of what the first one allocated.
+    let mut other = SqliteIncidentRepository::open(&fixture.database_path)
+        .expect("a second connection opens the same store");
+
+    let first = incident
+        .add_comment(1, "first", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the first comment is valid");
+    let second = incident
+        .add_comment(1, "second", ACTOR, THIRD_REQUEST, POLICY_VERSION, later())
+        .expect("the second comment is valid");
+
+    let first = fixture
+        .repository
+        .append_comment(first)
+        .expect("the first connection appends");
+    let second = other
+        .append_comment(second)
+        .expect("the second connection rebases rather than colliding");
+
+    assert_eq!(second.events[0].sequence, first.events[0].sequence + 1);
+    let timeline = other
+        .timeline(WORKSPACE, incident.id, None, 100)
+        .expect("timeline is readable");
+    let sequences: Vec<u64> = timeline.events.iter().map(|event| event.sequence).collect();
+    let mut unique = sequences.clone();
+    unique.dedup();
+    assert_eq!(sequences, unique, "timeline sequences stay unique");
+}
+
+#[test]
+fn a_held_write_lock_reports_contention_rather_than_a_storage_failure() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let comment = created
+        .incident
+        .add_comment(1, "blocked", ACTOR, SECOND_REQUEST, POLICY_VERSION, later())
+        .expect("the comment is valid");
+
+    // Hold the SQLite write lock from outside the repository for the whole
+    // call.  Every attempt loses the race for it, which is what a real
+    // concurrent writer does — and what `SequenceCollision` alone never
+    // reproduces.
+    let blocker = rusqlite::Connection::open(&fixture.database_path).expect("the blocker opens");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("the blocker takes the write lock");
+
+    let error = fixture
+        .repository
+        .append_comment(comment.clone())
+        .expect_err("a comment that never wins the lock is rejected");
+    assert!(
+        matches!(error, IncidentStoreError::WriteContention),
+        "a lost write lock is contention, not a storage failure: {error:?}"
+    );
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("the blocker releases the lock");
+    let stored = fixture
+        .repository
+        .append_comment(comment)
+        .expect("the same request succeeds once the lock is free");
+    assert_eq!(stored.events.len(), 1);
+}
+
+#[test]
+fn a_held_write_lock_blocks_a_transition_as_contention_too() {
+    let mut fixture = fixture();
+    let created = fixture
+        .repository
+        .create(creation_record(WORKSPACE, CREATE_REQUEST, 1))
+        .expect("creation succeeds");
+    let transition = triage_mutation(&created.incident, SECOND_REQUEST, 3);
+
+    let blocker = rusqlite::Connection::open(&fixture.database_path).expect("the blocker opens");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("the blocker takes the write lock");
+
+    let error = fixture
+        .repository
+        .apply_mutation(transition)
+        .expect_err("a transition that never wins the lock is rejected");
+    assert!(
+        matches!(error, IncidentStoreError::WriteContention),
+        "every write path classifies a lost lock the same way: {error:?}"
+    );
 }

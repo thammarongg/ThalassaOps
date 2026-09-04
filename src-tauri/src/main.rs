@@ -310,6 +310,14 @@ fn incident_set_disposition(
 }
 
 #[tauri::command]
+fn incident_add_comment(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::IncidentMutation> {
+    state.incident_add_comment(envelope)
+}
+
+#[tauri::command]
 fn incident_assign_role(
     envelope: CommandEnvelope<serde_json::Value>,
     state: tauri::State<'_, thalassaops::app::AppState>,
@@ -364,6 +372,7 @@ fn main() {
             incident_set_severity,
             incident_set_disposition,
             incident_assign_role,
+            incident_add_comment,
             kubernetes_inventory,
             kubernetes_pod_logs,
             kubernetes_pod_events,

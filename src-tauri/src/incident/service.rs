@@ -9,13 +9,13 @@
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use thalassa_domain::{
-    validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCreateCommand,
-    IncidentCreateRequest, IncidentDispositionRequest, IncidentError, IncidentEventKind,
-    IncidentId, IncidentMutation, IncidentPage, IncidentReport, IncidentRoleAssignment,
-    IncidentRoleCommand, IncidentRoleRequest, IncidentSeverityCommand, IncidentSeverityRequest,
-    IncidentSourceKind, IncidentTimelineEvent, IncidentTimelinePage, IncidentTimelinePayload,
-    IncidentTransitionRequest, IncidentTriggerId, IncidentTriggerInput, PrincipalId, ResourceScope,
-    INCIDENT_SUMMARY_MAXIMUM,
+    validate_incident_text, ConsoleEvidenceId, CorrelationError, Incident, IncidentCommentRequest,
+    IncidentCreateCommand, IncidentCreateRequest, IncidentDispositionRequest, IncidentError,
+    IncidentEventKind, IncidentId, IncidentMutation, IncidentPage, IncidentReport,
+    IncidentRoleAssignment, IncidentRoleCommand, IncidentRoleRequest, IncidentSeverityCommand,
+    IncidentSeverityRequest, IncidentSourceKind, IncidentTimelineEvent, IncidentTimelinePage,
+    IncidentTimelinePayload, IncidentTransitionRequest, IncidentTriggerId, IncidentTriggerInput,
+    PrincipalId, ResourceScope, INCIDENT_SUMMARY_MAXIMUM,
 };
 use uuid::Uuid;
 
@@ -58,6 +58,8 @@ pub enum IncidentServiceError {
     IdempotencyConflict,
     #[error("the incident has been changed by another writer")]
     VersionConflict { expected: u64, actual: u64 },
+    #[error("the incident timeline is under write contention")]
+    WriteContention {},
     #[error("the incident was not found in this workspace")]
     NotFound,
     #[error("incident domain validation failed")]
@@ -77,6 +79,9 @@ impl From<IncidentStoreError> for IncidentServiceError {
             IncidentStoreError::IdempotencyConflict => Self::IdempotencyConflict,
             IncidentStoreError::VersionConflict { expected, actual } => {
                 Self::VersionConflict { expected, actual }
+            }
+            IncidentStoreError::WriteContention | IncidentStoreError::LockContention => {
+                Self::WriteContention {}
             }
             other => Self::Store(other),
         }
@@ -213,11 +218,11 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.transition(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.transition,
             context.actor_id,
             context.request_id,
@@ -242,11 +247,11 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         let mutation = incident.set_severity(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -271,7 +276,7 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         if matches!(
             request.command.disposition,
@@ -286,7 +291,7 @@ impl IncidentService {
         }
         let mutation = incident.set_disposition(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -310,7 +315,7 @@ impl IncidentService {
         )? {
             return Ok(replayed);
         }
-        let (incident, first_event_sequence) =
+        let incident =
             self.load_for_write(context, request.incident_id, request.expected_version)?;
         if let IncidentRoleCommand::Assign { principal_id, .. }
         | IncidentRoleCommand::Replace { principal_id, .. } = &request.command
@@ -322,7 +327,7 @@ impl IncidentService {
         }
         let mutation = incident.assign_role(
             request.expected_version,
-            first_event_sequence,
+            1,
             request.command,
             context.actor_id,
             context.request_id,
@@ -330,6 +335,41 @@ impl IncidentService {
             context.now,
         )?;
         Ok(self.repository.apply_mutation(mutation)?)
+    }
+
+    /// Appends one immutable responder comment.  There is no
+    /// `expected_version`: a comment changes no incident state, so it neither
+    /// rejects a concurrent writer nor is rejected by one.  See the Sprint 16
+    /// design, sections 7.3 and 9.1.
+    pub fn add_comment(
+        &mut self,
+        context: &IncidentCommandContext,
+        request: IncidentCommentRequest,
+    ) -> Result<IncidentMutation, IncidentServiceError> {
+        if let Some(replayed) = self.replay_if_matching(
+            context,
+            request.incident_id,
+            SINGLE_EVENT_REPLAY_MAX_EVENTS,
+            |events| comment_replay_matches(events, &request.body),
+        )? {
+            return Ok(replayed);
+        }
+        // The workspace lookup is the disclosure boundary: an unknown and a
+        // cross-workspace incident both surface as `NotFound` and write
+        // nothing.
+        let workspace_id = self.workspace(context)?;
+        let incident = self.repository.get(workspace_id, request.incident_id)?;
+        // The sequence is advisory; the repository reallocates it inside the
+        // write transaction.
+        let mutation = incident.add_comment(
+            1,
+            &request.body,
+            context.actor_id,
+            context.request_id,
+            context.policy_version,
+            context.now,
+        )?;
+        Ok(self.repository.append_comment(mutation)?)
     }
 
     /// Reads one incident inside the caller's workspace.
@@ -418,15 +458,15 @@ impl IncidentService {
         }
     }
 
-    /// Loads the current aggregate for a write and allocates the sequence its
-    /// first appended event will take.  The version is checked here so a stale
-    /// writer is rejected before the aggregate builds any event.
+    /// Loads the current aggregate for a write. The version is checked here so
+    /// a stale writer is rejected before the aggregate builds any event;
+    /// timeline sequence allocation happens inside the repository transaction.
     fn load_for_write(
         &self,
         context: &IncidentCommandContext,
         incident_id: IncidentId,
         expected_version: u64,
-    ) -> Result<(Incident, u64), IncidentServiceError> {
+    ) -> Result<Incident, IncidentServiceError> {
         if context.request_id.is_nil() || context.actor_id.is_nil() {
             return Err(IncidentServiceError::InvalidRequest);
         }
@@ -438,13 +478,7 @@ impl IncidentService {
                 actual: incident.version,
             });
         }
-        let highest = self
-            .repository
-            .highest_event_sequence(workspace_id, incident_id)?;
-        let first_event_sequence = highest
-            .checked_add(1)
-            .ok_or(IncidentServiceError::InvalidRequest)?;
-        Ok((incident, first_event_sequence))
+        Ok(incident)
     }
 
     fn resolve_input(
@@ -577,6 +611,22 @@ fn disposition_replay_matches(
     event.reason.as_deref() == Some(command.reason.as_str())
         && payload.current == command.disposition
         && payload.duplicate_of_incident_id == command.duplicate_of_incident_id
+}
+
+fn comment_replay_matches(events: &[IncidentTimelineEvent], body: &str) -> bool {
+    let Some(event) = events.first() else {
+        return false;
+    };
+    if events.len() != 1 || event.kind != IncidentEventKind::Commented {
+        return false;
+    }
+    if event.reason.is_some() {
+        return false;
+    }
+    matches!(
+        &event.payload,
+        IncidentTimelinePayload::Commented(payload) if payload.body == body
+    )
 }
 
 fn role_replay_matches(events: &[IncidentTimelineEvent], command: &IncidentRoleCommand) -> bool {

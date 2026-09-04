@@ -1,3 +1,5 @@
+import type { EvidenceSourceKind } from "../../contracts/ipc";
+
 const th = {
   health: {
     eyebrow: "เชลล์ภายใน ThalassaOps",
@@ -872,6 +874,202 @@ const th = {
       cloud: "คลาวด์",
       health_check: "การตรวจสอบสุขภาพ",
       fixture: "ข้อมูลตัวอย่าง"
+    }
+  },
+  incident: {
+    queueTitle: "เหตุการณ์",
+    detailTitle: "รายละเอียดเหตุการณ์",
+    emptyQueue: "ไม่มีเหตุการณ์ที่ตรงกับตัวกรองนี้",
+    loading: "กำลังโหลดเหตุการณ์…",
+    queueLabel: "คิวเหตุการณ์",
+    severityLabel: "ระดับความรุนแรง",
+    statusLabel: "สถานะ",
+    loadMore: "โหลดเหตุการณ์เพิ่ม",
+    detailEmpty: "เลือกเหตุการณ์เพื่อดูรายละเอียด",
+    filter: {
+      label: "ตัวกรองสถานะ",
+      all: "ทุกสถานะ"
+    },
+    status: {
+      detected: "ตรวจพบ",
+      triage: "คัดกรอง",
+      investigating: "กำลังตรวจสอบ",
+      mitigating: "กำลังบรรเทา",
+      monitoring: "กำลังเฝ้าระวัง",
+      resolved: "แก้ไขแล้ว",
+      closed: "ปิดแล้ว",
+      reopened: "เปิดใหม่"
+    },
+    errors: {
+      invalidRequest: "คำขอเหตุการณ์ไม่ถูกต้องจึงถูกปฏิเสธ",
+      notFound: "ไม่พบเหตุการณ์นี้แล้ว",
+      permissionDenied: "คุณไม่มีสิทธิ์อ่านข้อมูลเหตุการณ์",
+      policyDenied: "นโยบายปฏิเสธการเข้าถึงเหตุการณ์นี้",
+      connectorUnavailable: "ระบบจัดเก็บเหตุการณ์ไม่พร้อมใช้งาน",
+      malformedResponse: "ข้อมูลเหตุการณ์ที่ได้รับไม่ตรงตามสัญญา",
+      invalidEventSequence: "ไทม์ไลน์เหตุการณ์มาไม่เรียงลำดับ",
+      invalidSeverityOverride: "การแทนที่ระดับความรุนแรงถูกปฏิเสธ",
+      writeContention: "มีการเปลี่ยนแปลงอื่นถึงเหตุการณ์นี้ก่อน กรุณาลองใหม่",
+      internalError: "ไม่สามารถโหลดเหตุการณ์ได้"
+    },
+    tabs: {
+      title: "ความเชื่อมโยงของเหตุการณ์",
+      alerts: "การแจ้งเตือน",
+      topology: "โทโพโลยี",
+      changes: "การเปลี่ยนแปลง",
+      vulnerabilities: "ช่องโหว่"
+    },
+    summary: {
+      title: "การ์ดสรุปเหตุการณ์",
+      copy: "คัดลอกสรุป",
+      copied: "คัดลอกสรุปแล้ว",
+      copyFailed: "ไม่สามารถคัดลอกสรุปได้",
+      none: "ไม่มี",
+      fields: {
+        id: "รหัสเหตุการณ์",
+        summary: "สรุป",
+        severity: "ระดับความรุนแรง",
+        derivedSeverity: "ระดับความรุนแรงที่คำนวณได้",
+        status: "สถานะ",
+        disposition: "การจัดประเภท",
+        createdAt: "สร้างเมื่อ",
+        updatedAt: "แก้ไขล่าสุดเมื่อ"
+      }
+    },
+    comments: {
+      title: "ความคิดเห็น",
+      listLabel: "ความคิดเห็นของเหตุการณ์",
+      empty: "ยังไม่มีความคิดเห็น",
+      bodyLabel: "เพิ่มความคิดเห็น",
+      placeholder: "บันทึกข้อสังเกตลงในไทม์ไลน์เหตุการณ์",
+      limit: "ไม่เกิน {{maximum}} อักขระ Unicode",
+      submit: "เพิ่มความคิดเห็น",
+      submitting: "กำลังเพิ่มความคิดเห็น…",
+      you: "คุณ",
+      sending: "กำลังส่ง…",
+      errors: {
+        empty: "กรุณาเขียนความคิดเห็นก่อนเพิ่ม",
+        unsafeContent: "ความคิดเห็นถูกปฏิเสธ: ไม่อนุญาตให้มีเนื้อหาที่ไม่ปลอดภัยหรือข้อมูลอ่อนไหว",
+        textTooLong: "ความคิดเห็นถูกปฏิเสธ: เกินขีดจำกัด 4,000 อักขระ",
+        invalid: "ความคิดเห็นถูกปฏิเสธโดยบริการเหตุการณ์",
+        unavailable: "ไม่สามารถเพิ่มความคิดเห็นได้ กรุณาลองใหม่"
+      }
+    },
+    actions: {
+      title: "การดำเนินการ",
+      currentStatus: "สถานะปัจจุบัน:",
+      statusLabel: "เปลี่ยนเหตุการณ์ไปที่",
+      moveTo: "เปลี่ยนไปที่{{status}}",
+      severityLabel: "ตั้งระดับความรุนแรง",
+      setSeverity: "ตั้งเป็น {{severity}}",
+      transitionForm: "บริบทการเปลี่ยนสถานะ: {{status}}",
+      submitTransition: "ส่งการเปลี่ยนสถานะ",
+      submitSeverity: "ส่งการตั้งระดับความรุนแรง",
+      severityForm: "การตัดสินใจระดับความรุนแรง: {{severity}}",
+      principalContext: "ผู้ดำเนินการตอบสนอง",
+      roleLabel: "บทบาท",
+      principalLabel: "รหัสผู้ใช้",
+      assign: "กำหนดบทบาท",
+      businessImpact: "ผลกระทบทางธุรกิจ",
+      confirmBusinessImpact: "ฉันยืนยันผลกระทบทางธุรกิจนี้",
+      duplicateChecked: "ฉันตรวจสอบเหตุการณ์ซ้ำแล้ว",
+      note: "บันทึกการตรวจสอบ",
+      actionDescription: "รายละเอียดการดำเนินการ",
+      expectedImpact: "ผลที่คาดว่าจะเกิดขึ้น",
+      verificationSeconds: "ช่วงเวลาตรวจสอบ (วินาที)",
+      successCriteria: "เกณฑ์ความสำเร็จ",
+      resolutionSummary: "สรุปการแก้ไข",
+      impactEndedAt: "เวลาที่ผลกระทบสิ้นสุด",
+      closureNotes: "บันทึกการปิดเหตุการณ์",
+      followUpIds: "รหัสติดตามผล (หนึ่งรายการต่อบรรทัดหรือคั่นด้วยจุลภาค)",
+      reason: "เหตุผล",
+      evidenceContext: "หลักฐานที่จะส่งต่อจากเหตุการณ์นี้:",
+      noEvidence: "เหตุการณ์นี้ไม่มีหลักฐานแนบ",
+      cancel: "ยกเลิก",
+      retry: "ลองคำสั่งอีกครั้ง",
+      conflict: "เหตุการณ์ถูกเปลี่ยนโดยรหัส actor {{actor}} เมื่อ {{at}}; ไม่ได้ใช้คำสั่งของคุณ",
+      errors: {
+        rejected: "การดำเนินการกับเหตุการณ์ถูกปฏิเสธ",
+        unavailable: "ไม่สามารถดำเนินการกับเหตุการณ์ได้ กรุณาลองใหม่",
+        required: "กรุณากรอกข้อมูลที่จำเป็นก่อนส่ง",
+        textTooLong: "ข้อความที่กรอกยาวเกินขีดจำกัด 4,000 อักขระ",
+        invalidDuration: "เลือกช่วงเวลาตรวจสอบระหว่าง 1 ถึง 86,400 วินาที",
+        invalidTime: "กรอกเวลาสิ้นสุดผลกระทบตั้งแต่เริ่มเหตุการณ์จนถึงปัจจุบัน",
+        invalidFollowUp: "กรอกรหัสติดตามผลอย่างน้อยหนึ่งรายการ"
+      }
+    },
+    disposition: {
+      duplicate: "ซ้ำกับเหตุการณ์อื่น",
+      false_positive: "แจ้งเตือนผิดพลาด",
+      suppressed: "ระงับการแจ้งเตือน",
+      cancelled: "ยกเลิก",
+      informational: "เพื่อทราบ"
+    },
+    role: {
+      owner: "เจ้าของ",
+      incident_commander: "ผู้บัญชาการเหตุการณ์",
+      technical_lead: "หัวหน้าทีมเทคนิค",
+      communications_lead: "หัวหน้าฝ่ายสื่อสาร",
+      approver: "ผู้อนุมัติ",
+      change_owner: "เจ้าของการเปลี่ยนแปลง",
+      stakeholder: "ผู้มีส่วนได้ส่วนเสีย"
+    },
+    narrative: {
+      title: "ลำดับเหตุการณ์",
+      caption: "บันทึกวงจรชีวิตของเหตุการณ์นี้",
+      empty: "เหตุการณ์นี้ยังไม่มีบันทึกวงจรชีวิต",
+      loading: "กำลังโหลดบันทึกเหตุการณ์…",
+      none: "ไม่มี",
+      columns: {
+        time: "เวลา",
+        actor: "ผู้ดำเนินการ",
+        change: "สิ่งที่เปลี่ยนแปลง",
+        reason: "เหตุผล"
+      },
+      kind: {
+        created: "สร้างเหตุการณ์",
+        triggersAttached: "แนบทริกเกอร์",
+        statusTransitioned: "สถานะ",
+        severityChanged: "ระดับความรุนแรง",
+        dispositionChanged: "การจัดประเภท",
+        roleChanged: "บทบาท"
+      }
+    },
+    evidence: {
+      title: "หลักฐาน",
+      loading: "กำลังค้นหาหลักฐาน…",
+      empty: "เหตุการณ์นี้ไม่มีความเชื่อมโยงประเภทนี้",
+      unavailable: {
+        missing: "ไม่พบหลักฐานของความเชื่อมโยงนี้ในสแนปช็อตปัจจุบันแล้ว",
+        scope: "หลักฐานนี้อยู่ในเวิร์กสเปซอื่น จึงแสดงที่นี่ไม่ได้",
+        unverified: "นโยบายระงับหลักฐานนี้ไว้ จึงแสดงที่นี่ไม่ได้",
+        unknown: "ไม่สามารถค้นหาหลักฐานได้"
+      },
+      connector: "ตัวเชื่อมต่อ",
+      endpoint: "ปลายทาง",
+      query: "คำสืบค้น",
+      observedAt: "เวลาที่สังเกต",
+      excerpt: "ข้อความตัดตอน",
+      openNative: "เปิดในระบบต้นทาง",
+      masked: "ปกปิดข้อมูลแล้ว",
+      notMasked: "ไม่ได้ปกปิดข้อมูล",
+      unparsed: "ยังไม่ได้แยกวิเคราะห์",
+      parsed: "แยกวิเคราะห์แล้ว",
+      sources: {
+        alertmanager: "Alertmanager",
+        prometheus: "Prometheus",
+        kubernetes: "Kubernetes",
+        cloud: "คลาวด์",
+        health_check: "การตรวจสุขภาพ",
+        fixture: "ข้อมูลตัวอย่าง",
+        trivy: "Trivy",
+        falco: "Falco",
+        kyverno: "Kyverno",
+        opa_gatekeeper: "OPA Gatekeeper",
+        github: "GitHub",
+        gitlab: "GitLab",
+        argo_cd: "Argo CD"
+      } satisfies Record<EvidenceSourceKind, string>
     }
   }
 } as const;

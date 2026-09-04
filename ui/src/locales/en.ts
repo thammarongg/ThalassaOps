@@ -1,3 +1,5 @@
+import type { EvidenceSourceKind } from "../../contracts/ipc";
+
 const en = {
   health: {
     eyebrow: "ThalassaOps local shell",
@@ -875,6 +877,203 @@ const en = {
       cloud: "Cloud",
       health_check: "Health check",
       fixture: "Fixture"
+    }
+  },
+  incident: {
+    queueTitle: "Incidents",
+    detailTitle: "Incident",
+    emptyQueue: "No incidents match this filter",
+    loading: "Loading incidents…",
+    queueLabel: "Incident queue",
+    severityLabel: "Severity",
+    statusLabel: "Status",
+    loadMore: "Load more incidents",
+    detailEmpty: "Select an incident to see its detail",
+    filter: {
+      label: "Status filter",
+      all: "All statuses"
+    },
+    status: {
+      detected: "Detected",
+      triage: "Triage",
+      investigating: "Investigating",
+      mitigating: "Mitigating",
+      monitoring: "Monitoring",
+      resolved: "Resolved",
+      closed: "Closed",
+      reopened: "Reopened"
+    },
+    errors: {
+      invalidRequest: "The incident request was rejected as invalid.",
+      notFound: "That incident no longer exists.",
+      permissionDenied: "You do not have permission to read incidents.",
+      policyDenied: "Policy denied access to this incident.",
+      connectorUnavailable: "The incident store is unavailable.",
+      malformedResponse: "The incident response did not match the contract.",
+      invalidEventSequence: "The incident timeline arrived out of sequence.",
+      invalidSeverityOverride: "The severity override was rejected.",
+      writeContention: "Another change reached this incident first. Try again.",
+      internalError: "The incident could not be loaded."
+    },
+    tabs: {
+      title: "Incident associations",
+      alerts: "Alerts",
+      topology: "Topology",
+      changes: "Changes",
+      vulnerabilities: "Vulnerabilities"
+    },
+    summary: {
+      title: "Incident Summary Card",
+      copy: "Copy summary",
+      copied: "Summary copied.",
+      copyFailed: "The summary could not be copied.",
+      none: "None",
+      fields: {
+        id: "Incident ID",
+        summary: "Summary",
+        severity: "Severity",
+        derivedSeverity: "Derived severity",
+        status: "Status",
+        disposition: "Disposition",
+        createdAt: "Created at",
+        updatedAt: "Updated at"
+      }
+    },
+    comments: {
+      title: "Comments",
+      listLabel: "Incident comments",
+      empty: "No comments yet",
+      bodyLabel: "Add a comment",
+      placeholder: "Record an observation for the incident timeline",
+      limit: "Up to {{maximum}} Unicode characters",
+      submit: "Add comment",
+      submitting: "Adding comment…",
+      you: "You",
+      sending: "Sending…",
+      errors: {
+        empty: "Enter a comment before adding it.",
+        unsafeContent: "The comment was rejected: unsafe or sensitive content is not allowed.",
+        textTooLong: "The comment was rejected: it exceeds the 4,000-character limit.",
+        invalid: "The comment was rejected by the incident service.",
+        unavailable: "The comment could not be added. Try again."
+      }
+    },
+    actions: {
+      title: "Actions",
+      currentStatus: "Current status:",
+      statusLabel: "Move incident",
+      moveTo: "Move to {{status}}",
+      severityLabel: "Set severity",
+      setSeverity: "Set {{severity}}",
+      transitionForm: "Transition context: {{status}}",
+      submitTransition: "Submit transition",
+      submitSeverity: "Submit severity",
+      severityForm: "Severity decision: {{severity}}",
+      principalContext: "Responder principal",
+      roleLabel: "Role",
+      principalLabel: "Principal ID",
+      assign: "Assign role",
+      businessImpact: "Business impact",
+      confirmBusinessImpact: "I confirm this business impact",
+      duplicateChecked: "I checked for duplicates",
+      note: "Investigation note",
+      actionDescription: "Action description",
+      expectedImpact: "Expected impact",
+      verificationSeconds: "Verification window (seconds)",
+      successCriteria: "Success criteria",
+      resolutionSummary: "Resolution summary",
+      impactEndedAt: "Impact ended at",
+      closureNotes: "Closure notes",
+      followUpIds: "Follow-up IDs (one per line or comma)",
+      reason: "Reason",
+      evidenceContext: "Evidence carried forward from this incident:",
+      noEvidence: "No evidence is attached to this incident.",
+      cancel: "Cancel",
+      retry: "Retry command",
+      conflict:
+        "The incident changed by actor ID {{actor}} at {{at}}; your command was not applied.",
+      errors: {
+        rejected: "The incident action was rejected.",
+        unavailable: "The incident action could not be completed. Try again.",
+        required: "Complete the required fields before submitting.",
+        textTooLong: "The entered text exceeds the 4,000-character limit.",
+        invalidDuration: "Choose a verification window from 1 to 86,400 seconds.",
+        invalidTime: "Enter an impact end time from incident creation through now.",
+        invalidFollowUp: "Enter at least one follow-up ID."
+      }
+    },
+    disposition: {
+      duplicate: "Duplicate",
+      false_positive: "False positive",
+      suppressed: "Suppressed",
+      cancelled: "Cancelled",
+      informational: "Informational"
+    },
+    role: {
+      owner: "Owner",
+      incident_commander: "Incident commander",
+      technical_lead: "Technical lead",
+      communications_lead: "Communications lead",
+      approver: "Approver",
+      change_owner: "Change owner",
+      stakeholder: "Stakeholder"
+    },
+    narrative: {
+      title: "Narrative",
+      caption: "The lifecycle record of this incident",
+      empty: "This incident has no lifecycle events yet",
+      loading: "Loading the incident record…",
+      none: "None",
+      columns: {
+        time: "Time",
+        actor: "Actor",
+        change: "What changed",
+        reason: "Reason"
+      },
+      kind: {
+        created: "Created",
+        triggersAttached: "Triggers attached",
+        statusTransitioned: "Status",
+        severityChanged: "Severity",
+        dispositionChanged: "Disposition",
+        roleChanged: "Role"
+      }
+    },
+    evidence: {
+      title: "Evidence",
+      loading: "Resolving evidence…",
+      empty: "This incident has no associations of this kind",
+      unavailable: {
+        missing: "The evidence behind this association is no longer in the current snapshot.",
+        scope: "This evidence belongs to another workspace and cannot be shown here.",
+        unverified: "Policy withheld this evidence, so it cannot be shown here.",
+        unknown: "The evidence could not be resolved."
+      },
+      connector: "Connector",
+      endpoint: "Endpoint",
+      query: "Query",
+      observedAt: "Observed",
+      excerpt: "Excerpt",
+      openNative: "Open in source",
+      masked: "masked",
+      notMasked: "not masked",
+      unparsed: "unparsed",
+      parsed: "parsed",
+      sources: {
+        alertmanager: "Alertmanager",
+        prometheus: "Prometheus",
+        kubernetes: "Kubernetes",
+        cloud: "Cloud",
+        health_check: "Health check",
+        fixture: "Fixture",
+        trivy: "Trivy",
+        falco: "Falco",
+        kyverno: "Kyverno",
+        opa_gatekeeper: "OPA Gatekeeper",
+        github: "GitHub",
+        gitlab: "GitLab",
+        argo_cd: "Argo CD"
+      } satisfies Record<EvidenceSourceKind, string>
     }
   }
 } as const;
