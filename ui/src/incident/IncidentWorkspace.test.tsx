@@ -4,15 +4,36 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import type { CommandEnvelope, Invoke } from "../../contracts/ipc";
+import type { CommandEnvelope, IncidentTimelineEvent, Invoke } from "../../contracts/ipc";
 import { I18nProvider, i18n } from "../i18n";
 import en from "../locales/en";
 import { INCIDENT_TIMELINE_LIMIT } from "./incident-envelope";
 import { incidentFixturePage, incidentFixtureTimeline } from "./incident-fixtures";
 import { IncidentWorkspace } from "./IncidentWorkspace";
 
+/*
+ * The shell must never hand the narrative the previous incident's events, not
+ * even for the one commit between a selection change and the effect that
+ * refetches. That frame is gone before any `await` can inspect the DOM, so the
+ * real narrative is wrapped to record the events it receives on every render.
+ * It still renders the real component: the DOM assertions elsewhere in this
+ * file keep their meaning.
+ */
+const narrative = vi.hoisted(() => ({ renders: [] as IncidentTimelineEvent[][] }));
+
+vi.mock("./IncidentNarrative", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./IncidentNarrative")>();
+  return {
+    IncidentNarrative: (props: { events: IncidentTimelineEvent[] }) => {
+      narrative.renders.push([...props.events]);
+      return actual.IncidentNarrative(props);
+    }
+  };
+});
+
 afterEach(() => {
   cleanup();
+  narrative.renders.length = 0;
   void i18n.changeLanguage("en");
 });
 
@@ -95,6 +116,91 @@ it("does not claim the incident has no lifecycle record while the timeline loads
 
   expect(await screen.findByText(en.incident.narrative.loading)).toBeInTheDocument();
   expect(screen.queryByText(en.incident.narrative.empty)).not.toBeInTheDocument();
+});
+
+/*
+ * The same finding, caught one frame earlier: the DOM assertion above passes
+ * once the effect-driven loading state lands, so it cannot tell a shell that
+ * never renders the narrative early from one that renders it for a single
+ * commit. The render log can.
+ */
+it("never renders the narrative before the first timeline page arrives", async () => {
+  const invoke = vi.fn((name: string) =>
+    name === "incident_list"
+      ? Promise.resolve({ ok: true, value: incidentFixturePage })
+      : new Promise(() => {})
+  ) as unknown as InvokeMock;
+  renderShell(invoke);
+
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("listbox")).getByRole("option", { selected: true })
+    ).toHaveAccessibleName(/checkout/i)
+  );
+  expect(narrative.renders).toEqual([]);
+});
+
+/*
+ * A failed first read is not evidence of an empty record. The translated
+ * error is already on the alert above the detail; rendering the narrative's
+ * empty state beside it would assert a false no-record on an audit surface,
+ * and this is a persistent state, not a transient frame.
+ */
+it("shows a translated timeline error without the false no-record state", async () => {
+  const invoke = vi.fn((name: string) =>
+    name === "incident_list"
+      ? Promise.resolve({ ok: true, value: incidentFixturePage })
+      : Promise.resolve({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "raw wire text", details: {} }
+        })
+  ) as unknown as InvokeMock;
+  renderShell(invoke);
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(en.incident.errors.notFound)
+  );
+  expect(screen.queryByText(en.incident.narrative.empty)).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("table", { name: en.incident.narrative.caption })
+  ).not.toBeInTheDocument();
+});
+
+/*
+ * Switching selection while the new incident's timeline is still pending: the
+ * checkout record must not appear under the search summary, not even for the
+ * commit between the click and the refetch effect.
+ */
+it("does not render the previous incident's record under a new selection", async () => {
+  let timelineCalls = 0;
+  const invoke = vi.fn((name: string) => {
+    if (name === "incident_list") {
+      return Promise.resolve({ ok: true, value: incidentFixturePage });
+    }
+    timelineCalls += 1;
+    return timelineCalls === 1
+      ? Promise.resolve({ ok: true, value: incidentFixtureTimeline })
+      : new Promise(() => {});
+  }) as unknown as InvokeMock;
+  renderShell(invoke);
+
+  await screen.findByRole("table", { name: en.incident.narrative.caption });
+  const renderedUnderCheckout = narrative.renders.length;
+
+  await userEvent.click(
+    within(screen.getByRole("listbox")).getByRole("option", { name: /search/i })
+  );
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("listbox")).getByRole("option", { selected: true })
+    ).toHaveAccessibleName(/search/i)
+  );
+  expect(screen.getByText(en.incident.narrative.loading)).toBeInTheDocument();
+
+  const underSearch = narrative.renders.slice(renderedUnderCheckout);
+  underSearch.forEach((events) => {
+    expect(events.map((event) => event.incident_id)).not.toContain(incidentFixturePage.items[0].id);
+  });
 });
 
 it("translates a list error code rather than printing it", async () => {

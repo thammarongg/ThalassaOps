@@ -112,13 +112,15 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
               {/*
                * Every incident carries at least its creation event, so the
                * narrative's empty state is never true of a real one. It is
-               * withheld until the first page lands rather than shown as a
-               * false statement for the length of the read. A `loadMore` has
-               * events already and keeps rendering them.
+               * withheld while the first page loads rather than shown as a
+               * false statement for the length of the read, and a failed
+               * first read shows only the translated error above — an error
+               * is not evidence of an empty record. A `loadMore` has events
+               * already and keeps rendering them, failure or not.
                */}
               {timeline.loading && timeline.events.length === 0 ? (
                 <p className="incident-workspace__state">{t("incident.narrative.loading")}</p>
-              ) : (
+              ) : timeline.error !== null && timeline.events.length === 0 ? null : (
                 <IncidentNarrative events={timeline.events} />
               )}
             </>
