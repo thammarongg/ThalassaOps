@@ -167,3 +167,71 @@
 .incident-evidence__unavailable {
   color: var(--color-coral);
 }
+
+.incident-comments {
+  margin-top: var(--space-2);
+}
+
+.incident-comments__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.incident-comments__entry {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-radius: var(--radius-1, 4px);
+  padding: var(--space-1);
+}
+
+.incident-comments__entry--optimistic {
+  border-style: dashed;
+}
+
+.incident-comments__entry p {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.incident-comments__meta {
+  align-items: baseline;
+  color: var(--color-fog);
+  display: flex;
+  gap: var(--space-1);
+  justify-content: space-between;
+}
+
+.incident-comments__actor {
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.incident-comments__composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.incident-comments__composer textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.incident-comments__limit,
+.incident-comments__error {
+  margin: 0;
+}
+
+.incident-comments__limit {
+  color: var(--color-fog);
+  font-size: 0.8rem;
+}
+
+.incident-comments__error {
+  color: var(--color-coral);
+}

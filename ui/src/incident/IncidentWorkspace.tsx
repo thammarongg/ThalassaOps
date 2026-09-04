@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Incident, Invoke, IpcErrorCode } from "../../contracts/ipc";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Incident, IncidentCommentRequest, Invoke, IpcErrorCode } from "../../contracts/ipc";
 import { useTranslation } from "../i18n";
+import { IncidentCommentThread, type CommentSubmitResult } from "./IncidentCommentThread";
 import { IncidentList, type IncidentQueueFilter } from "./IncidentList";
 import { IncidentNarrative } from "./IncidentNarrative";
 import { IncidentTabs } from "./IncidentTabs";
+import { incidentEnvelope } from "./incidentEnvelope";
 import { statesForEvidence, type IncidentTabId, type IncidentTabStates } from "./incidentTabConfig";
 import { resolveEvidence, type EvidenceState } from "./incidentEvidence";
 import { useIncidentList } from "./useIncidentList";
@@ -72,7 +74,9 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
   const [activeTabId, setActiveTabId] = useState<IncidentTabId>("alerts");
   const { incidents, loading, error, hasMore, loadMore } = useIncidentList(invoke);
   const timeline = useIncidentTimeline(invoke, selectedId);
+  const reloadTimeline = timeline.reload;
   const evidenceRequestRef = useRef(0);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
 
   useEffect(() => {
     /*
@@ -129,6 +133,26 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
       evidenceRequestRef.current += 1;
     };
   }, [invoke, selected, selectedEvidenceKey]);
+
+  const submitComment = useCallback(
+    async (body: string): Promise<CommentSubmitResult> => {
+      if (selected === null) return undefined;
+      setCommentSubmitting(true);
+      try {
+        const result = await invoke<IncidentCommentRequest, unknown>("incident_add_comment", {
+          envelope: incidentEnvelope("add_comment", "IncidentWrite", {
+            incident_id: selected.id,
+            body
+          })
+        });
+        if (result.ok) reloadTimeline();
+        return result;
+      } finally {
+        setCommentSubmitting(false);
+      }
+    },
+    [invoke, reloadTimeline, selected]
+  );
 
   const failure = error ?? timeline.error;
 
@@ -189,6 +213,11 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
                 states={incidentEvidence.states}
                 activeId={activeTabId}
                 onSelect={setActiveTabId}
+              />
+              <IncidentCommentThread
+                events={timeline.events}
+                onSubmit={submitComment}
+                submitting={commentSubmitting}
               />
             </>
           ) : (

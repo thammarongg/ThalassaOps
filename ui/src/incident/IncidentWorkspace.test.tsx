@@ -57,7 +57,12 @@ const incidentInvokeMock = () =>
         ? { ok: true, value: incidentFixturePage }
         : name === "correlation_evidence"
           ? { ok: true, value: incidentFixtureEvidence }
-          : { ok: true, value: incidentFixtureTimeline }
+          : name === "incident_add_comment"
+            ? {
+                ok: true,
+                value: { incident: incidentFixturePage.items[0], events: [] }
+              }
+            : { ok: true, value: incidentFixtureTimeline }
     )
   ) as unknown as InvokeMock;
 
@@ -102,6 +107,27 @@ it("resolves the selected incident's evidence once through correlation_evidence"
   expect(evidenceCall?.[1].envelope.capability).toBe("ResourceRead");
   expect(evidenceCall?.[1].envelope.payload).toEqual({
     evidence_ids: incidentFixturePage.items[0].evidence_ids
+  });
+});
+
+it("submits a comment for the selected incident through incident_add_comment", async () => {
+  const user = userEvent.setup();
+  const invoke = incidentInvokeMock();
+  renderShell(invoke);
+
+  const composer = await screen.findByRole("textbox");
+  await user.type(composer, "paged the on-call");
+  await user.click(screen.getByRole("button", { name: /add comment/i }));
+
+  await waitFor(() =>
+    expect(invoke.mock.calls.filter((call) => call[0] === "incident_add_comment")).toHaveLength(1)
+  );
+  const commentCall = invoke.mock.calls.find((call) => call[0] === "incident_add_comment");
+  expect(commentCall?.[1].envelope.command).toBe("incident.add_comment");
+  expect(commentCall?.[1].envelope.capability).toBe("IncidentWrite");
+  expect(commentCall?.[1].envelope.payload).toEqual({
+    incident_id: incidentFixturePage.items[0].id,
+    body: "paged the on-call"
   });
 });
 

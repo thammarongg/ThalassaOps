@@ -922,6 +922,25 @@ const en = {
       changes: "Changes",
       vulnerabilities: "Vulnerabilities"
     },
+    comments: {
+      title: "Comments",
+      listLabel: "Incident comments",
+      empty: "No comments yet",
+      bodyLabel: "Add a comment",
+      placeholder: "Record an observation for the incident timeline",
+      limit: "Up to {{maximum}} Unicode characters",
+      submit: "Add comment",
+      submitting: "Adding comment…",
+      you: "You",
+      sending: "Sending…",
+      errors: {
+        empty: "Enter a comment before adding it.",
+        unsafeContent: "The comment was rejected: unsafe or sensitive content is not allowed.",
+        textTooLong: "The comment was rejected: it exceeds the 4,000-character limit.",
+        invalid: "The comment was rejected by the incident service.",
+        unavailable: "The comment could not be added. Try again."
+      }
+    },
     disposition: {
       duplicate: "Duplicate",
       false_positive: "False positive",
