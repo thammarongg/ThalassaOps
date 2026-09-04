@@ -32,6 +32,7 @@ export const incidentFixtureBillingId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const CHECKOUT_TRIGGER = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const SEARCH_TRIGGER = "0a000000-0000-4000-8000-00000000000a";
 const BILLING_TRIGGER = "0b000000-0000-4000-8000-00000000000b";
+const CHECKOUT_VULNERABILITY_EVIDENCE = "evidence-checkout-vulnerability";
 
 const eventId = (ordinal: number) => `1a000000-0000-4000-8000-00000000000${ordinal}`;
 
@@ -149,7 +150,11 @@ const checkoutIncident: Incident = {
   duplicate_of_incident_id: null,
   trigger_ids: [CHECKOUT_TRIGGER],
   signal_ids: [],
-  evidence_ids: ["evidence-checkout-error-rate", "evidence-checkout-trace"],
+  evidence_ids: [
+    "evidence-checkout-error-rate",
+    "evidence-checkout-trace",
+    CHECKOUT_VULNERABILITY_EVIDENCE
+  ],
   hypothesis_ids: [],
   action_ids: [],
   roles: owner("2026-08-28T08:41:00Z"),
@@ -215,7 +220,7 @@ export const incidentFixturePage: IncidentPage = {
 };
 
 /**
- * The evidence the checkout incident's two identifiers resolve to. It carries
+ * The evidence the checkout incident's three identifiers resolve to. It carries
  * exactly those ids, in ascending order, because `isEvidenceResponse` rejects
  * any response that is not an exact cover of the request, and because the
  * domain validator rejects an unsorted request in the first place.
@@ -252,6 +257,23 @@ export const incidentFixtureEvidence: EvidenceRef[] = [
       classification_verified: true,
       redaction_verified: true,
       masked: true,
+      unparsed: false
+    }
+  },
+  {
+    id: CHECKOUT_VULNERABILITY_EVIDENCE,
+    source_kind: "trivy",
+    connector_id: null,
+    scope,
+    endpoint: "fixture://trivy/checkout",
+    query: null,
+    observed_at: "2026-08-28T08:38:30Z",
+    excerpt: "checkout dependency contains a high-severity vulnerable package",
+    native_url: null,
+    redaction: {
+      classification_verified: true,
+      redaction_verified: true,
+      masked: false,
       unparsed: false
     }
   }

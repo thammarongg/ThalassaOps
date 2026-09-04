@@ -49,7 +49,12 @@ const renderTabs = (
   );
 
 it("reads the association set on every render rather than memoising it", () => {
-  const incidentWithNoVulnerability = incidentFixturePage.items[0];
+  const incidentWithNoVulnerability = {
+    ...incidentFixturePage.items[0],
+    evidence_ids: incidentFixturePage.items[0].evidence_ids.filter(
+      (id) => id !== vulnerabilityEvidence.id
+    )
+  };
   const incidentWithVulnerability = {
     ...incidentWithNoVulnerability,
     evidence_ids: [...incidentWithNoVulnerability.evidence_ids, vulnerabilityEvidence.id]
