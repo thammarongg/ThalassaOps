@@ -1571,6 +1571,44 @@ git commit -m "feat(incident): resolve incident evidence with explicit failure s
 Done: `92fe911`, with `7671fd1` correcting the sort order to code points and the
 `POLICY_DENIED` copy. 193 frontend tests green; no Rust surface changed.
 
+**Review, spec axis (completed 2026-09-04).** No correctness defect. Verified
+against the backend rather than the mocks: the tauri command name and the dotted
+`correlation.evidence` envelope match `correlation_evidence_descriptor()`; the
+payload is exactly `{ evidence_ids }`, which is what `has_exact_keys` demands;
+`scope: { resource_ids: [] }` is right, because the handler authorizes against
+`correlation_workspace_scope().contains(&reference.scope)` and never reads the
+envelope's resource ids — the same envelope `CorrelationWorkspace` sends;
+`byCodePoint` agrees with Rust `String` ordering, since UTF-8 byte order is code
+point order; all three mapped error codes are really constructed
+(`correlation_evidence_not_found` / `_scope_denied` / `_policy_denied`); and the
+snapshot's evidence set is `records.evidence_refs()` passed through
+`aggregate_snapshot` unfiltered, so an incident's ids — admitted by the same
+`correlation_fixture_catalog` replay — do resolve. `incident.evidence.sources.*`
+covers all thirteen `EvidenceSourceKind` members in both catalogs.
+
+**Review, standards axis — open, not yet fixed.**
+
+1. `IncidentEvidencePanel` is the third near-identical copy of the same panel
+   (`CorrelationEvidencePanel` 104 lines, `TopologyEvidencePanel` 105,
+   `IncidentEvidencePanel` 112), differing only in CSS prefix and locale
+   namespace, with the CSS duplicated alongside it. This task chose to copy
+   deliberately; extracting a shared entry component that takes a class prefix
+   and a namespace is a separate decision that also touches two shipped
+   workspaces.
+2. `incidentEvidence.ts` is the only file under `ui/` that cites Rust source
+   line numbers in a comment (`src-tauri/src/app/correlation.rs`, lines
+   165-199). The citation is accurate today and will rot on the next edit
+   there; name the symbols instead.
+3. `ui/src/incident/incident-envelope.ts` is a logic module in kebab-case, while
+   the repository names logic modules in camelCase (`timeContext.ts`,
+   `contractValidation.ts`, `widgetConfig.ts`) and reserves kebab-case for
+   `*-fixtures.ts`. `incidentEvidence.ts` follows the convention; its neighbour
+   does not.
+4. The locale parity test compares `en` against `th` only. Nothing asserts that
+   `incident.evidence.sources.*` covers the `EvidenceSourceKind` union, so a
+   member added to the contract would render as its raw key in both catalogs
+   with every test green.
+
 ---
 
 ### Task 10: Association Tabs
@@ -1582,6 +1620,42 @@ Done: `92fe911`, with `7671fd1` correcting the sort order to code points and the
 **Interfaces:**
 - Consumes: `resolveEvidence` and `EvidenceState` from Task 9.
 - Produces: `INCIDENT_TABS: IncidentTab[]` and `IncidentTabs({ incident, states, activeId, onSelect })`.
+
+**The registry in Step 3 cannot be written against the real contract.** Three
+separate reasons, all verified against `ui/contracts/ipc.ts` and the incident IPC
+surface:
+
+1. `i.triggers` does not exist. `incident_get` returns `Incident`
+   (`src-tauri/src/app/incident.rs`, `pub fn incident_get`), and that aggregate
+   carries `trigger_ids: UUID[]` — identifiers only. **No command returns
+   `IncidentTrigger` records**, and `TriggersAttachedPayload` on the timeline is
+   `{ trigger_ids: UUID[] }`, so the trigger's `source_kind` and its
+   `evidence_ids` are unreachable from the UI. The vulnerability tab as drafted
+   cannot be selected at all.
+2. `alerts.select = (i) => i.signal_ids` feeds signal UUIDs to `resolveEvidence`,
+   which resolves `ConsoleEvidenceId`s through `correlation_evidence`. Every id
+   would miss the snapshot's evidence set, so the tab would be permanently
+   `unavailable` / `missing` — green under a mocked `invoke`, dead at runtime.
+   This is the Sprint 14 failure shape again.
+3. `topology` and `changes` both select `incident.evidence_ids`, so both tabs
+   resolve to the same evidence. Design 5.3 never says what separates them.
+
+**Settle it by partitioning the resolved evidence, not the identifiers.**
+Resolve `incident.evidence_ids` once and group the returned `EvidenceRef[]` by
+`source_kind`, which is on every reference (`ui/contracts/ipc.ts`,
+`EvidenceSourceKind`): alerts ← `alertmanager` / `prometheus` / `health_check`;
+topology ← `kubernetes` / `cloud`; changes ← `github` / `gitlab` / `argo_cd`;
+vulnerabilities ← `trivy` / `falco` / `kyverno` / `opa_gatekeeper`. This needs no
+backend change, keeps one resolve call instead of four, gives each tab a
+distinct set, and honours 5.3's "read the association set on every render" rule
+because the grouping is derived during render from the incident's current ids.
+`fixture` evidence belongs to no tab and must be assigned explicitly rather than
+dropped silently. The tab registry then keys off the grouped map, and
+`IncidentTab.select` takes the grouped evidence rather than the incident.
+
+If the four tabs must instead be driven by trigger provenance, that is a
+backend change — embedding triggers in `Incident` or adding an
+`incident.triggers` command — and it is not in this sprint's plan.
 
 - [ ] **Step 1: Write the failing test**
 
