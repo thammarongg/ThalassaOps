@@ -922,6 +922,23 @@ const en = {
       changes: "Changes",
       vulnerabilities: "Vulnerabilities"
     },
+    summary: {
+      title: "Incident Summary Card",
+      copy: "Copy summary",
+      copied: "Summary copied.",
+      copyFailed: "The summary could not be copied.",
+      none: "None",
+      fields: {
+        id: "Incident ID",
+        summary: "Summary",
+        severity: "Severity",
+        derivedSeverity: "Derived severity",
+        status: "Status",
+        disposition: "Disposition",
+        createdAt: "Created at",
+        updatedAt: "Updated at"
+      }
+    },
     comments: {
       title: "Comments",
       listLabel: "Incident comments",

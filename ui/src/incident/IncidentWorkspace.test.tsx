@@ -110,6 +110,15 @@ it("resolves the selected incident's evidence once through correlation_evidence"
   });
 });
 
+it("renders the incident summary card for the selected incident", async () => {
+  const invoke = incidentInvokeMock();
+  renderShell(invoke);
+
+  expect(
+    await screen.findByRole("heading", { name: /incident summary card/i })
+  ).toBeInTheDocument();
+});
+
 it("submits a comment for the selected incident through incident_add_comment", async () => {
   const user = userEvent.setup();
   const invoke = incidentInvokeMock();

@@ -919,6 +919,23 @@ const th = {
       changes: "การเปลี่ยนแปลง",
       vulnerabilities: "ช่องโหว่"
     },
+    summary: {
+      title: "การ์ดสรุปเหตุการณ์",
+      copy: "คัดลอกสรุป",
+      copied: "คัดลอกสรุปแล้ว",
+      copyFailed: "ไม่สามารถคัดลอกสรุปได้",
+      none: "ไม่มี",
+      fields: {
+        id: "รหัสเหตุการณ์",
+        summary: "สรุป",
+        severity: "ระดับความรุนแรง",
+        derivedSeverity: "ระดับความรุนแรงที่คำนวณได้",
+        status: "สถานะ",
+        disposition: "การจัดประเภท",
+        createdAt: "สร้างเมื่อ",
+        updatedAt: "แก้ไขล่าสุดเมื่อ"
+      }
+    },
     comments: {
       title: "ความคิดเห็น",
       listLabel: "ความคิดเห็นของเหตุการณ์",

@@ -85,6 +85,54 @@
   border: 0;
 }
 
+.incident-summary-card {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-radius: var(--radius-1, 4px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-1);
+}
+
+.incident-summary-card__header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  justify-content: space-between;
+}
+
+.incident-summary-card__header h3 {
+  margin: 0;
+}
+
+.incident-summary-card__fields {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: minmax(8rem, 0.45fr) minmax(0, 1fr);
+  margin: 0;
+}
+
+.incident-summary-card__fields > div {
+  display: contents;
+}
+
+.incident-summary-card__fields dt {
+  color: var(--color-fog);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.incident-summary-card__fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.incident-summary-card > p {
+  margin: 0;
+}
+
 .incident-narrative {
   margin-top: var(--space-2);
 }

@@ -20,6 +20,7 @@ import { IncidentActions, type ActionResult } from "./IncidentActions";
 import { IncidentCommentThread, type CommentSubmitResult } from "./IncidentCommentThread";
 import { IncidentList, type IncidentQueueFilter } from "./IncidentList";
 import { IncidentNarrative } from "./IncidentNarrative";
+import { IncidentSummaryCard } from "./IncidentSummaryCard";
 import { IncidentTabs } from "./IncidentTabs";
 import { INCIDENT_TIMELINE_LIMIT, incidentEnvelope } from "./incidentEnvelope";
 import { statesForEvidence, type IncidentTabId, type IncidentTabStates } from "./incidentTabConfig";
@@ -298,6 +299,11 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
     [runVersionedMutation, selected]
   );
 
+  const copySummary = useCallback(async (markdown: string) => {
+    if (!navigator.clipboard) throw new Error("Clipboard is unavailable");
+    await navigator.clipboard.writeText(markdown);
+  }, []);
+
   const submitComment = useCallback(
     async (body: string): Promise<CommentSubmitResult> => {
       if (selected === null) return undefined;
@@ -362,6 +368,7 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
           {selected ? (
             <>
               <p className="incident-workspace__detail-summary">{selected.summary}</p>
+              <IncidentSummaryCard incident={selected} onCopy={copySummary} />
               {/*
                * Every incident carries at least its creation event, so the
                * narrative's empty state is never true of a real one. It is
