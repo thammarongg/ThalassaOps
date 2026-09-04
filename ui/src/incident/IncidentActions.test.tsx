@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -21,7 +21,7 @@ const renderActions = (overrides: Partial<IncidentActionsProps> = {}) =>
   render(
     <I18nProvider>
       <IncidentActions
-        incident={incident}
+        incident={overrides.incident ?? incident}
         onTransition={overrides.onTransition ?? vi.fn().mockResolvedValue({ ok: true })}
         onSeverity={overrides.onSeverity ?? vi.fn().mockResolvedValue({ ok: true })}
         onAssign={overrides.onAssign ?? vi.fn().mockResolvedValue({ ok: true })}
@@ -43,6 +43,12 @@ it("does not render a status change until the command resolves", async () => {
   renderActions({ onTransition });
 
   await user.click(screen.getByRole("button", { name: /investigating/i }));
+  const form = screen.getByRole("form", { name: /investigating/i });
+  await user.type(
+    within(form).getByLabelText(/investigation note/i),
+    "Reviewed the checkout trace"
+  );
+  await user.click(within(form).getByRole("button", { name: /submit transition/i }));
   expect(screen.getByTestId("incident-status")).toHaveTextContent(/triage/i);
 
   await act(async () => {
@@ -51,6 +57,36 @@ it("does not render a status change until the command resolves", async () => {
   await waitFor(() =>
     expect(screen.getByTestId("incident-status")).toHaveTextContent(/investigating/i)
   );
+});
+
+it("waits for the required transition context before calling onTransition", async () => {
+  const user = userEvent.setup();
+  const checkout = incidentFixturePage.items[0];
+  const onTransition = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  renderActions({ incident: checkout, onTransition });
+
+  await user.click(screen.getByRole("button", { name: /mitigating/i }));
+  expect(onTransition).not.toHaveBeenCalled();
+
+  const form = screen.getByRole("form", { name: /mitigating/i });
+  expect(within(form).getByRole("button", { name: /submit transition/i })).toBeDisabled();
+
+  await user.type(
+    within(form).getByLabelText(/action description/i),
+    "Restarted the checkout gateway"
+  );
+  await user.type(within(form).getByLabelText(/expected impact/i), "Card payments recover");
+  await user.click(within(form).getByRole("button", { name: /submit transition/i }));
+
+  await waitFor(() => expect(onTransition).toHaveBeenCalledTimes(1));
+  expect(onTransition).toHaveBeenCalledWith({
+    target: "mitigating",
+    context: {
+      action_description: "Restarted the checkout gateway",
+      executor: checkout.roles[0].principal_id,
+      expected_impact: "Card payments recover"
+    }
+  });
 });
 
 it("reports a real version conflict and does not resubmit without retry", async () => {
@@ -97,6 +133,12 @@ it("reports a real version conflict and does not resubmit without retry", async 
   );
 
   await user.click(screen.getByRole("button", { name: /investigating/i }));
+  const form = screen.getByRole("form", { name: /investigating/i });
+  await user.type(
+    within(form).getByLabelText(/investigation note/i),
+    "Reviewed the checkout trace"
+  );
+  await user.click(within(form).getByRole("button", { name: /submit transition/i }));
   await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   expect(screen.getByRole("alert")).toHaveTextContent("actor-uuid-from-reloaded-event");
   expect(screen.getByRole("alert")).toHaveTextContent("2026-08-28T09:15:00Z");
@@ -114,11 +156,14 @@ it("reassesses when selecting the derived severity and blocks a role no-op", asy
 
   expect(screen.getByRole("button", { name: /assign role/i })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Set S2" }));
+  const form = screen.getByRole("form", { name: /severity/i });
+  await user.type(within(form).getByLabelText(/reason/i), "The impact assessment changed");
+  await user.click(within(form).getByRole("button", { name: /submit severity/i }));
 
   await waitFor(() => expect(onSeverity).toHaveBeenCalledTimes(1));
   const expected: IncidentSeverityCommand = {
     action: "reassess",
-    details: { business_impact: incident.business_impact, reason: incident.summary }
+    details: { business_impact: incident.business_impact, reason: "The impact assessment changed" }
   };
   expect(onSeverity).toHaveBeenCalledWith(expected);
 });

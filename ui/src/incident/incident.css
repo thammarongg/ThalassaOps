@@ -260,32 +260,70 @@
 }
 
 .incident-actions__assignment {
-  align-items: end;
-  display: grid;
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  grid-template-columns: minmax(8rem, 0.8fr) minmax(12rem, 1fr) auto;
   margin: 0;
 }
 
-.incident-actions__assignment label:nth-of-type(2) {
-  grid-column: 2;
-  grid-row: 1;
+.incident-actions__principal {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: minmax(8rem, 0.8fr) minmax(12rem, 1fr);
+  margin: 0;
+  padding: var(--space-1);
 }
 
-.incident-actions__assignment select {
-  grid-column: 1;
-  grid-row: 2;
+.incident-actions__principal legend {
+  color: var(--color-fog);
+  font-size: 0.85rem;
+  grid-column: 1 / -1;
+  padding: 0;
 }
 
-.incident-actions__assignment input {
-  grid-column: 2;
-  grid-row: 2;
+.incident-actions__principal select,
+.incident-actions__principal input {
   min-width: 0;
 }
 
-.incident-actions__assignment button {
-  grid-column: 3;
-  grid-row: 2;
+.incident-actions__form {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1);
+}
+
+.incident-actions__form h5 {
+  margin: 0;
+}
+
+.incident-actions__form textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.incident-actions__form input[type="number"] {
+  max-width: 10rem;
+}
+
+.incident-actions__form-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.incident-actions__evidence {
+  color: var(--color-fog);
+  margin: 0;
+}
+
+.incident-actions__evidence ul {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  padding-left: var(--space-2);
 }
 
 .incident-actions__error,
@@ -309,15 +347,11 @@
 }
 
 @media (max-width: 48rem) {
-  .incident-actions__assignment {
+  .incident-actions__principal {
     grid-template-columns: 1fr;
   }
 
-  .incident-actions__assignment label:nth-of-type(2),
-  .incident-actions__assignment select,
-  .incident-actions__assignment input,
-  .incident-actions__assignment button {
+  .incident-actions__principal legend {
     grid-column: 1;
-    grid-row: auto;
   }
 }

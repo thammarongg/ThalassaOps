@@ -197,6 +197,16 @@ it("reloads the incident and newest timeline event after a version conflict", as
 
   await screen.findByRole("table", { name: en.incident.narrative.caption });
   await user.click(await screen.findByRole("button", { name: /mitigating/i }));
+  const transitionForm = screen.getByRole("form", { name: /mitigating/i });
+  await user.type(
+    within(transitionForm).getByLabelText(/action description/i),
+    "Restarted the checkout gateway"
+  );
+  await user.type(
+    within(transitionForm).getByLabelText(/expected impact/i),
+    "Card payments recover"
+  );
+  await user.click(within(transitionForm).getByRole("button", { name: /submit transition/i }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(actor));
 
   expect(invoke.mock.calls.filter((call) => call[0] === "incident_transition")).toHaveLength(1);
@@ -220,7 +230,19 @@ it("sends the exact versioned payload for status, severity, and role actions", a
 
   await screen.findByRole("table", { name: en.incident.narrative.caption });
 
+  await user.clear(screen.getByLabelText(en.incident.actions.principalLabel));
+  await user.type(screen.getByLabelText(en.incident.actions.principalLabel), principal);
   await user.click(screen.getByRole("button", { name: /mitigating/i }));
+  const transitionForm = screen.getByRole("form", { name: /mitigating/i });
+  await user.type(
+    within(transitionForm).getByLabelText(/action description/i),
+    "Restarted the checkout gateway"
+  );
+  await user.type(
+    within(transitionForm).getByLabelText(/expected impact/i),
+    "Card payments recover"
+  );
+  await user.click(within(transitionForm).getByRole("button", { name: /submit transition/i }));
   await waitFor(() =>
     expect(invoke.mock.calls.filter((call) => call[0] === "incident_transition")).toHaveLength(1)
   );
@@ -232,14 +254,20 @@ it("sends the exact versioned payload for status, severity, and role actions", a
     transition: {
       target: "mitigating",
       context: {
-        action_description: incident.summary,
-        executor: incident.roles[0].principal_id,
-        expected_impact: incident.business_impact.summary
+        action_description: "Restarted the checkout gateway",
+        executor: principal,
+        expected_impact: "Card payments recover"
       }
     }
   });
 
   await user.click(screen.getByRole("button", { name: "Set S2" }));
+  const severityForm = screen.getByRole("form", { name: /severity/i });
+  await user.type(
+    within(severityForm).getByLabelText(/reason/i),
+    "Traffic remains above the error budget"
+  );
+  await user.click(within(severityForm).getByRole("button", { name: /submit severity/i }));
   await waitFor(() =>
     expect(invoke.mock.calls.filter((call) => call[0] === "incident_set_severity")).toHaveLength(1)
   );
@@ -252,7 +280,7 @@ it("sends the exact versioned payload for status, severity, and role actions", a
       action: "override",
       details: {
         selected: "S2",
-        reason: incident.summary,
+        reason: "Traffic remains above the error budget",
         evidence_ids: incident.evidence_ids
       }
     }
