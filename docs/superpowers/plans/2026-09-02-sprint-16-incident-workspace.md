@@ -1676,7 +1676,7 @@ meant to ride Sprint 14's own `change_evidence` command rather than the
 incident's evidence ids, that is a design question for Sprint 17, not a defect
 in Task 10.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 it("reads the association set on every render rather than memoising it", () => {
@@ -1698,12 +1698,12 @@ The first test is the guard required by the spec: Sprints 19 and 21 add
 identifiers to open incidents, so a registry that captured the set at mount would
 silently stop updating.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/IncidentTabs.test.tsx`
 Expected: FAIL with "IncidentTabs is not defined".
 
-- [ ] **Step 3: Implement the registry**
+- [x] **Step 3: Implement the registry**
 
 ```ts
 export type IncidentTab = {
@@ -1730,7 +1730,7 @@ export const INCIDENT_TABS: IncidentTab[] = [
 but the incident itself. Adding a fifth tab must require a new array entry and
 nothing else.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
@@ -1738,6 +1738,16 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): add the association tab registry"
 ```
+
+Done: `88e3b88`, after `15cea47`, `4ac220c` and `89edf98` closed three of the four
+Task 9 standards findings. 198 frontend tests green; no Rust surface changed.
+The registry partitions by `source_kind` as corrected above, assigns `fixture`
+evidence to alerts with the reason stated in the file, and the shell resolves
+once per selected incident behind a request-id ref. One redundancy left
+deliberately: `IncidentTabs` re-filters each tab's evidence against the
+incident's current `evidence_ids` on every render, which duplicates what
+`statesForEvidence` already computed. It is the guard design 5.3 asks for while
+the shell re-resolves, not a defect.
 
 ---
 
