@@ -957,7 +957,7 @@ const en = {
       unavailable: {
         missing: "The evidence behind this association is no longer in the current snapshot.",
         scope: "This evidence belongs to another workspace and cannot be shown here.",
-        unverified: "Policy withheld this evidence: its redaction is not verified.",
+        unverified: "Policy withheld this evidence, so it cannot be shown here.",
         unknown: "The evidence could not be resolved."
       },
       connector: "Connector",

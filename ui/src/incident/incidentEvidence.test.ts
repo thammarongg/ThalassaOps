@@ -46,6 +46,22 @@ describe("resolveEvidence", () => {
     expect(invoke.mock.calls[0][1].envelope.payload).toEqual({ evidence_ids: ["a", "b"] });
   });
 
+  /*
+   * The backend orders identifiers as UTF-8 bytes. A default `sort()` orders
+   * UTF-16 code units and would put the astral id first, which the domain
+   * validator rejects as unsorted.
+   */
+  it("orders ids the way the backend compares them", async () => {
+    const invoke = invokeMock();
+    invoke.mockResolvedValue({ ok: true, value: [] });
+
+    await resolve(invoke, ["\u{1F600}", "\uFFFD"]);
+
+    expect(invoke.mock.calls[0][1].envelope.payload).toEqual({
+      evidence_ids: ["\uFFFD", "\u{1F600}"]
+    });
+  });
+
   it.each([
     ["NOT_FOUND", "missing"],
     ["PERMISSION_DENIED", "scope"],

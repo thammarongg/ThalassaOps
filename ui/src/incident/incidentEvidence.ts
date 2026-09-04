@@ -55,6 +55,12 @@ const causeFor = (code: IpcErrorCode): EvidenceUnavailableCause => {
       return "missing";
     case "PERMISSION_DENIED":
       return "scope";
+    /*
+     * `POLICY_DENIED` covers unverified redaction and the source-policy and
+     * audit-retention authorizers alike (`src-tauri/src/app/correlation.rs`,
+     * lines 165-199), so the copy this cause selects says policy withheld the
+     * evidence and does not name redaction as the reason.
+     */
     case "POLICY_DENIED":
       return "unverified";
     default:
@@ -66,6 +72,24 @@ const unavailable = (cause: EvidenceUnavailableCause): EvidenceState => ({
   status: "unavailable",
   cause
 });
+
+/*
+ * The backend compares identifiers as Rust `String`s, which is UTF-8 byte
+ * order and therefore code-point order. A JavaScript `sort()` compares UTF-16
+ * code units, which disagrees for anything above the basic multilingual plane:
+ * an id carrying an astral character would sort one way here and be rejected
+ * as unsorted there, leaving the tab permanently unavailable. `validate_safe_identifier`
+ * admits any non-control, non-whitespace character, so this is reachable.
+ */
+const byCodePoint = (left: string, right: string): number => {
+  const a = Array.from(left);
+  const b = Array.from(right);
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const difference = (a[index].codePointAt(0) ?? 0) - (b[index].codePointAt(0) ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
+};
 
 /**
  * Resolves one association set to its evidence.
@@ -81,7 +105,7 @@ export const resolveEvidence = async (
   invoke: Invoke,
   ids: ConsoleEvidenceId[]
 ): Promise<EvidenceState> => {
-  const requested = [...new Set(ids)].sort();
+  const requested = [...new Set(ids)].sort(byCodePoint);
   if (requested.length === 0) return { status: "empty" };
 
   try {
