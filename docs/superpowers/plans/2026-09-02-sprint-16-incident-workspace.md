@@ -1750,6 +1750,35 @@ git commit -m "feat(incident): add the association tab registry"
 - Consumes: `INCIDENT_NOTE_MAXIMUM` from Task 4; the shell supplies `events` and an `onSubmit` that calls `incident.add_comment`.
 - Produces: `IncidentCommentThread({ events, onSubmit, submitting })` — pure.
 
+**Four corrections to the draft below, verified against the code.**
+
+1. **Count the body in code points, not `String.length`.** `INCIDENT_NOTE_MAXIMUM`
+   is enforced by `validate_incident_text`
+   (`crates/thalassa-domain/src/lib.rs`) as `value.chars().count() > maximum` —
+   Unicode scalar values. `body.length` counts UTF-16 code units, so a comment
+   of 3,999 emoji passes the UI bound and is rejected by the domain. Use
+   `Array.from(body).length`. This is the same trap `7671fd1` fixed for the
+   evidence sort order.
+2. **The optimistic render must roll back.** `validate_incident_text` also
+   rejects any control character and anything `contains_sensitive_marker` flags
+   — `password`, `secret`, `token`, `credential`, `authorization`, `bearer`,
+   `api_key`, `arn:`, `account_id` and more, plus the account-id heuristic. A
+   responder writing "rotated the API token" or pasting an ARN gets
+   `INVALID_REQUEST` with `details.reason = "incident_unsafe_content"`; an
+   over-long body gets `incident_text_too_long`
+   (`src-tauri/src/app/incident.rs`, `incident_domain_reason`). Appending
+   optimistically and never reconciling would show the responder a comment the
+   incident does not have. Add a test: a rejected submit removes the optimistic
+   entry, keeps the drafted text in the composer, and names the reason.
+3. **The fixture has one comment, not two, and the body differs.**
+   `incidentFixtureTimeline` carries a single `commented` event, sequence 6,
+   body `Payment provider confirms a regional outage on their side`. Assert
+   against that text and length 1, or add a second comment to the fixture and
+   say so — do not assert `checked the dashboards`, which exists nowhere.
+4. **Do not type 4,001 characters through `userEvent.type`.** It dispatches one
+   event per character and will dominate the suite's runtime. Set the value with
+   `fireEvent.change` or paste it.
+
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
@@ -1816,6 +1845,27 @@ git commit -m "feat(incident): add the incident comment thread"
 **Interfaces:**
 - Consumes: the shell's `invoke`, and the incident's `version`.
 - Produces: `IncidentActions({ incident, onTransition, onSeverity, onAssign, pending, conflict })` where `conflict` is `{ actor: string; at: string } | null`.
+
+**`incident_version_conflict` is not an error code.** Every incident rejection
+leaves the backend through `invalid_incident_request`
+(`src-tauri/src/app/incident.rs`), which builds
+`IpcError::new(IpcErrorCode::InvalidRequest, "incident request was rejected",
+{ "reason": <reason> })`. So the wire shape is
+`{ ok: false, error: { code: "INVALID_REQUEST", details: { reason:
+"incident_version_conflict" } } }`. An implementation that switches on
+`error.code`, and the draft test below that mocks
+`{ code: "incident_version_conflict" }`, would agree with each other and
+disagree with the running app: every real conflict would fall through to the
+generic error path and the recovery this task exists for would never appear.
+Read `details.reason`, and assert the real shape in the test.
+
+**The conflict's actor and time do not come from the error.** The mapper drops
+`VersionConflict { expected, actual }`, and no denial ever echoes payload data.
+The shell reloads the incident, reads the newest timeline event, and passes its
+`actor_id` and `at`. `actor_id` is a UUID and there is no principal directory —
+Task 8 already settled that timeline actors render as the identifier they are
+(`IncidentNarrative.tsx`) — so the copy must say the incident changed and show
+the identifier, never imply a resolved human name.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1900,11 +1950,15 @@ it("is named the Incident Summary Card, not the Incident Card", () => {
 });
 ```
 
-`incidentWithEvidenceAndComments` is a fixture added in Task 6 and extended
-here: it carries at least one evidence reference whose excerpt contains the
-literal `AKIA`, one comment body `checked the dashboards`, and an
-`Incident Commander` role assignment, so the forbidden list actually has
-something to catch.
+`incidentWithEvidenceAndComments` **does not exist**. Task 6 added
+`incidentFixtureIncident`, `incidentFixturePage`, `incidentFixtureEvidence` and
+`incidentFixtureTimeline`, and nothing else. This task creates the fixture it
+needs, and it must carry the material the forbidden list is meant to catch: an
+evidence excerpt containing the literal `AKIA`, the timeline's existing comment
+body (`Payment provider confirms a regional outage on their side`, sequence 6 —
+not `checked the dashboards`), and an `Incident Commander` role assignment.
+Assert the forbidden strings that the fixture actually contains, or the test
+passes by vacuity.
 
 ```ts
 ```
@@ -1943,6 +1997,26 @@ git commit -m "feat(incident): add the incident summary card with a copy allowli
 **Interfaces:**
 - Consumes: every component from Tasks 7-13.
 - Produces: nothing consumed by later tasks.
+
+**Three things the draft test gets wrong.**
+
+1. `invoke.mock.calls.map(([envelope]) => envelope.name)` reads a field that
+   does not exist on an argument that is not the envelope. `Invoke` is
+   `(command: string, args: { envelope: CommandEnvelope<T> })`: the first
+   argument is the snake_case tauri command (`incident_add_comment`), and the
+   dotted name lives at `calls[i][1].envelope.command`. Assert both — the
+   tauri name is what actually reaches the backend, and Task 9's review showed
+   a wrong command name is invisible to a mock that only checks the envelope.
+2. The vulnerability tab has nothing to show. `incidentFixtureEvidence` carries
+   two references, `prometheus` and `fixture`; under the source_kind
+   partitioning settled in Task 10 the vulnerabilities tab needs a `trivy`,
+   `falco`, `kyverno` or `opa_gatekeeper` reference, and the incident the test
+   selects must carry its id. Extend the fixture and keep it on the
+   `2026-08-28` fixture day.
+3. Do not assert that the topology or changes tab has content. Both are empty
+   by construction — see the note under Task 10 — and a mock that returns
+   change evidence for them would make this acceptance test green over a dead
+   workspace, which is precisely the failure this test exists to prevent.
 
 - [ ] **Step 1: Write the acceptance test**
 
