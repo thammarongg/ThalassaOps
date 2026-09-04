@@ -1223,7 +1223,7 @@ both catalogs gain, under `incident`: `status.*` for all eight
 `IpcErrorCode` variants (`ipc.ts:46-56`) — `WRITE_CONTENTION` included, since
 Task 3 added it and the shell's `localizedErrorKey` switch must be total.
 
-- [ ] **Step 1: Write the failing list test**
+- [x] **Step 1: Write the failing list test**
 
 ```tsx
 it("renders the effective severity, not the derived one, when an override is present", () => {
@@ -1269,17 +1269,17 @@ it("moves the selection with the arrow keys", async () => {
 
 No `incident-priority` element exists, so no test asserts one.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run ui/src/incident/IncidentList.test.tsx`
 Expected: FAIL — the module does not exist.
 
-- [ ] **Step 3: Implement IncidentList as a pure component**
+- [x] **Step 3: Implement IncidentList as a pure component**
 
 It receives arrays and callbacks only. It imports no hook from Task 6 and calls
 no `invoke`. `effectiveSeverity` lives here and is exported.
 
-- [ ] **Step 4: Write the failing shell test**
+- [x] **Step 4: Write the failing shell test**
 
 `incidentInvokeMock()` routes on the Tauri command name — the first positional
 argument — and returns the Task 6 fixtures:
@@ -1327,7 +1327,7 @@ it("translates a list error code rather than printing it", async () => {
 fixture timeline's `incident_id` is the checkout incident — `items[0].id` —
 so auto-selecting the first row also satisfies the hook's stale-page check.
 
-- [ ] **Step 5: Implement the shell**
+- [x] **Step 5: Implement the shell**
 
 The shell wires the two hooks, holds `selectedId` and the queue filter, and
 renders `IncidentList` plus a detail region that Tasks 8-13 fill. It is the only
@@ -1336,7 +1336,7 @@ once the first page arrives, and only while nothing is selected — re-selecting
 on every page would fight the user during `loadMore`. It owns the
 `localizedErrorKey` switch over all ten `IpcErrorCode` variants.
 
-- [ ] **Step 6: Run tests, gate, and commit**
+- [x] **Step 6: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
