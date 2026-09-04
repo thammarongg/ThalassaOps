@@ -105,3 +105,65 @@
   font-family: var(--font-mono, monospace);
   word-break: break-all;
 }
+
+.incident-evidence__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.incident-evidence__entry {
+  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-radius: var(--radius-1, 4px);
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.incident-evidence__entry-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+/* An evidence identifier is machine text and never wraps mid-word into
+   something a reader could mistake for a different id. */
+.incident-evidence__entry-id {
+  font-family: var(--font-mono, monospace);
+  color: var(--color-fog);
+  word-break: break-all;
+}
+
+.incident-evidence dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.incident-evidence dl > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.45fr) minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.incident-evidence dt {
+  color: var(--color-fog);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.incident-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.incident-evidence__redaction {
+  margin: 0;
+  color: var(--color-fog);
+}
+
+.incident-evidence__unavailable {
+  color: var(--color-coral);
+}

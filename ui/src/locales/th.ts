@@ -946,6 +946,42 @@ const th = {
         dispositionChanged: "การจัดประเภท",
         roleChanged: "บทบาท"
       }
+    },
+    evidence: {
+      title: "หลักฐาน",
+      loading: "กำลังค้นหาหลักฐาน…",
+      empty: "เหตุการณ์นี้ไม่มีความเชื่อมโยงประเภทนี้",
+      unavailable: {
+        missing: "ไม่พบหลักฐานของความเชื่อมโยงนี้ในสแนปช็อตปัจจุบันแล้ว",
+        scope: "หลักฐานนี้อยู่ในเวิร์กสเปซอื่น จึงแสดงที่นี่ไม่ได้",
+        unverified: "นโยบายระงับหลักฐานนี้ไว้ เพราะยังไม่ได้ตรวจสอบการปกปิดข้อมูล",
+        unknown: "ไม่สามารถค้นหาหลักฐานได้"
+      },
+      connector: "ตัวเชื่อมต่อ",
+      endpoint: "ปลายทาง",
+      query: "คำสืบค้น",
+      observedAt: "เวลาที่สังเกต",
+      excerpt: "ข้อความตัดตอน",
+      openNative: "เปิดในระบบต้นทาง",
+      masked: "ปกปิดข้อมูลแล้ว",
+      notMasked: "ไม่ได้ปกปิดข้อมูล",
+      unparsed: "ยังไม่ได้แยกวิเคราะห์",
+      parsed: "แยกวิเคราะห์แล้ว",
+      sources: {
+        alertmanager: "Alertmanager",
+        prometheus: "Prometheus",
+        kubernetes: "Kubernetes",
+        cloud: "คลาวด์",
+        health_check: "การตรวจสุขภาพ",
+        fixture: "ข้อมูลตัวอย่าง",
+        trivy: "Trivy",
+        falco: "Falco",
+        kyverno: "Kyverno",
+        opa_gatekeeper: "OPA Gatekeeper",
+        github: "GitHub",
+        gitlab: "GitLab",
+        argo_cd: "Argo CD"
+      }
     }
   }
 } as const;

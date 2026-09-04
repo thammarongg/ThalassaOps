@@ -2,6 +2,7 @@
 
 import type {
   BusinessImpact,
+  EvidenceRef,
   ImpactDimensions,
   Incident,
   IncidentPage,
@@ -212,6 +213,49 @@ export const incidentFixturePage: IncidentPage = {
   items: [checkoutIncident, searchIncident, billingIncident],
   next_cursor: incidentFixtureCursor
 };
+
+/**
+ * The evidence the checkout incident's two identifiers resolve to. It carries
+ * exactly those ids, in ascending order, because `isEvidenceResponse` rejects
+ * any response that is not an exact cover of the request, and because the
+ * domain validator rejects an unsorted request in the first place.
+ */
+export const incidentFixtureEvidence: EvidenceRef[] = [
+  {
+    id: "evidence-checkout-error-rate",
+    source_kind: "prometheus",
+    connector_id: "connector-prometheus",
+    scope,
+    endpoint: "fixture://prometheus/checkout",
+    query: "sum(rate(checkout_errors_total[5m]))",
+    observed_at: "2026-08-28T08:39:00Z",
+    excerpt: "checkout error rate 41% over five minutes",
+    native_url: "https://prometheus.fixture.internal/graph",
+    redaction: {
+      classification_verified: true,
+      redaction_verified: true,
+      masked: false,
+      unparsed: false
+    }
+  },
+  {
+    id: "evidence-checkout-trace",
+    source_kind: "fixture",
+    connector_id: null,
+    scope,
+    endpoint: "fixture://trace/checkout",
+    query: null,
+    observed_at: "2026-08-28T08:39:30Z",
+    excerpt: "checkout span fails at the payment provider call",
+    native_url: null,
+    redaction: {
+      classification_verified: true,
+      redaction_verified: true,
+      masked: true,
+      unparsed: false
+    }
+  }
+];
 
 const event = (
   ordinal: number,

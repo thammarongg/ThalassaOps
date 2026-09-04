@@ -949,6 +949,42 @@ const en = {
         dispositionChanged: "Disposition",
         roleChanged: "Role"
       }
+    },
+    evidence: {
+      title: "Evidence",
+      loading: "Resolving evidence…",
+      empty: "This incident has no associations of this kind",
+      unavailable: {
+        missing: "The evidence behind this association is no longer in the current snapshot.",
+        scope: "This evidence belongs to another workspace and cannot be shown here.",
+        unverified: "Policy withheld this evidence: its redaction is not verified.",
+        unknown: "The evidence could not be resolved."
+      },
+      connector: "Connector",
+      endpoint: "Endpoint",
+      query: "Query",
+      observedAt: "Observed",
+      excerpt: "Excerpt",
+      openNative: "Open in source",
+      masked: "masked",
+      notMasked: "not masked",
+      unparsed: "unparsed",
+      parsed: "parsed",
+      sources: {
+        alertmanager: "Alertmanager",
+        prometheus: "Prometheus",
+        kubernetes: "Kubernetes",
+        cloud: "Cloud",
+        health_check: "Health check",
+        fixture: "Fixture",
+        trivy: "Trivy",
+        falco: "Falco",
+        kyverno: "Kyverno",
+        opa_gatekeeper: "OPA Gatekeeper",
+        github: "GitHub",
+        gitlab: "GitLab",
+        argo_cd: "Argo CD"
+      }
     }
   }
 } as const;
