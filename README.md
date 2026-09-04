@@ -123,7 +123,7 @@ problem, and a canonical local-first Incident domain: permitted responders
 create Incidents explicitly from six trigger kinds and advance them through a
 validated, actor-attributed lifecycle with an immutable audit timeline.
 
-The latest approved design is [Sprint 15 — incident domain and lifecycle](docs/design/sprint-15-incident-domain-lifecycle.md).
+The latest approved design is [Sprint 16 — the Incident Workspace](docs/design/sprint-16-incident-workspace.md).
 The complete product sequence is tracked in the [product sprint plan](docs/planning/sprint-plan.md).
 For the full source of truth, see the [requirements summary](docs/requirements/requirements-summary.md)
 and the [working system requirements](docs/requirements/system-requirements.md).
