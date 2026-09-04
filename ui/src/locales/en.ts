@@ -933,6 +933,7 @@ const en = {
       title: "Narrative",
       caption: "The lifecycle record of this incident",
       empty: "This incident has no lifecycle events yet",
+      loading: "Loading the incident record…",
       none: "None",
       columns: {
         time: "Time",

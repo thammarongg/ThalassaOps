@@ -109,7 +109,18 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
           {selected ? (
             <>
               <p className="incident-workspace__detail-summary">{selected.summary}</p>
-              <IncidentNarrative events={timeline.events} />
+              {/*
+               * Every incident carries at least its creation event, so the
+               * narrative's empty state is never true of a real one. It is
+               * withheld until the first page lands rather than shown as a
+               * false statement for the length of the read. A `loadMore` has
+               * events already and keeps rendering them.
+               */}
+              {timeline.loading && timeline.events.length === 0 ? (
+                <p className="incident-workspace__state">{t("incident.narrative.loading")}</p>
+              ) : (
+                <IncidentNarrative events={timeline.events} />
+              )}
             </>
           ) : (
             <p className="incident-workspace__state">{t("incident.detailEmpty")}</p>

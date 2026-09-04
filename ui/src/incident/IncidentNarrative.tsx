@@ -68,14 +68,19 @@ const describe = (payload: LifecyclePayload, t: Translate): { label: string; val
         value: arrow(label(payload.data.previous), label(payload.data.current))
       };
     }
-    case "role_changed":
+    case "role_changed": {
+      // Who holds the role is the change, so both sides of the arrow are
+      // principals. Showing only the new holder would read as an assignment
+      // out of nowhere and hide a release entirely.
+      const previous = payload.data.previous_principal_ids;
       return {
-        label: t("incident.narrative.kind.roleChanged"),
+        label: `${t("incident.narrative.kind.roleChanged")} · ${t("incident.role." + payload.data.role)}`,
         value: arrow(
-          t("incident.role." + payload.data.role),
+          previous.length === 0 ? none : previous.join(", "),
           payload.data.current_principal_id ?? none
         )
       };
+    }
     default: {
       const exhaustive: never = payload;
       return exhaustive;

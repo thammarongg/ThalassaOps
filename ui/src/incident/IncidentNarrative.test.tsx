@@ -92,7 +92,7 @@ it("describes a disposition change and a role change from their payloads", () =>
         kind: "role_changed",
         data: {
           role: "incident_commander",
-          previous_principal_ids: [],
+          previous_principal_ids: ["dddddddd-dddd-4ddd-8ddd-dddddddddddd"],
           current_principal_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         }
       }
@@ -102,6 +102,10 @@ it("describes a disposition change and a role change from their payloads", () =>
   const [disposition, role] = bodyRows();
   expect(disposition).toHaveTextContent(/duplicate/i);
   expect(role).toHaveTextContent(/incident commander/i);
+  // Who held the role is the change. A row that shows only the new holder
+  // reads as an assignment out of nowhere.
+  expect(role).toHaveTextContent("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+  expect(role).toHaveTextContent("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 });
 
 it("says the incident has no lifecycle record rather than rendering an empty table", () => {

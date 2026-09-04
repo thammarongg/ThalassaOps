@@ -79,6 +79,24 @@ it("renders the selected incident's narrative from its timeline", async () => {
   expect(within(narrative).getAllByRole("row")).toHaveLength(lifecycle.length + 1);
 });
 
+/*
+ * Every incident has at least its creation event, so "no lifecycle events yet"
+ * is never true of a real one. Rendering the narrative before its timeline
+ * arrives would put that sentence on an audit surface for the length of the
+ * read.
+ */
+it("does not claim the incident has no lifecycle record while the timeline loads", async () => {
+  const invoke = vi.fn((name: string) =>
+    name === "incident_list"
+      ? Promise.resolve({ ok: true, value: incidentFixturePage })
+      : new Promise(() => {})
+  ) as unknown as InvokeMock;
+  renderShell(invoke);
+
+  expect(await screen.findByText(en.incident.narrative.loading)).toBeInTheDocument();
+  expect(screen.queryByText(en.incident.narrative.empty)).not.toBeInTheDocument();
+});
+
 it("translates a list error code rather than printing it", async () => {
   const invoke = vi.fn().mockResolvedValue({
     ok: false,
