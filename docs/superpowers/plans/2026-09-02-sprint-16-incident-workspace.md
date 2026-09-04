@@ -1789,7 +1789,7 @@ the shell re-resolves, not a defect.
    event per character and will dominate the suite's runtime. Set the value with
    `fireEvent.change` or paste it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 it("shows only commented events, oldest first", () => {
@@ -1825,17 +1825,17 @@ it("renders a submitted comment optimistically", async () => {
 Comments are optimistic because they carry no version and only append. The
 version-carrying mutations in Task 12 are not.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/IncidentCommentThread.test.tsx`
 Expected: FAIL with "IncidentCommentThread is not defined".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Filter to `payload.kind === "commented"`, sort by `sequence`, render the
 composer with the length bound enforced before `onSubmit` fires.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
@@ -1843,6 +1843,10 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): add the incident comment thread"
 ```
+
+Done: `689eff9`. The body is bounded with `Array.from(body).length`, a rejected
+submit removes the optimistic entry and restores the drafted text, and the
+reason is read from `details.reason`.
 
 ---
 
@@ -1910,7 +1914,7 @@ contexts that take them is the one honest default — those are the incident's
 evidence — and the comment should say so. Nothing is sent that the responder
 did not see.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 it("does not render a status change until the command resolves", async () => {
@@ -1939,19 +1943,19 @@ it("reports a version conflict, names the actor, and does not resubmit", async (
 The last assertion is load-bearing: the spec forbids automatic resubmission
 because the responder's intent may no longer hold once the status has moved.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/IncidentActions.test.tsx`
 Expected: FAIL with "IncidentActions is not defined".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Render controls disabled while `pending`. On `incident_version_conflict`, the
 shell reloads the incident and passes `conflict`; the component renders an alert
 naming the actor and time and states the command was not applied. It offers a
 retry button that the responder must press.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
@@ -1959,6 +1963,11 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): add incident actions with explicit conflict recovery"
 ```
+
+Done: `5cf9404`, corrected by `f0c8a88`. The first commit invented every
+transition context from incident fields and passed every domain check while
+doing it; the fix collects each context from the responder and takes the
+principal from the role assignment. 211 frontend tests green.
 
 ---
 
