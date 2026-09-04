@@ -1877,6 +1877,39 @@ Task 8 already settled that timeline actors render as the identifier they are
 (`IncidentNarrative.tsx`) — so the copy must say the incident changed and show
 the identifier, never imply a resolved human name.
 
+**The transition context is the responder's, and the UI may not invent it.**
+This task's draft imagined status buttons and never confronted what
+`IncidentTransition` actually carries: `triage` needs
+`{ business_impact, owner, duplicate_checked }`, `investigating` a `note`,
+`mitigating` an `action_description`, `executor` and `expected_impact`,
+`monitoring` a `verification_seconds`, `success_criteria` and `watch_owner`,
+`resolved` a `resolution_summary` and `impact_ended_at`, `closed`
+`closure_notes` and non-empty `follow_up_ids`, `reopened` a `reason`
+(`ui/contracts/ipc.ts`). Every one is free text, a principal, a duration or a
+business fact only the responder knows.
+
+Deriving them from the incident — `note`, `action_description`,
+`resolution_summary`, `closure_notes` and `reason` all set to
+`incident.summary`, `duplicate_checked` hardcoded `true`,
+`verification_seconds` fixed at 300, `impact_ended_at` taken from `updated_at`,
+`follow_up_ids` set to the incident's own id, and `owner` / `executor` /
+`watch_owner` falling back to `owning_team_id` where a principal is required —
+**passes every domain check and writes false statements into an immutable,
+actor-attributed audit timeline.** The domain rejects `duplicate_checked: false`
+(`crates/thalassa-domain/src/lib.rs`, line 1301) and an empty `follow_up_ids`,
+so a hardcoded `true` and a self-referencing follow-up are precisely the shape
+that satisfies the validator while lying to the next responder who reads the
+incident back. Sprint 15 exists to make that timeline trustworthy.
+
+The controls therefore open a small per-target form that collects the required
+fields and submits only once the responder has supplied them: `duplicate_checked`
+is a checkbox they tick, `impact_ended_at` a time they enter, `follow_up_ids` a
+list they fill, and the principal fields come from the role selection rather
+than the owning team. Carrying the incident's own `evidence_ids` into the
+contexts that take them is the one honest default — those are the incident's
+evidence — and the comment should say so. Nothing is sent that the responder
+did not see.
+
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
