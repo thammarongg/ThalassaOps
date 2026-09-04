@@ -10,6 +10,13 @@
 
 **Spec:** `docs/design/sprint-16-incident-workspace.md`
 
+> **The corrections above each task supersede the code inside its Step blocks.**
+> Every task was reviewed against the real contract before it was built, and the
+> original draft snippets were left in place as history. Where a snippet and the
+> correction disagree — `incident.triggers`, `incidentWithEvidenceAndComments`,
+> `error.code === "incident_version_conflict"`, `([envelope]) => envelope.name` —
+> the correction is what shipped.
+
 ## Global Constraints
 
 - Sprint 16 touches Rust only for Tasks 1-3. Every other task is confined to `ui/`.
