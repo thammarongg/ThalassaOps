@@ -1,3 +1,5 @@
+import type { EvidenceSourceKind } from "../../contracts/ipc";
+
 const en = {
   health: {
     eyebrow: "ThalassaOps local shell",
@@ -984,7 +986,7 @@ const en = {
         github: "GitHub",
         gitlab: "GitLab",
         argo_cd: "Argo CD"
-      }
+      } satisfies Record<EvidenceSourceKind, string>
     }
   }
 } as const;

@@ -1,3 +1,5 @@
+import type { EvidenceSourceKind } from "../../contracts/ipc";
+
 const th = {
   health: {
     eyebrow: "เชลล์ภายใน ThalassaOps",
@@ -981,7 +983,7 @@ const th = {
         github: "GitHub",
         gitlab: "GitLab",
         argo_cd: "Argo CD"
-      }
+      } satisfies Record<EvidenceSourceKind, string>
     }
   }
 } as const;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { EvidenceSourceKind } from "../../contracts/ipc";
 import en from "./en";
 import th from "./th";
 
@@ -17,6 +18,9 @@ const missingFrom = (source: string[], target: string[]) => {
   const known = new Set(target);
   return source.filter((key) => !known.has(key));
 };
+
+const enEvidenceSources = en.incident.evidence.sources satisfies Record<EvidenceSourceKind, string>;
+const thEvidenceSources = th.incident.evidence.sources satisfies Record<EvidenceSourceKind, string>;
 
 describe("locale parity", () => {
   it("defines exactly the same key paths in en and th", () => {
@@ -41,5 +45,9 @@ describe("locale parity", () => {
       })
       .map(([key]) => key);
     expect(wrong).toEqual([]);
+  });
+
+  it("defines one translated incident evidence source for every contract member", () => {
+    expect(Object.keys(enEvidenceSources).sort()).toEqual(Object.keys(thEvidenceSources).sort());
   });
 });
