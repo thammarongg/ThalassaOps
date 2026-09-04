@@ -915,6 +915,13 @@ const en = {
       writeContention: "Another change reached this incident first. Try again.",
       internalError: "The incident could not be loaded."
     },
+    tabs: {
+      title: "Incident associations",
+      alerts: "Alerts",
+      topology: "Topology",
+      changes: "Changes",
+      vulnerabilities: "Vulnerabilities"
+    },
     disposition: {
       duplicate: "Duplicate",
       false_positive: "False positive",

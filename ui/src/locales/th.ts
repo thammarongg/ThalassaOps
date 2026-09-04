@@ -912,6 +912,13 @@ const th = {
       writeContention: "มีการเปลี่ยนแปลงอื่นถึงเหตุการณ์นี้ก่อน กรุณาลองใหม่",
       internalError: "ไม่สามารถโหลดเหตุการณ์ได้"
     },
+    tabs: {
+      title: "ความเชื่อมโยงของเหตุการณ์",
+      alerts: "การแจ้งเตือน",
+      topology: "โทโพโลยี",
+      changes: "การเปลี่ยนแปลง",
+      vulnerabilities: "ช่องโหว่"
+    },
     disposition: {
       duplicate: "ซ้ำกับเหตุการณ์อื่น",
       false_positive: "แจ้งเตือนผิดพลาด",

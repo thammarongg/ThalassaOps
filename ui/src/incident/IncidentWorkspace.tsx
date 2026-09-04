@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useMemo, useState } from "react";
-import type { Invoke, IpcErrorCode } from "../../contracts/ipc";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Incident, Invoke, IpcErrorCode } from "../../contracts/ipc";
 import { useTranslation } from "../i18n";
 import { IncidentList, type IncidentQueueFilter } from "./IncidentList";
 import { IncidentNarrative } from "./IncidentNarrative";
+import { IncidentTabs } from "./IncidentTabs";
+import { statesForEvidence, type IncidentTabId, type IncidentTabStates } from "./incidentTabConfig";
+import { resolveEvidence, type EvidenceState } from "./incidentEvidence";
 import { useIncidentList } from "./useIncidentList";
 import { useIncidentTimeline } from "./useIncidentTimeline";
 import "./incident.css";
@@ -40,19 +43,36 @@ const localizedErrorKey = (code: IpcErrorCode): string => {
   }
 };
 
+type KeyedIncidentEvidence = {
+  incidentId: string | null;
+  evidenceKey: string;
+  states: IncidentTabStates;
+};
+
+const emptyIncidentEvidence = (): KeyedIncidentEvidence => ({
+  incidentId: null,
+  evidenceKey: "",
+  states: statesForEvidence({ status: "empty" })
+});
+
+const incidentEvidenceKey = (incident: Incident | null) =>
+  incident?.evidence_ids.join("\u0000") ?? "";
+
 /**
  * The workspace shell: a filtered queue on the left, the selected incident's
  * detail on the right. It is the only component in the module that receives
  * `invoke` and the only one that owns selection, per the module boundary rule.
- * Tasks 9-13 fill the rest of the detail region; today it carries the
- * incident summary and the deterministic narrative of its lifecycle.
+ * Tasks 11-13 fill the remaining detail region; today it carries the incident
+ * summary, deterministic narrative and association tabs.
  */
 export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<IncidentQueueFilter>({ status: "all" });
+  const [activeTabId, setActiveTabId] = useState<IncidentTabId>("alerts");
   const { incidents, loading, error, hasMore, loadMore } = useIncidentList(invoke);
   const timeline = useIncidentTimeline(invoke, selectedId);
+  const evidenceRequestRef = useRef(0);
 
   useEffect(() => {
     /*
@@ -68,6 +88,47 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
     () => incidents.find((incident) => incident.id === selectedId) ?? null,
     [incidents, selectedId]
   );
+  const selectedEvidenceKey = incidentEvidenceKey(selected);
+  const [incidentEvidence, setIncidentEvidence] =
+    useState<KeyedIncidentEvidence>(emptyIncidentEvidence);
+
+  if (
+    incidentEvidence.incidentId !== (selected?.id ?? null) ||
+    incidentEvidence.evidenceKey !== selectedEvidenceKey
+  ) {
+    setIncidentEvidence({
+      incidentId: selected?.id ?? null,
+      evidenceKey: selectedEvidenceKey,
+      states: statesForEvidence(selected ? { status: "loading" } : { status: "empty" })
+    });
+  }
+
+  useLayoutEffect(() => {
+    // Invalidate the old request in the commit before a settled promise can apply.
+    evidenceRequestRef.current += 1;
+  }, [selected?.id, selectedEvidenceKey]);
+
+  useEffect(() => {
+    if (selected === null) return;
+    const requestId = ++evidenceRequestRef.current;
+    const incidentId = selected.id;
+    const requestEvidenceKey = selectedEvidenceKey;
+    void resolveEvidence(invoke, selected.evidence_ids).then((resolved: EvidenceState) => {
+      if (requestId !== evidenceRequestRef.current) return;
+      setIncidentEvidence((current) => {
+        if (current.incidentId !== incidentId || current.evidenceKey !== requestEvidenceKey) {
+          return current;
+        }
+        return {
+          ...current,
+          states: statesForEvidence(resolved)
+        };
+      });
+    });
+    return () => {
+      evidenceRequestRef.current += 1;
+    };
+  }, [invoke, selected, selectedEvidenceKey]);
 
   const failure = error ?? timeline.error;
 
@@ -123,6 +184,12 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
               ) : timeline.error !== null && timeline.events.length === 0 ? null : (
                 <IncidentNarrative events={timeline.events} />
               )}
+              <IncidentTabs
+                incident={selected}
+                states={incidentEvidence.states}
+                activeId={activeTabId}
+                onSelect={setActiveTabId}
+              />
             </>
           ) : (
             <p className="incident-workspace__state">{t("incident.detailEmpty")}</p>

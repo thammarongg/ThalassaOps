@@ -8,7 +8,11 @@ import type { CommandEnvelope, IncidentTimelineEvent, Invoke } from "../../contr
 import { I18nProvider, i18n } from "../i18n";
 import en from "../locales/en";
 import { INCIDENT_TIMELINE_LIMIT } from "./incidentEnvelope";
-import { incidentFixturePage, incidentFixtureTimeline } from "./incident-fixtures";
+import {
+  incidentFixtureEvidence,
+  incidentFixturePage,
+  incidentFixtureTimeline
+} from "./incident-fixtures";
 import { IncidentWorkspace } from "./IncidentWorkspace";
 
 /*
@@ -51,7 +55,9 @@ const incidentInvokeMock = () =>
     Promise.resolve(
       name === "incident_list"
         ? { ok: true, value: incidentFixturePage }
-        : { ok: true, value: incidentFixtureTimeline }
+        : name === "correlation_evidence"
+          ? { ok: true, value: incidentFixtureEvidence }
+          : { ok: true, value: incidentFixtureTimeline }
     )
   ) as unknown as InvokeMock;
 
@@ -80,6 +86,22 @@ it("selects the first incident and loads its timeline", async () => {
     incident_id: incidentFixturePage.items[0].id,
     after_sequence: null,
     limit: INCIDENT_TIMELINE_LIMIT
+  });
+});
+
+it("resolves the selected incident's evidence once through correlation_evidence", async () => {
+  const invoke = incidentInvokeMock();
+  renderShell(invoke);
+
+  await waitFor(() =>
+    expect(invoke.mock.calls.filter((call) => call[0] === "correlation_evidence")).toHaveLength(1)
+  );
+
+  const evidenceCall = invoke.mock.calls.find((call) => call[0] === "correlation_evidence");
+  expect(evidenceCall?.[1].envelope.command).toBe("correlation.evidence");
+  expect(evidenceCall?.[1].envelope.capability).toBe("ResourceRead");
+  expect(evidenceCall?.[1].envelope.payload).toEqual({
+    evidence_ids: incidentFixturePage.items[0].evidence_ids
   });
 });
 
@@ -150,10 +172,12 @@ it("shows a translated timeline error without the false no-record state", async 
   const invoke = vi.fn((name: string) =>
     name === "incident_list"
       ? Promise.resolve({ ok: true, value: incidentFixturePage })
-      : Promise.resolve({
-          ok: false,
-          error: { code: "NOT_FOUND", message: "raw wire text", details: {} }
-        })
+      : name === "correlation_evidence"
+        ? Promise.resolve({ ok: true, value: incidentFixtureEvidence })
+        : Promise.resolve({
+            ok: false,
+            error: { code: "NOT_FOUND", message: "raw wire text", details: {} }
+          })
   ) as unknown as InvokeMock;
   renderShell(invoke);
 
