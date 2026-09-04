@@ -99,3 +99,16 @@ it("moves the selection with the arrow keys", async () => {
   await userEvent.keyboard("{End}");
   expect(onSelect).toHaveBeenLastCalledWith(incidentFixturePage.items[2].id);
 });
+
+it("keeps a tabbable row when the filter hides the selected incident", async () => {
+  const onSelect = vi.fn();
+  renderList({ selectedId: checkout.id, filter: { status: "triage" }, onSelect });
+
+  const only = queue().getByRole("option");
+  expect(only).toHaveAccessibleName(/search/i);
+  expect(only).toHaveAttribute("tabindex", "0");
+
+  only.focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(onSelect).toHaveBeenLastCalledWith(search.id);
+});

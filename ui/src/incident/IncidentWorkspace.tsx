@@ -101,7 +101,6 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
         </div>
         <div
           className="incident-workspace__detail"
-          aria-live="polite"
           data-incident-id={selected?.id ?? ""}
           data-timeline-events={timeline.events.length}
         >

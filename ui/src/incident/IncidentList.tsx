@@ -54,6 +54,16 @@ export function IncidentList({
     (incident) => filter.status === "all" || incident.status === filter.status
   );
 
+  /*
+   * The one row that holds the roving tab stop. It is the selected row when
+   * the filter still admits it; otherwise the first visible row, or the
+   * listbox would have no tabbable row at all after a filter change hid the
+   * selection.
+   */
+  const focusId = visible.some((incident) => incident.id === selectedId)
+    ? selectedId
+    : (visible[0]?.id ?? null);
+
   const moveTo = (index: number) => {
     const target = visible[Math.min(Math.max(index, 0), visible.length - 1)];
     if (!target) return;
@@ -65,14 +75,15 @@ export function IncidentList({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
-    const current = visible.findIndex((incident) => incident.id === selectedId);
-    const from = current === -1 ? 0 : current;
+    // A selection the filter hid is no position at all, so both arrows land on
+    // the first visible row rather than stepping away from a phantom index.
+    const current = visible.findIndex((incident) => incident.id === focusId);
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      moveTo(from + 1);
+      moveTo(current === -1 ? 0 : current + 1);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      moveTo(from - 1);
+      moveTo(current === -1 ? 0 : current - 1);
     } else if (event.key === "Home") {
       event.preventDefault();
       moveTo(0);
@@ -118,7 +129,7 @@ export function IncidentList({
                 role="option"
                 aria-selected={selected}
                 data-incident-id={incident.id}
-                tabIndex={selected || (selectedId === null && incident === visible[0]) ? 0 : -1}
+                tabIndex={incident.id === focusId ? 0 : -1}
                 className={
                   selected
                     ? "incident-queue__row incident-queue__row--selected"
