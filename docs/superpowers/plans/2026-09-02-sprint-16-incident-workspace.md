@@ -1980,7 +1980,7 @@ principal from the role assignment. 211 frontend tests green.
 - Consumes: the selected incident from the shell.
 - Produces: `IncidentSummaryCard({ incident, onCopy })` and `buildSummaryMarkdown(incident): string`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 const incident = incidentWithEvidenceAndComments;
@@ -2018,19 +2018,19 @@ passes by vacuity.
 The forbidden list is the spec's allowlist inverted: evidence excerpts, comment
 bodies, trigger payloads, role assignments and timeline reasons never leave.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/IncidentSummaryCard.test.tsx`
 Expected: FAIL with "buildSummaryMarkdown is not a function".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `buildSummaryMarkdown` reads exactly: id, summary, severity, derived severity,
 status, disposition, created and updated timestamps. It must be written as an
 explicit field list, never by serialising the incident object, so a new field
 added later is excluded by default rather than leaked by default.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
@@ -2038,6 +2038,11 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): add the incident summary card with a copy allowlist"
 ```
+
+Done: `00992db`. `buildSummaryMarkdown` is an explicit eight-field list, and the
+test asserts the fixture really carries the `AKIA` excerpt, the comment body and
+the `incident_commander` assignment before asserting that none of them reach the
+markdown, so the forbidden list cannot pass by vacuity.
 
 ---
 
@@ -2070,7 +2075,7 @@ git commit -m "feat(incident): add the incident summary card with a copy allowli
    change evidence for them would make this acceptance test green over a dead
    workspace, which is precisely the failure this test exists to prevent.
 
-- [ ] **Step 1: Write the acceptance test**
+- [x] **Step 1: Write the acceptance test**
 
 ```tsx
 it("lets a responder work one incident from triage to resolved without leaving the workspace", async () => {
@@ -2102,13 +2107,13 @@ it("lets a responder work one incident from triage to resolved without leaving t
 This covers the sprint exit criterion, including the vulnerability-finding case
 named in it.
 
-- [ ] **Step 2: Run it and fix what it finds**
+- [x] **Step 2: Run it and fix what it finds**
 
 Run: `npm test -- ui/src/incident/incident.acceptance.test.tsx`
 Expected: PASS. Failures here are integration gaps between tasks, not new
 features — fix them in place.
 
-- [ ] **Step 3: Run every gate**
+- [x] **Step 3: Run every gate**
 
 ```bash
 cargo fmt --all -- --check
@@ -2117,7 +2122,7 @@ cargo test 2>&1 | tail -5
 npm run format:check && npm run lint && npm run typecheck && npm test
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ui/src/incident
