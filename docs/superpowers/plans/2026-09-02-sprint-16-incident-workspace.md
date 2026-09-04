@@ -1493,7 +1493,7 @@ wiring — one `EvidenceState` per tab and a request-id ref that discards stale
 results, as all three existing workspaces do. Task 9 ships the helper and a
 pure panel; neither is reachable from the shell until Task 10 lands.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 it("returns empty without issuing a command when there are no ids", async () => {
@@ -1539,12 +1539,12 @@ exactly the ids the checkout fixture incident carries, and the test asserts
 `isEvidenceResponse(incidentFixtureEvidence, incidentFixtureIncident.evidence_ids)`
 before the panel test builds on it. Task 14 needs the same fixture.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/incidentEvidence.test.ts`
 Expected: FAIL — vite cannot resolve `./incidentEvidence`, so no test runs.
 
-- [ ] **Step 3: Implement resolveEvidence and the panel**
+- [x] **Step 3: Implement resolveEvidence and the panel**
 
 `resolveEvidence` short-circuits on an empty list, sorts and de-duplicates,
 calls `correlation_evidence`, validates the response with `isEvidenceResponse`
@@ -1556,7 +1556,7 @@ the native link, a `<dl>` of endpoint, query, observation time and excerpt, and
 the redaction line — with its own `incident.evidence.sources.*` keys rather than
 borrowing another module's namespace.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident
@@ -1564,6 +1564,8 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): resolve incident evidence with explicit failure states"
 ```
+
+Done: `92fe911`. 192 frontend tests green; no Rust surface changed.
 
 ---
 
