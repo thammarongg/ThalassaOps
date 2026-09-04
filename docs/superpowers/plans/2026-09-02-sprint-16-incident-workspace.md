@@ -1488,7 +1488,10 @@ which is the Sprint 14 failure shape: assert the command name in the test.
 **Notes for Task 10, not fixed here:** the aggregate type is `Incident`, not
 `IncidentDetail`, and it carries `trigger_ids`, not `triggers`
 (`ui/contracts/ipc.ts`, lines 985-1004), so the vulnerability tab's `select`
-cannot be written as that task's draft has it. Task 10 also owns the shell
+cannot be written as that task's draft has it. With one evidence store behind
+every tab, the draft's `topology` and `changes` tabs both select
+`incident.evidence_ids` and would resolve to the same evidence; design 5.3
+never says what separates them, and Task 10 has to settle that. Task 10 also owns the shell
 wiring — one `EvidenceState` per tab and a request-id ref that discards stale
 results, as all three existing workspaces do. Task 9 ships the helper and a
 pure panel; neither is reachable from the shell until Task 10 lands.
@@ -1565,7 +1568,8 @@ git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): resolve incident evidence with explicit failure states"
 ```
 
-Done: `92fe911`. 192 frontend tests green; no Rust surface changed.
+Done: `92fe911`, with `7671fd1` correcting the sort order to code points and the
+`POLICY_DENIED` copy. 193 frontend tests green; no Rust surface changed.
 
 ---
 
