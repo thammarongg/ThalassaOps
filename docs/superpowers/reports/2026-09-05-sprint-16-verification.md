@@ -86,6 +86,9 @@ checked against the Rust source rather than against the mock.
   CSS prefix and locale namespace. Extracting a shared entry would touch two
   shipped workspaces and was deliberately left out of this sprint.
 - The changes tab may belong on Sprint 14's `change_evidence` command rather
-  than the incident's evidence ids. That is a Sprint 17 design question.
+  than the incident's evidence ids. That is an open incident-workspace question
+  for whichever sprint next revisits incident associations — Sprint 19 is the
+  first that adds identifiers to an open incident. It is not Sprint 17 work;
+  Sprint 17 is the AI provider gateway.
 - Design section 13.2 records the incident summary as an accepted clipboard
   leak; Sprint 18 must route summaries through redaction, not only evidence.

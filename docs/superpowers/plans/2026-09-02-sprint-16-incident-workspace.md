@@ -1680,8 +1680,10 @@ not assert non-empty topology or changes**: an acceptance test that mocks
 `invoke` into returning change evidence would pass while both tabs are dead in
 the running app, which is the Sprint 14 failure shape. If the changes tab is
 meant to ride Sprint 14's own `change_evidence` command rather than the
-incident's evidence ids, that is a design question for Sprint 17, not a defect
-in Task 10.
+incident's evidence ids, that is an open incident-workspace question for
+whichever sprint next revisits incident associations — Sprint 19 is the first
+that adds identifiers to an open incident — not a defect in Task 10 and
+nothing to do with Sprint 17, which is the AI provider gateway.
 
 - [x] **Step 1: Write the failing test**
 
