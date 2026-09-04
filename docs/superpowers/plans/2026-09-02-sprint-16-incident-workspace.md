@@ -1657,6 +1657,25 @@ If the four tabs must instead be driven by trigger provenance, that is a
 backend change — embedding triggers in `Incident` or adding an
 `incident.triggers` command — and it is not in this sprint's plan.
 
+**Two of the four tabs are structurally empty today, under any approach.**
+`build_correlation_snapshot` normalizes seven source kinds and no others —
+`Alertmanager` / `Prometheus` / `HealthCheck` through `normalize_operational`,
+`Trivy` / `Falco` / `Kyverno` / `OpaGatekeeper` through `normalize_security`,
+everything else `UnsupportedSource` — and the snapshot's evidence is exactly
+`records.evidence_refs()`. The committed catalog holds no `github` / `gitlab` /
+`argo_cd` fixtures at all, and its two `Kubernetes` fixtures never normalize. So
+alerts and vulnerabilities carry evidence; topology and changes cannot until a
+later sprint adds those adapters. This is not a consequence of partitioning by
+`source_kind` — no incident evidence id of those kinds can exist — so it does
+not argue for the trigger-provenance alternative either. Render it as the
+`empty` state Task 9 already separates from `unavailable`, and **Task 14 must
+not assert non-empty topology or changes**: an acceptance test that mocks
+`invoke` into returning change evidence would pass while both tabs are dead in
+the running app, which is the Sprint 14 failure shape. If the changes tab is
+meant to ride Sprint 14's own `change_evidence` command rather than the
+incident's evidence ids, that is a design question for Sprint 17, not a defect
+in Task 10.
+
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
