@@ -1042,7 +1042,7 @@ no `t`, and every workspace in this repo translates a code through its own
 `MALFORMED_RESPONSE`, a rejected promise `INTERNAL_ERROR`, and an IPC error its
 own code; Task 7 does the translating.
 
-- [ ] **Step 1: Write the fixtures and assert the guards accept them**
+- [x] **Step 1: Write the fixtures and assert the guards accept them**
 
 In `incident-fixtures.ts`, one page of three incidents and one timeline of six
 events, all timestamped on `2026-08-28`, modelled on the literals in
@@ -1071,7 +1071,7 @@ it("ships fixtures the Task 4 guards accept", () => {
 });
 ```
 
-- [ ] **Step 2: Write the failing hook tests**
+- [x] **Step 2: Write the failing hook tests**
 
 ```ts
 it("pages the incident list with the cursor the page returned", async () => {
@@ -1114,12 +1114,12 @@ it("does not call invoke when no incident is selected", /* expect(invoke).not.to
 it("drops a page that arrives for a since-deselected incident", /* stale response, events stay empty */);
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `npx vitest run ui/src/incident/useIncidentList.test.ts`
 Expected: FAIL — the module does not exist.
 
-- [ ] **Step 4: Implement both hooks**
+- [x] **Step 4: Implement both hooks**
 
 Each hook keeps items, the resume token, `loading` and `error` in state, calls
 `invoke` with an `IncidentRead` envelope, runs the Task 4 guard on the response,
@@ -1138,12 +1138,12 @@ Three behaviours the original did not state:
 - `incidentId === null` returns empty state with `loading: false` and calls no
   command.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run ui/src/incident/useIncidentList.test.ts ui/src/incident/useIncidentTimeline.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Run the UI gate and commit**
+- [x] **Step 6: Run the UI gate and commit**
 
 ```bash
 npm run format:check && npm run lint && npm run typecheck && npm test
@@ -1155,23 +1155,80 @@ git commit -m "feat(incident): add incident list and timeline data hooks"
 
 ### Task 7: Workspace Shell and Incident List
 
+The original steps do not survive contact with the frozen contract. Four
+corrections, three of which are silent failures rather than red tests.
+
+- **`Incident` carries no priority.** `ui/contracts/ipc.ts:985-1004` has
+  `derived_severity` and `severity_override` and nothing else severity-shaped;
+  `ConsolePriority` exists only as a nullable, fixture-set field on
+  `IncidentQueueItem` (`ipc.ts:441-447`), and no code in `crates/` or
+  `src-tauri/` derives one from an incident. The design's file table (section
+  5.2, "severity and priority badges") predates that check. The UX rule is
+  "show severity separately from derived priority *wherever both are
+  available*" (`docs/design/ux-ui-concept.md:175`); for an incident only one
+  is. So the queue renders severity alone. A UI-side derivation would be a
+  domain rule the Rust side does not make, and a placeholder element would
+  still fail the original `toHaveTextContent("P1")`. Section 13's summary-card
+  field list does not name priority either, so this holds through Task 13.
+- **The badge must show the *effective* severity.** `severity_override.selected`
+  when an override is present, `derived_severity` otherwise. The search fixture
+  is exactly this case — derived `S2`, selected `S1` — so a component that
+  renders `derived_severity` alone passes a checkout-only test and hides every
+  override in the queue.
+- **`I18nProvider` takes only `children`** (`ui/src/i18n.tsx`). The original
+  `<I18nProvider i18n={i18n}>` is a typecheck failure.
+- **The shell test asserted the `invoke` that does not exist**, the same defect
+  Task 6 corrects: `expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ name: "incident.timeline" }))`
+  would pass against a shell that never called IPC. The real signature is two
+  positional arguments, and `incidentInvokeMock()` has to be written — nothing
+  in the repo provides it.
+
+Two further things the original left undefined:
+
+- **The filter is client-side.** `IncidentListRequest` is `{ cursor, limit }`
+  (`ipc.ts:1134`) — there is no status parameter. `IncidentList` filters the
+  incidents already loaded. A filter matching nothing on the loaded pages shows
+  the empty state rather than fetching further pages; that is a limitation to
+  state in the component's doc comment, not a defect to fix here.
+- **Selection is a listbox, not a pressed button.** `correlation` uses
+  `<button aria-pressed>`, but `getByRole("option", { selected: true })` reads
+  `aria-selected`, and the design fixes "one incident is selected at a time"
+  (section 4.1). So: `role="listbox"` on the container, `role="option"` with
+  `aria-selected` on each row, and the roving `tabIndex` plus
+  ArrowUp/ArrowDown/Home/End the pattern requires — a listbox whose options are
+  not `<button>`s gets no keyboard handling for free.
+
 **Files:**
 - Create: `ui/src/incident/IncidentWorkspace.tsx`, `ui/src/incident/IncidentList.tsx`, `ui/src/incident/incident.css`
 - Test: `ui/src/incident/IncidentWorkspace.test.tsx`, `ui/src/incident/IncidentList.test.tsx`
+- Modify: `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
 
 **Interfaces:**
-- Consumes: `useIncidentList`, `useIncidentTimeline` from Task 6.
+- Consumes: `useIncidentList`, `useIncidentTimeline`, `incidentFixturePage`,
+  `INCIDENT_TIMELINE_LIMIT` from Task 6.
 - Produces:
   - `IncidentWorkspace({ invoke }: { invoke: Invoke })`
-  - `IncidentList({ incidents, selectedId, onSelect, filter, onFilterChange })` — pure, no IPC.
-  - The shell passes `incident`, `events`, and callbacks down to the panels added by Tasks 8-13.
+  - `IncidentQueueFilter = { status: "all" | IncidentStatus }`
+  - `effectiveSeverity(incident: Incident): IncidentSeverity` — exported, so
+    Tasks 8-13 do not each re-derive it.
+  - `IncidentList({ incidents, selectedId, onSelect, filter, onFilterChange })`
+    — pure, no IPC, no hook from Task 6.
+  - The shell passes `incident`, `events`, and callbacks down to the panels
+    added by Tasks 8-13.
+
+**Locale keys.** Task 5's parity test makes a missing `th` key a red test, so
+both catalogs gain, under `incident`: `status.*` for all eight
+`IncidentStatus` values, `filter.label` and `filter.all`, `loadMore`,
+`detailEmpty`, `severityLabel`, and `errors.*` covering all ten
+`IpcErrorCode` variants (`ipc.ts:46-56`) — `WRITE_CONTENTION` included, since
+Task 3 added it and the shell's `localizedErrorKey` switch must be total.
 
 - [ ] **Step 1: Write the failing list test**
 
 ```tsx
-it("renders severity and priority as separate fields", () => {
+it("renders the effective severity, not the derived one, when an override is present", () => {
   render(
-    <I18nProvider i18n={i18n}>
+    <I18nProvider>
       <IncidentList
         incidents={incidentFixturePage.items}
         selectedId={null}
@@ -1181,9 +1238,11 @@ it("renders severity and priority as separate fields", () => {
       />
     </I18nProvider>
   );
-  const row = screen.getByRole("option", { name: /checkout/i });
-  expect(within(row).getByTestId("incident-severity")).toHaveTextContent("S1");
-  expect(within(row).getByTestId("incident-priority")).toHaveTextContent("P1");
+  const checkout = screen.getByRole("option", { name: /checkout/i });
+  expect(within(checkout).getByTestId("incident-severity")).toHaveTextContent("S1");
+  // derived S2, override selects S1
+  const search = screen.getByRole("option", { name: /search/i });
+  expect(within(search).getByTestId("incident-severity")).toHaveTextContent("S1");
 });
 
 it("calls onSelect with the incident id when a row is chosen", async () => {
@@ -1192,37 +1251,90 @@ it("calls onSelect with the incident id when a row is chosen", async () => {
   await userEvent.click(screen.getByRole("option", { name: /checkout/i }));
   expect(onSelect).toHaveBeenCalledWith(incidentFixturePage.items[0].id);
 });
+
+it("shows only the incidents the status filter admits", () => {
+  render(/* same tree, filter={{ status: "triage" }} */);
+  expect(screen.getAllByRole("option")).toHaveLength(1);
+  expect(screen.getByRole("option", { name: /search/i })).toBeInTheDocument();
+});
+
+it("moves the selection with the arrow keys", async () => {
+  const onSelect = vi.fn();
+  render(/* same tree, selectedId={items[0].id}, onSelect */);
+  screen.getByRole("option", { selected: true }).focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(onSelect).toHaveBeenCalledWith(incidentFixturePage.items[1].id);
+});
 ```
 
-`incident-severity` and `incident-priority` must be distinct elements. The spec
-forbids using one as a label for the other.
+No `incident-priority` element exists, so no test asserts one.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- ui/src/incident/IncidentList.test.tsx`
-Expected: FAIL with "IncidentList is not defined".
+Run: `npx vitest run ui/src/incident/IncidentList.test.tsx`
+Expected: FAIL — the module does not exist.
 
 - [ ] **Step 3: Implement IncidentList as a pure component**
 
 It receives arrays and callbacks only. It imports no hook from Task 6 and calls
-no `invoke`.
+no `invoke`. `effectiveSeverity` lives here and is exported.
 
 - [ ] **Step 4: Write the failing shell test**
 
+`incidentInvokeMock()` routes on the Tauri command name — the first positional
+argument — and returns the Task 6 fixtures:
+
 ```tsx
+const incidentInvokeMock = () =>
+  vi.fn((name: string) =>
+    Promise.resolve(
+      name === "incident_list"
+        ? { ok: true, value: incidentFixturePage }
+        : { ok: true, value: incidentFixtureTimeline }
+    )
+  );
+
 it("selects the first incident and loads its timeline", async () => {
   const invoke = incidentInvokeMock();
-  render(<I18nProvider i18n={i18n}><IncidentWorkspace invoke={invoke} /></I18nProvider>);
+  render(<I18nProvider><IncidentWorkspace invoke={invoke as unknown as Invoke} /></I18nProvider>);
   await waitFor(() => expect(screen.getByRole("option", { selected: true })).toBeInTheDocument());
-  expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ name: "incident.timeline" }));
+
+  const timeline = invoke.mock.calls.find((call) => call[0] === "incident_timeline");
+  expect(timeline).toBeDefined();
+  expect(timeline[1].envelope.command).toBe("incident.timeline");
+  expect(timeline[1].envelope.capability).toBe("IncidentRead");
+  expect(timeline[1].envelope.payload).toEqual({
+    incident_id: incidentFixturePage.items[0].id,
+    after_sequence: null,
+    limit: INCIDENT_TIMELINE_LIMIT
+  });
+});
+
+it("translates a list error code rather than printing it", async () => {
+  const invoke = vi.fn().mockResolvedValue({
+    ok: false,
+    error: { code: "PERMISSION_DENIED", message: "", details: {} }
+  });
+  render(/* the shell */);
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(en.incident.errors.permissionDenied)
+  );
 });
 ```
+
+`after_sequence` is `null` on the first page: `useIncidentTimeline` sends
+`sequenceRef.current`, which the selection effect resets before fetching. The
+fixture timeline's `incident_id` is the checkout incident — `items[0].id` —
+so auto-selecting the first row also satisfies the hook's stale-page check.
 
 - [ ] **Step 5: Implement the shell**
 
 The shell wires the two hooks, holds `selectedId` and the queue filter, and
 renders `IncidentList` plus a detail region that Tasks 8-13 fill. It is the only
-component in the module that receives `invoke`.
+component in the module that receives `invoke`. It selects the first incident
+once the first page arrives, and only while nothing is selected — re-selecting
+on every page would fight the user during `loadMore`. It owns the
+`localizedErrorKey` switch over all ten `IpcErrorCode` variants.
 
 - [ ] **Step 6: Run tests, gate, and commit**
 
