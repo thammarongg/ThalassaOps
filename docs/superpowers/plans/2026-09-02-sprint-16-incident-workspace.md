@@ -1444,60 +1444,117 @@ Done: `67ba921`. 168 frontend tests green; no Rust surface changed.
 **Files:**
 - Create: `ui/src/incident/incidentEvidence.ts`, `ui/src/incident/IncidentEvidencePanel.tsx`
 - Test: `ui/src/incident/incidentEvidence.test.ts`, `ui/src/incident/IncidentEvidencePanel.test.tsx`
+- Modify: `ui/src/incident/incident-fixtures.ts`, `ui/src/incident/incident.css`,
+  `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
 
 **Interfaces:**
 - Consumes: `Invoke` from the shell.
 - Produces:
   - `type EvidenceState = { status: "loading" } | { status: "empty" } | { status: "unavailable"; cause: "missing" | "scope" | "unverified" | "unknown" } | { status: "ready"; evidence: EvidenceRef[] }`
-  - `resolveEvidence(invoke: Invoke, command: string, ids: string[]): Promise<EvidenceState>`
+  - `resolveEvidence(invoke: Invoke, ids: ConsoleEvidenceId[]): Promise<EvidenceState>`
+
+**The command is `correlation_evidence`, not `operations.evidence`.** An incident's
+`evidence_ids` are the ids `normalize_operational` and `normalize_security`
+admitted into the `SourceRecordStore`
+(`src-tauri/src/incident/source.rs`, lines 182-186, over
+`crate::correlation::{correlation_fixture_catalog, SourceRecordStore}`), and the
+correlation snapshot's evidence set is exactly `records.evidence_refs()`
+(`src-tauri/src/app/correlation.rs`, line 285). The operations snapshot carries
+no security evidence at all — `evidence-security-trivy` exists only in
+`src-tauri/src/correlation/fixtures.rs` — so `operations_evidence` returns
+`NOT_FOUND` for any incident raised from a `vulnerability_finding` trigger and
+leaves that tab permanently unavailable. Mocked `invoke` tests cannot see this,
+which is the Sprint 14 failure shape: assert the command name in the test.
+
+**Three further facts the first draft of this task had wrong:**
+
+1. `Invoke` is `(command: string, args: { envelope: CommandEnvelope<T> })`
+   (`ui/contracts/ipc.ts`, line 1198) — two arguments. The tauri command name is
+   snake_case (`correlation_evidence`); the envelope's `command` field is
+   dotted (`correlation.evidence`), built with capability `ResourceRead` to
+   match `correlation_evidence_descriptor()`.
+2. Ids must be **sorted ascending as well as de-duplicated**.
+   `validate_correlation_evidence_ids` (`crates/thalassa-domain/src/lib.rs`,
+   lines 5097-5108) rejects an unsorted list with `DuplicateId`, which surfaces
+   as `INVALID_REQUEST`. Preserving arrival order is not enough: the
+   vulnerability tab flattens ids across triggers and has no sorted source.
+3. There are no `evidence_*` error codes. The wire codes are `IpcErrorCode`
+   (`src-tauri/src/app/correlation.rs`, lines 392-414): `NOT_FOUND` → `missing`,
+   `PERMISSION_DENIED` → `scope`, `POLICY_DENIED` → `unverified`, anything else
+   → `unknown`. `INVALID_REQUEST` means the helper sent an empty, duplicated or
+   unsorted list, so reaching it is a helper bug and `unknown` is the honest
+   cause. A rejected promise is also `unknown`.
+
+**Notes for Task 10, not fixed here:** the aggregate type is `Incident`, not
+`IncidentDetail`, and it carries `trigger_ids`, not `triggers`
+(`ui/contracts/ipc.ts`, lines 985-1004), so the vulnerability tab's `select`
+cannot be written as that task's draft has it. Task 10 also owns the shell
+wiring — one `EvidenceState` per tab and a request-id ref that discards stale
+results, as all three existing workspaces do. Task 9 ships the helper and a
+pure panel; neither is reachable from the shell until Task 10 lands.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 it("returns empty without issuing a command when there are no ids", async () => {
-  const invoke = vi.fn<Invoke>();
-  await expect(resolveEvidence(invoke, "operations.evidence", [])).resolves.toEqual({ status: "empty" });
+  const invoke = vi.fn();
+  await expect(resolveEvidence(invoke as unknown as Invoke, [])).resolves.toEqual({
+    status: "empty"
+  });
   expect(invoke).not.toHaveBeenCalled();
 });
 
-it("de-duplicates ids before requesting them", async () => {
-  const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: true, value: [] });
-  await resolveEvidence(invoke, "operations.evidence", ["a", "a", "b"]);
-  expect(invoke).toHaveBeenCalledWith(
-    expect.objectContaining({ payload: { evidence_ids: ["a", "b"] } })
-  );
+it("sorts and de-duplicates ids before requesting them", async () => {
+  const invoke = vi.fn().mockResolvedValue({ ok: true, value: [] });
+  await resolveEvidence(invoke as unknown as Invoke, ["b", "a", "a"]);
+  expect(invoke).toHaveBeenCalledWith("correlation_evidence", {
+    envelope: expect.objectContaining({
+      command: "correlation.evidence",
+      capability: "ResourceRead",
+      payload: { evidence_ids: ["a", "b"] }
+    })
+  });
 });
 
-it("maps each failure code to a distinct cause", async () => {
-  for (const [code, cause] of [
-    ["evidence_unknown_id", "missing"],
-    ["evidence_cross_scope", "scope"],
-    ["evidence_unverified", "unverified"]
-  ] as const) {
-    const invoke = vi.fn<Invoke>().mockResolvedValue({ ok: false, error: { code } });
-    await expect(resolveEvidence(invoke, "operations.evidence", ["a"])).resolves.toEqual({
-      status: "unavailable",
-      cause
-    });
-  }
-});
+it.each([
+  ["NOT_FOUND", "missing"],
+  ["PERMISSION_DENIED", "scope"],
+  ["POLICY_DENIED", "unverified"],
+  ["INVALID_REQUEST", "unknown"]
+])("maps %s to the %s cause", async (code, cause) => { /* ... */ });
 ```
 
-The empty-list and duplicate rules are not stylistic: `EmptyRequest` and
-`DuplicateId` are hard errors in the Rust evidence store and would make the tab
-permanently unavailable.
+The empty-list and duplicate rules are not stylistic: an empty or repeated id
+list is a hard error in the domain validator and would make the tab permanently
+unavailable rather than empty.
+
+Two more tests earn their place. A `ready` result is gated on
+`isEvidenceResponse(value, ids)` — the guard every other workspace already
+applies — and a response that does not match the request maps to
+`unavailable` / `unknown` rather than rendering unvalidated wire data. A
+rejected promise maps to `unavailable` / `unknown` rather than escaping.
+
+`incident-fixtures.ts` gains `incidentFixtureEvidence: EvidenceRef[]` covering
+exactly the ids the checkout fixture incident carries, and the test asserts
+`isEvidenceResponse(incidentFixtureEvidence, incidentFixtureIncident.evidence_ids)`
+before the panel test builds on it. Task 14 needs the same fixture.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/incidentEvidence.test.ts`
-Expected: FAIL with "resolveEvidence is not a function".
+Expected: FAIL — vite cannot resolve `./incidentEvidence`, so no test runs.
 
 - [ ] **Step 3: Implement resolveEvidence and the panel**
 
-`resolveEvidence` short-circuits on an empty list, de-duplicates while preserving
-order, calls the command, and maps error codes to causes. `IncidentEvidencePanel`
-is pure: it takes an `EvidenceState` and renders one of the four states with a
-distinct message per cause.
+`resolveEvidence` short-circuits on an empty list, sorts and de-duplicates,
+calls `correlation_evidence`, validates the response with `isEvidenceResponse`
+and maps error codes to causes. `IncidentEvidencePanel` is pure: it takes an
+`EvidenceState` and renders one of the four states, with a distinct message per
+cause under `incident.evidence.unavailable.*`. It follows
+`CorrelationEvidencePanel` — source heading, id, an `isTrustedNativeUrl` gate on
+the native link, a `<dl>` of endpoint, query, observation time and excerpt, and
+the redaction line — with its own `incident.evidence.sources.*` keys rather than
+borrowing another module's namespace.
 
 - [ ] **Step 4: Run tests, gate, and commit**
 
