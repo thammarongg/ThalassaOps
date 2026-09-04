@@ -57,9 +57,10 @@ const causeFor = (code: IpcErrorCode): EvidenceUnavailableCause => {
       return "scope";
     /*
      * `POLICY_DENIED` covers unverified redaction and the source-policy and
-     * audit-retention authorizers alike (`src-tauri/src/app/correlation.rs`,
-     * lines 165-199), so the copy this cause selects says policy withheld the
-     * evidence and does not name redaction as the reason.
+     * audit-retention authorizers alike (`authorize_correlation_source_policy`
+     * and `authorize_correlation_audit_retention`), so the copy this cause
+     * selects says policy withheld the evidence and does not name redaction as
+     * the reason.
      */
     case "POLICY_DENIED":
       return "unverified";
