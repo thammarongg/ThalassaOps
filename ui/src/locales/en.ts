@@ -912,6 +912,42 @@ const en = {
       invalidSeverityOverride: "The severity override was rejected.",
       writeContention: "Another change reached this incident first. Try again.",
       internalError: "The incident could not be loaded."
+    },
+    disposition: {
+      duplicate: "Duplicate",
+      false_positive: "False positive",
+      suppressed: "Suppressed",
+      cancelled: "Cancelled",
+      informational: "Informational"
+    },
+    role: {
+      owner: "Owner",
+      incident_commander: "Incident commander",
+      technical_lead: "Technical lead",
+      communications_lead: "Communications lead",
+      approver: "Approver",
+      change_owner: "Change owner",
+      stakeholder: "Stakeholder"
+    },
+    narrative: {
+      title: "Narrative",
+      caption: "The lifecycle record of this incident",
+      empty: "This incident has no lifecycle events yet",
+      none: "None",
+      columns: {
+        time: "Time",
+        actor: "Actor",
+        change: "What changed",
+        reason: "Reason"
+      },
+      kind: {
+        created: "Created",
+        triggersAttached: "Triggers attached",
+        statusTransitioned: "Status",
+        severityChanged: "Severity",
+        dispositionChanged: "Disposition",
+        roleChanged: "Role"
+      }
     }
   }
 } as const;

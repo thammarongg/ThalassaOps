@@ -84,3 +84,24 @@
   white-space: nowrap;
   border: 0;
 }
+
+.incident-narrative {
+  margin-top: var(--space-2);
+}
+
+.incident-narrative__change {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.incident-narrative__kind {
+  color: var(--color-fog);
+}
+
+/* Actor and reason are identifiers and free text an operator wrote; neither is
+   allowed to stretch the record's columns out of shape. */
+.incident-narrative__actor {
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}

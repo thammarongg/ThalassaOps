@@ -62,6 +62,23 @@ it("selects the first incident and loads its timeline", async () => {
   });
 });
 
+it("renders the selected incident's narrative from its timeline", async () => {
+  const invoke = incidentInvokeMock();
+  renderShell(invoke);
+
+  const narrative = await screen.findByRole("table", {
+    name: en.incident.narrative.caption
+  });
+  /*
+   * One row per lifecycle event plus the header. The fixture's comment is not
+   * among them: the narrative records what the system did.
+   */
+  const lifecycle = incidentFixtureTimeline.events.filter(
+    (event) => event.payload.kind !== "commented"
+  );
+  expect(within(narrative).getAllByRole("row")).toHaveLength(lifecycle.length + 1);
+});
+
 it("translates a list error code rather than printing it", async () => {
   const invoke = vi.fn().mockResolvedValue({
     ok: false,

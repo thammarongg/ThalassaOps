@@ -909,6 +909,42 @@ const th = {
       invalidSeverityOverride: "การแทนที่ระดับความรุนแรงถูกปฏิเสธ",
       writeContention: "มีการเปลี่ยนแปลงอื่นถึงเหตุการณ์นี้ก่อน กรุณาลองใหม่",
       internalError: "ไม่สามารถโหลดเหตุการณ์ได้"
+    },
+    disposition: {
+      duplicate: "ซ้ำกับเหตุการณ์อื่น",
+      false_positive: "แจ้งเตือนผิดพลาด",
+      suppressed: "ระงับการแจ้งเตือน",
+      cancelled: "ยกเลิก",
+      informational: "เพื่อทราบ"
+    },
+    role: {
+      owner: "เจ้าของ",
+      incident_commander: "ผู้บัญชาการเหตุการณ์",
+      technical_lead: "หัวหน้าทีมเทคนิค",
+      communications_lead: "หัวหน้าฝ่ายสื่อสาร",
+      approver: "ผู้อนุมัติ",
+      change_owner: "เจ้าของการเปลี่ยนแปลง",
+      stakeholder: "ผู้มีส่วนได้ส่วนเสีย"
+    },
+    narrative: {
+      title: "ลำดับเหตุการณ์",
+      caption: "บันทึกวงจรชีวิตของเหตุการณ์นี้",
+      empty: "เหตุการณ์นี้ยังไม่มีบันทึกวงจรชีวิต",
+      none: "ไม่มี",
+      columns: {
+        time: "เวลา",
+        actor: "ผู้ดำเนินการ",
+        change: "สิ่งที่เปลี่ยนแปลง",
+        reason: "เหตุผล"
+      },
+      kind: {
+        created: "สร้างเหตุการณ์",
+        triggersAttached: "แนบทริกเกอร์",
+        statusTransitioned: "สถานะ",
+        severityChanged: "ระดับความรุนแรง",
+        dispositionChanged: "การจัดประเภท",
+        roleChanged: "บทบาท"
+      }
     }
   }
 } as const;

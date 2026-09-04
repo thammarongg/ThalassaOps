@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Invoke, IpcErrorCode } from "../../contracts/ipc";
 import { useTranslation } from "../i18n";
 import { IncidentList, type IncidentQueueFilter } from "./IncidentList";
+import { IncidentNarrative } from "./IncidentNarrative";
 import { useIncidentList } from "./useIncidentList";
 import { useIncidentTimeline } from "./useIncidentTimeline";
 import "./incident.css";
@@ -43,8 +44,8 @@ const localizedErrorKey = (code: IpcErrorCode): string => {
  * The workspace shell: a filtered queue on the left, the selected incident's
  * detail on the right. It is the only component in the module that receives
  * `invoke` and the only one that owns selection, per the module boundary rule.
- * Tasks 8-13 fill the detail region; today it carries the incident and its
- * timeline and nothing renders them yet.
+ * Tasks 9-13 fill the rest of the detail region; today it carries the
+ * incident summary and the deterministic narrative of its lifecycle.
  */
 export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
   const { t } = useTranslation();
@@ -106,7 +107,10 @@ export function IncidentWorkspace({ invoke }: { invoke: Invoke }) {
         >
           <h3>{t("incident.detailTitle")}</h3>
           {selected ? (
-            <p className="incident-workspace__detail-summary">{selected.summary}</p>
+            <>
+              <p className="incident-workspace__detail-summary">{selected.summary}</p>
+              <IncidentNarrative events={timeline.events} />
+            </>
           ) : (
             <p className="incident-workspace__state">{t("incident.detailEmpty")}</p>
           )}
