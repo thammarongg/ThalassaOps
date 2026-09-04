@@ -941,6 +941,24 @@ const en = {
         unavailable: "The comment could not be added. Try again."
       }
     },
+    actions: {
+      title: "Actions",
+      currentStatus: "Current status:",
+      statusLabel: "Move incident",
+      moveTo: "Move to {{status}}",
+      severityLabel: "Set severity",
+      setSeverity: "Set {{severity}}",
+      roleLabel: "Role",
+      principalLabel: "Principal ID",
+      assign: "Assign role",
+      retry: "Retry command",
+      conflict:
+        "The incident changed by actor ID {{actor}} at {{at}}; your command was not applied.",
+      errors: {
+        rejected: "The incident action was rejected.",
+        unavailable: "The incident action could not be completed. Try again."
+      }
+    },
     disposition: {
       duplicate: "Duplicate",
       false_positive: "False positive",

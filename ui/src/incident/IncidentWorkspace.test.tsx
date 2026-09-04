@@ -115,9 +115,10 @@ it("submits a comment for the selected incident through incident_add_comment", a
   const invoke = incidentInvokeMock();
   renderShell(invoke);
 
-  const composer = await screen.findByRole("textbox");
+  const comments = await screen.findByRole("region", { name: en.incident.comments.title });
+  const composer = within(comments).getByRole("textbox");
   await user.type(composer, "paged the on-call");
-  await user.click(screen.getByRole("button", { name: /add comment/i }));
+  await user.click(within(comments).getByRole("button", { name: /add comment/i }));
 
   await waitFor(() =>
     expect(invoke.mock.calls.filter((call) => call[0] === "incident_add_comment")).toHaveLength(1)
@@ -128,6 +129,154 @@ it("submits a comment for the selected incident through incident_add_comment", a
   expect(commentCall?.[1].envelope.payload).toEqual({
     incident_id: incidentFixturePage.items[0].id,
     body: "paged the on-call"
+  });
+});
+
+it("reloads the incident and newest timeline event after a version conflict", async () => {
+  const user = userEvent.setup();
+  const actor = "99999999-9999-4999-8999-999999999999";
+  const occurredAt = "2026-08-28T09:15:00Z";
+  const latestIncident = {
+    ...incidentFixturePage.items[0],
+    status: "mitigating" as const,
+    version: incidentFixturePage.items[0].version + 1,
+    updated_at: occurredAt
+  };
+  const latestEvent: IncidentTimelineEvent = {
+    ...incidentFixtureTimeline.events[5],
+    id: "1a000000-0000-4000-8000-000000000007",
+    sequence: 7,
+    kind: "status_transitioned",
+    actor_id: actor,
+    occurred_at: occurredAt,
+    payload: {
+      kind: "status_transitioned",
+      data: {
+        from: "investigating",
+        to: "mitigating",
+        transition: {
+          target: "mitigating",
+          context: {
+            action_description: "Restarted the checkout gateway",
+            executor: actor,
+            expected_impact: "Card payments recover"
+          }
+        }
+      }
+    }
+  };
+  const latestTimeline = {
+    ...incidentFixtureTimeline,
+    events: [...incidentFixtureTimeline.events, latestEvent],
+    next_sequence: 7
+  };
+  let timelineCalls = 0;
+  const invoke = vi.fn((name: string) => {
+    if (name === "incident_list") return Promise.resolve({ ok: true, value: incidentFixturePage });
+    if (name === "correlation_evidence") {
+      return Promise.resolve({ ok: true, value: incidentFixtureEvidence });
+    }
+    if (name === "incident_transition") {
+      return Promise.resolve({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "incident request was rejected",
+          details: { reason: "incident_version_conflict" }
+        }
+      });
+    }
+    if (name === "incident_get") return Promise.resolve({ ok: true, value: latestIncident });
+    timelineCalls += 1;
+    return Promise.resolve({
+      ok: true,
+      value: timelineCalls === 1 ? incidentFixtureTimeline : latestTimeline
+    });
+  }) as unknown as InvokeMock;
+  renderShell(invoke);
+
+  await screen.findByRole("table", { name: en.incident.narrative.caption });
+  await user.click(await screen.findByRole("button", { name: /mitigating/i }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(actor));
+
+  expect(invoke.mock.calls.filter((call) => call[0] === "incident_transition")).toHaveLength(1);
+  const getCall = invoke.mock.calls.find((call) => call[0] === "incident_get");
+  expect(getCall?.[1].envelope.command).toBe("incident.get");
+  expect(getCall?.[1].envelope.capability).toBe("IncidentRead");
+  expect(getCall?.[1].envelope.payload).toEqual({
+    incident_id: incidentFixturePage.items[0].id
+  });
+  expect(invoke.mock.calls.filter((call) => call[0] === "incident_timeline")).toHaveLength(2);
+  expect(screen.getByRole("alert")).toHaveTextContent(occurredAt);
+  expect(screen.getByRole("alert")).toHaveTextContent(/not applied/i);
+});
+
+it("sends the exact versioned payload for status, severity, and role actions", async () => {
+  const user = userEvent.setup();
+  const invoke = incidentInvokeMock();
+  const incident = incidentFixturePage.items[0];
+  const principal = "12345678-1234-4123-8123-123456789012";
+  renderShell(invoke);
+
+  await screen.findByRole("table", { name: en.incident.narrative.caption });
+
+  await user.click(screen.getByRole("button", { name: /mitigating/i }));
+  await waitFor(() =>
+    expect(invoke.mock.calls.filter((call) => call[0] === "incident_transition")).toHaveLength(1)
+  );
+  expect(
+    invoke.mock.calls.find((call) => call[0] === "incident_transition")?.[1].envelope.payload
+  ).toEqual({
+    incident_id: incident.id,
+    expected_version: incident.version,
+    transition: {
+      target: "mitigating",
+      context: {
+        action_description: incident.summary,
+        executor: incident.roles[0].principal_id,
+        expected_impact: incident.business_impact.summary
+      }
+    }
+  });
+
+  await user.click(screen.getByRole("button", { name: "Set S2" }));
+  await waitFor(() =>
+    expect(invoke.mock.calls.filter((call) => call[0] === "incident_set_severity")).toHaveLength(1)
+  );
+  expect(
+    invoke.mock.calls.find((call) => call[0] === "incident_set_severity")?.[1].envelope.payload
+  ).toEqual({
+    incident_id: incident.id,
+    expected_version: incident.version,
+    command: {
+      action: "override",
+      details: {
+        selected: "S2",
+        reason: incident.summary,
+        evidence_ids: incident.evidence_ids
+      }
+    }
+  });
+
+  await user.selectOptions(
+    screen.getByLabelText(en.incident.actions.roleLabel),
+    "incident_commander"
+  );
+  await user.clear(screen.getByLabelText(en.incident.actions.principalLabel));
+  await user.type(screen.getByLabelText(en.incident.actions.principalLabel), principal);
+  await user.click(screen.getByRole("button", { name: en.incident.actions.assign }));
+  await waitFor(() =>
+    expect(invoke.mock.calls.filter((call) => call[0] === "incident_assign_role")).toHaveLength(1)
+  );
+  expect(
+    invoke.mock.calls.find((call) => call[0] === "incident_assign_role")?.[1].envelope.payload
+  ).toEqual({
+    incident_id: incident.id,
+    expected_version: incident.version,
+    command: {
+      action: "assign",
+      details: { role: "incident_commander", principal_id: principal }
+    }
   });
 });
 

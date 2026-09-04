@@ -938,6 +938,23 @@ const th = {
         unavailable: "ไม่สามารถเพิ่มความคิดเห็นได้ กรุณาลองใหม่"
       }
     },
+    actions: {
+      title: "การดำเนินการ",
+      currentStatus: "สถานะปัจจุบัน:",
+      statusLabel: "เปลี่ยนเหตุการณ์ไปที่",
+      moveTo: "เปลี่ยนไปที่{{status}}",
+      severityLabel: "ตั้งระดับความรุนแรง",
+      setSeverity: "ตั้งเป็น {{severity}}",
+      roleLabel: "บทบาท",
+      principalLabel: "รหัสผู้ใช้",
+      assign: "กำหนดบทบาท",
+      retry: "ลองคำสั่งอีกครั้ง",
+      conflict: "เหตุการณ์ถูกเปลี่ยนโดยรหัส actor {{actor}} เมื่อ {{at}}; ไม่ได้ใช้คำสั่งของคุณ",
+      errors: {
+        rejected: "การดำเนินการกับเหตุการณ์ถูกปฏิเสธ",
+        unavailable: "ไม่สามารถดำเนินการกับเหตุการณ์ได้ กรุณาลองใหม่"
+      }
+    },
     disposition: {
       duplicate: "ซ้ำกับเหตุการณ์อื่น",
       false_positive: "แจ้งเตือนผิดพลาด",
