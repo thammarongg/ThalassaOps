@@ -1351,43 +1351,82 @@ git commit -m "feat(incident): add the incident workspace shell and queue"
 
 **Files:**
 - Create: `ui/src/incident/IncidentNarrative.tsx`, `ui/src/incident/IncidentNarrative.test.tsx`
+- Modify: `ui/src/incident/IncidentWorkspace.tsx` and its test, `ui/src/incident/incident.css`,
+  `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
 
 **Interfaces:**
 - Consumes: `IncidentTimelineEvent` from Task 4, rendered by the shell from Task 7.
 - Produces: `IncidentNarrative({ events }: { events: IncidentTimelineEvent[] })` — pure.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
+
+`I18nProvider` takes no props: it wraps the module-level `i18n` singleton
+itself (`ui/src/i18n.tsx`), so `<I18nProvider i18n={i18n}>` does not typecheck.
+The fixture's only comment body is "Payment provider confirms a regional
+outage on their side", so that is what the exclusion assertion must look for.
 
 ```tsx
+const events = incidentFixtureTimeline.events;
+const lifecycle = events.filter((event) => event.payload.kind !== "commented");
+const bodyRows = () => screen.getAllByRole("row").slice(1);
+
 it("renders lifecycle events as a record and excludes comments", () => {
   render(
-    <I18nProvider i18n={i18n}>
-      <IncidentNarrative events={incidentFixtureTimeline.events} />
+    <I18nProvider>
+      <IncidentNarrative events={events} />
     </I18nProvider>
   );
+  expect(bodyRows()).toHaveLength(lifecycle.length);
   expect(screen.getByText(/investigating/i)).toBeInTheDocument();
-  expect(screen.queryByText(/checked the dashboards/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/regional outage/i)).not.toBeInTheDocument();
 });
 
 it("renders each row with a timestamp, actor, change and reason column", () => {
   render(/* same tree */);
-  const row = screen.getAllByRole("row")[1];
-  expect(within(row).getAllByRole("cell")).toHaveLength(4);
+  expect(within(bodyRows()[0]).getAllByRole("cell")).toHaveLength(4);
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+Four more tests earn their place. Sequence ordering is asserted on the
+machine-readable `datetime` attribute rather than the rendered text, which
+`toLocaleString` formats differently on every host. `disposition_changed` and
+`role_changed` never occur on the fixture incident, so they are constructed in
+the test — without them half the description switch is unexercised and could
+render a blank cell in production. The remaining two cover a reason and its
+absence, and the empty state.
+
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- ui/src/incident/IncidentNarrative.test.tsx`
-Expected: FAIL with "IncidentNarrative is not defined".
+Expected: FAIL — vite cannot resolve `./IncidentNarrative`, so no test runs.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-Filter `events` to the six lifecycle kinds, drop `commented`, and render a table
-with timestamp, actor, what changed and reason. Do not compose sentences; the
-spec fixes this as a formatted record for translation and Sprint 19 reasons.
+Render through the design-system `Table` (`captionKey`, `columns`, `rows`),
+which every other tabular surface in the UI already uses and which supplies the
+header row and four `<td>` cells the tests assert. Filter on `payload.kind`,
+not `event.kind`: the payload discriminant is `"created"` where the event kind
+is `"incident_created"`. Type the description function over
+`Exclude<IncidentTimelinePayload, { kind: "commented" }>` with a `never`
+default, so a kind added to the contract fails the typecheck rather than
+rendering a blank cell.
 
-- [ ] **Step 4: Run tests, gate, and commit**
+Each change is a label and a value — never a composed sentence — per design 15.
+`triggers_attached` shows a bare count; the association tabs resolve the ids.
+Severity codes are identical in both catalogs and so are not translation keys,
+but statuses, dispositions and roles are: `incident.disposition.*` and
+`incident.role.*` are new in this task and go into `en.ts` and `th.ts` in this
+commit, or Task 5's parity test goes red.
+
+`actor_id` renders raw. No principal directory reaches the UI in this sprint,
+and an invented display name would misattribute a change on an audit surface.
+Sort by `sequence` in the component rather than trusting page order, because a
+resumed read appends.
+
+Wire it into the shell's detail region in this task: Task 7 left that region a
+placeholder, and Task 14's acceptance test composes the whole surface.
+
+- [x] **Step 4: Run tests, gate, and commit**
 
 ```bash
 npm test -- ui/src/incident/IncidentNarrative.test.tsx
@@ -1395,6 +1434,8 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git add ui/src/incident ui/src/locales
 git commit -m "feat(incident): render the deterministic incident narrative"
 ```
+
+Done: `67ba921`. 168 frontend tests green; no Rust surface changed.
 
 ---
 
