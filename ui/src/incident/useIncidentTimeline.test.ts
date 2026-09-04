@@ -9,7 +9,7 @@ import type {
   Invoke,
   IpcResult
 } from "../../contracts/ipc";
-import { INCIDENT_TIMELINE_LIMIT } from "./incident-envelope";
+import { INCIDENT_TIMELINE_LIMIT } from "./incidentEnvelope";
 import {
   incidentFixtureCheckoutId,
   incidentFixtureSearchId,

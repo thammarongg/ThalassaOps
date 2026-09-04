@@ -4,7 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { isIncidentPage, isIncidentTimelinePage } from "../../contracts/guards";
 import type { CommandEnvelope, Invoke, IpcResult } from "../../contracts/ipc";
-import { INCIDENT_PAGE_LIMIT } from "./incident-envelope";
+import { INCIDENT_PAGE_LIMIT } from "./incidentEnvelope";
 import {
   incidentFixtureCursor,
   incidentFixturePage,

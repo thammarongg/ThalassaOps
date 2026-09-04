@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { CommandEnvelope, IncidentTimelineEvent, Invoke } from "../../contracts/ipc";
 import { I18nProvider, i18n } from "../i18n";
 import en from "../locales/en";
-import { INCIDENT_TIMELINE_LIMIT } from "./incident-envelope";
+import { INCIDENT_TIMELINE_LIMIT } from "./incidentEnvelope";
 import { incidentFixturePage, incidentFixtureTimeline } from "./incident-fixtures";
 import { IncidentWorkspace } from "./IncidentWorkspace";
 

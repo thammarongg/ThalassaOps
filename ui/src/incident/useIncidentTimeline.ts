@@ -9,7 +9,7 @@ import type {
   Invoke,
   IpcErrorCode
 } from "../../contracts/ipc";
-import { INCIDENT_TIMELINE_LIMIT, incidentEnvelope } from "./incident-envelope";
+import { INCIDENT_TIMELINE_LIMIT, incidentEnvelope } from "./incidentEnvelope";
 
 export type IncidentTimelineState = {
   events: IncidentTimelineEvent[];

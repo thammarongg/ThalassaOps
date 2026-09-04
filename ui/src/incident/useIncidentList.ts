@@ -9,7 +9,7 @@ import type {
   Invoke,
   IpcErrorCode
 } from "../../contracts/ipc";
-import { INCIDENT_PAGE_LIMIT, incidentEnvelope } from "./incident-envelope";
+import { INCIDENT_PAGE_LIMIT, incidentEnvelope } from "./incidentEnvelope";
 
 export type IncidentListState = {
   incidents: Incident[];
