@@ -546,6 +546,16 @@ plumbing it saves. Section 13.6 is the resulting contract.
    what closes it; until then, do not read a permitted egress as evidence that
    the content held no credential.
 
+9. **The provider surface is not mounted in the application shell.** Task 12
+   builds `AiProviderPanel`, `AiProviderForm` and `AiFallbackOrder`, and Task 13
+   exercises them from fixtures, but `ui/src/shell.tsx` imports none of them and
+   its `Area` union has no `ai` member, so nothing in the running application
+   routes to them. This is not a Task 12 omission — neither task's file list
+   includes `shell.tsx` — and Sprint 16's incident components are in the same
+   state: `"incidents"` is in the navigation list with no component wired behind
+   it. Two sprints of UI now ship tested and unreachable. Whether to mount them
+   is an open decision, not an accepted debt; it needs a task of its own.
+
 
 ## 16. Testing
 
