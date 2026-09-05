@@ -6489,3 +6489,260 @@ impl OperationsSnapshot {
         }
     }
 }
+
+/// Maximum characters accepted in one model message or instruction.
+pub const MODEL_MESSAGE_MAXIMUM: usize = INCIDENT_NOTE_MAXIMUM;
+/// Maximum duration accepted for one model request.
+pub const MODEL_TIMEOUT_MAXIMUM_MS: u64 = 5 * 60 * 1_000;
+
+/// The policy crate owns the data-class enum.  The domain contract keeps the
+/// caller's label opaque so the domain crate does not depend on policy or
+/// duplicate its enum; the gateway resolves it at the policy boundary.
+pub type ModelDataClass = String;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelRequest {
+    pub request_id: Uuid,
+    pub instruction: Option<String>,
+    pub messages: Vec<ModelMessage>,
+    pub data_class: ModelDataClass,
+    pub budget: ModelBudget,
+    pub timeout_ms: u64,
+    pub model: ModelSelector,
+    pub failover: FailoverPermission,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelMessage {
+    pub role: ModelRole,
+    pub content: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRole {
+    System,
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSelector {
+    Explicit {
+        provider_id: String,
+        model_id: String,
+    },
+    Capability(ModelCapabilityRequirement),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelCapabilityRequirement {
+    pub min_context_window_tokens: Option<u64>,
+    pub min_output_tokens: Option<u64>,
+    pub requires_system_instruction: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailoverPermission {
+    Forbidden,
+    Permitted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelBudget {
+    pub max_input_tokens: Option<u64>,
+    pub max_output_tokens: u64,
+    pub max_cost_micros: Option<u64>,
+}
+
+impl Default for ModelBudget {
+    fn default() -> Self {
+        Self {
+            max_input_tokens: None,
+            max_output_tokens: 4_096,
+            max_cost_micros: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelResponse {
+    pub request_id: Uuid,
+    pub provider_id: String,
+    pub model_id: String,
+    pub content: String,
+    pub usage: ModelUsage,
+    pub finish: ModelFinishReason,
+    pub attempts: Vec<ModelAttempt>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelAttempt {
+    pub provider_id: String,
+    pub model_id: String,
+    pub outcome: ModelAttemptOutcome,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelAttemptOutcome {
+    Answered,
+    Failed(ProviderErrorReason),
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cost_micros: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelFinishReason {
+    Complete,
+    MaxOutputTokens,
+    Cancelled,
+    ProviderStop,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderErrorReason {
+    Unreachable,
+    Unauthorized,
+    ModelUnavailable,
+    RateLimited,
+    BudgetExhausted,
+    MalformedResponse,
+    InvalidRequest,
+    DeadlineExceeded,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    OpenAiCompatible,
+    Anthropic,
+    Ollama,
+    Vllm,
+}
+
+impl ProviderKind {
+    pub fn is_local(self) -> bool {
+        matches!(self, Self::Ollama | Self::Vllm)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderHealth {
+    Healthy,
+    Unreachable,
+    Unauthorized,
+    ModelUnavailable,
+    RateLimited,
+    BudgetExhausted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModelDescriptor {
+    pub id: String,
+    pub context_window_tokens: u64,
+    pub max_output_tokens: u64,
+    pub supports_system_instruction: bool,
+    pub input_cost_micros_per_million_tokens: Option<u64>,
+    pub output_cost_micros_per_million_tokens: Option<u64>,
+}
+
+impl ModelDescriptor {
+    pub fn new(
+        id: impl Into<String>,
+        context_window_tokens: u64,
+        max_output_tokens: u64,
+        supports_system_instruction: bool,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            context_window_tokens,
+            max_output_tokens,
+            supports_system_instruction,
+            input_cost_micros_per_million_tokens: None,
+            output_cost_micros_per_million_tokens: None,
+        }
+    }
+
+    pub fn with_pricing(
+        mut self,
+        input_cost_micros_per_million_tokens: u64,
+        output_cost_micros_per_million_tokens: u64,
+    ) -> Self {
+        self.input_cost_micros_per_million_tokens = Some(input_cost_micros_per_million_tokens);
+        self.output_cost_micros_per_million_tokens = Some(output_cost_micros_per_million_tokens);
+        self
+    }
+
+    pub fn satisfies(&self, requirement: &ModelCapabilityRequirement) -> bool {
+        requirement
+            .min_context_window_tokens
+            .is_none_or(|minimum| self.context_window_tokens >= minimum)
+            && requirement
+                .min_output_tokens
+                .is_none_or(|minimum| self.max_output_tokens >= minimum)
+            && (!requirement.requires_system_instruction || self.supports_system_instruction)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum ModelRequestError {
+    #[error("a model request must contain at least one message")]
+    EmptyMessages,
+    #[error("model instruction is invalid: {reason}")]
+    InvalidInstruction { reason: IncidentError },
+    #[error("model message {index} is invalid: {reason}")]
+    InvalidMessage { index: usize, reason: IncidentError },
+    #[error("model request data class is empty")]
+    EmptyDataClass,
+    #[error("model request timeout must be between 1 and {MODEL_TIMEOUT_MAXIMUM_MS} milliseconds")]
+    InvalidTimeout,
+    #[error("model request budget is invalid")]
+    InvalidBudget,
+    #[error("model selector contains an empty provider or model id")]
+    InvalidModelSelector,
+}
+
+/// Validates the caller-facing model request before provider selection.
+pub fn validate_model_request(request: &ModelRequest) -> Result<(), ModelRequestError> {
+    if request.messages.is_empty() {
+        return Err(ModelRequestError::EmptyMessages);
+    }
+    if let Some(instruction) = &request.instruction {
+        validate_incident_text(instruction, MODEL_MESSAGE_MAXIMUM)
+            .map_err(|reason| ModelRequestError::InvalidInstruction { reason })?;
+    }
+    for (index, message) in request.messages.iter().enumerate() {
+        validate_incident_text(&message.content, MODEL_MESSAGE_MAXIMUM)
+            .map_err(|reason| ModelRequestError::InvalidMessage { index, reason })?;
+    }
+    if request.data_class.trim().is_empty() {
+        return Err(ModelRequestError::EmptyDataClass);
+    }
+    if request.timeout_ms == 0 || request.timeout_ms > MODEL_TIMEOUT_MAXIMUM_MS {
+        return Err(ModelRequestError::InvalidTimeout);
+    }
+    if request.budget.max_output_tokens == 0 || request.budget.max_input_tokens == Some(0) {
+        return Err(ModelRequestError::InvalidBudget);
+    }
+    match &request.model {
+        ModelSelector::Explicit {
+            provider_id,
+            model_id,
+        } if provider_id.trim().is_empty() || model_id.trim().is_empty() => {
+            Err(ModelRequestError::InvalidModelSelector)
+        }
+        _ => Ok(()),
+    }
+}
