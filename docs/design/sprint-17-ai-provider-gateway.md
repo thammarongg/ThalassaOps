@@ -556,6 +556,36 @@ plumbing it saves. Section 13.6 is the resulting contract.
    it. Two sprints of UI now ship tested and unreachable. Whether to mount them
    is an open decision, not an accepted debt; it needs a task of its own.
 
+10. **Nothing writes to the audit store.** Task 5 built `AiRequestStore` and
+    migration 0007, and `apply_migrations` creates both tables, but
+    `record_request` has no caller: `AppState` holds no store handle and
+    `complete_model` returns the gateway's answer without recording anything.
+    Section 5 promises "an audit record per model request" and section 8 has the
+    window accounting reading usage back out of it, so this is not a missing
+    line of plumbing — three contract mismatches have to be settled first, and
+    each is a decision rather than a fix:
+
+    - `record_request` refuses an empty attempt list, but the policy check runs
+      before the first attempt is pushed, so a policy-denied request has no
+      attempt to record. Either the store accepts an attempt-less refusal or the
+      promise of a record per request does not hold for denials.
+    - `GatewayError` carries no attempts. Every failing path drops the vector
+      the gateway built, so a failover that burned tokens before giving up is
+      unrecoverable from the return shape.
+    - `AiAttemptRecord` wants per-attempt `ModelUsage`, and neither
+      `ModelAttempt` nor `ProviderError` carries any. Section 9's "a failed
+      attempt that still consumed tokens is not lost" has no field to travel in.
+
+    Wiring the store now would either record successes only, contradicting
+    section 5, or write a zero `ModelUsage` for failed attempts — a value that
+    passes every validator and states something nobody observed, which is the
+    Sprint 16 Task 12 defect in a new place. The same root cause makes
+    `WindowBudget` inert: `complete_model` builds a fresh `BudgetLedger` per
+    request, so nothing accumulates across calls. Task 13 therefore asserts the
+    first two of its three Rust bullets and leaves the store one unasserted.
+    Closing this needs its own task, and it blocks the Sprint 18 redaction work
+    that expects rows to exist.
+
 
 ## 16. Testing
 
