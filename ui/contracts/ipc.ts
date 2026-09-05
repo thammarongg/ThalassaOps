@@ -21,7 +21,8 @@ export type Capability =
   | "PolicyEvaluate"
   | "PolicyManage"
   | "ConnectorRead"
-  | "ConnectorAct";
+  | "ConnectorAct"
+  | "AiInvoke";
 
 export type Permission =
   | "Read"
@@ -109,6 +110,99 @@ export type ConnectorSummary = {
 };
 export type ConnectorLogEntry = { id: string; checked_at: string; outcome: StatusState; message: string };
 export type ConnectorDiagnostics = { connector: ConnectorSummary; manifest: ConnectorManifest; logs: ConnectorLogEntry[] };
+
+export type ContentDeclaration = "operator_declared";
+export type ModelRole = "system" | "user" | "assistant";
+export type ModelMessage = { role: ModelRole; content: string };
+export type ModelCapabilityRequirement = {
+  min_context_window_tokens: number | null;
+  min_output_tokens: number | null;
+  requires_system_instruction: boolean;
+};
+export type ModelSelector =
+  | { explicit: { provider_id: string; model_id: string } }
+  | { capability: ModelCapabilityRequirement };
+export type FailoverPermission = "forbidden" | "permitted";
+export type ModelBudget = {
+  max_input_tokens: number | null;
+  max_output_tokens: number;
+  max_cost_micros: number | null;
+};
+export type ModelDescriptor = {
+  id: string;
+  context_window_tokens: number;
+  max_output_tokens: number;
+  supports_system_instruction: boolean;
+  input_cost_micros_per_million_tokens: number | null;
+  output_cost_micros_per_million_tokens: number | null;
+};
+export type ProviderKind = "open_ai_compatible" | "anthropic" | "ollama" | "vllm";
+export type ProviderHealth =
+  | "healthy"
+  | "unreachable"
+  | "unauthorized"
+  | "model_unavailable"
+  | "rate_limited"
+  | "budget_exhausted";
+export type ProviderConfiguration = {
+  id: string;
+  kind: ProviderKind;
+  endpoint: string;
+  models: ModelDescriptor[];
+};
+export type ProviderSummary = ProviderConfiguration & {
+  health: ProviderHealth | null;
+  credential_configured: boolean;
+};
+export type AiConfigureProviderRequest = ProviderConfiguration & {
+  credential?: string | null;
+};
+export type AiProvidersRequest = Record<string, never>;
+export type AiSetProviderOrderRequest = { provider_order: string[] };
+export type AiProbeRequest = { provider_id: string };
+export type AiCancelRequest = { request_id: UUID };
+export type ModelRequest = {
+  request_id: UUID;
+  instruction: string | null;
+  messages: ModelMessage[];
+  data_class: string;
+  declaration: ContentDeclaration;
+  budget: ModelBudget;
+  timeout_ms: number;
+  model: ModelSelector;
+  failover: FailoverPermission;
+};
+export type ProviderErrorReason =
+  | "unreachable"
+  | "unauthorized"
+  | "model_unavailable"
+  | "rate_limited"
+  | "budget_exhausted"
+  | "malformed_response"
+  | "invalid_request"
+  | "deadline_exceeded"
+  | "cancelled";
+export type ModelAttemptOutcome = "answered" | { failed: ProviderErrorReason };
+export type ModelAttempt = {
+  provider_id: string;
+  model_id: string;
+  outcome: ModelAttemptOutcome;
+};
+export type ModelUsage = {
+  input_tokens: number;
+  output_tokens: number;
+  cost_micros: number | null;
+};
+export type ModelFinishReason = "complete" | "max_output_tokens" | "cancelled" | "provider_stop";
+export type ModelResponse = {
+  request_id: UUID;
+  provider_id: string;
+  model_id: string;
+  content: string;
+  usage: ModelUsage;
+  finish: ModelFinishReason;
+  attempts: ModelAttempt[];
+};
 export type KubernetesCondition = { type_: string; status: string; reason?: string; message?: string };
 export type KubernetesOwner = { kind: string; name: string; uid?: string };
 export type KubernetesHealth = "healthy" | "degraded" | "crash_loop_back_off" | "oom_killed" | "pending" | "unknown";
