@@ -1,4 +1,4 @@
-import type { EvidenceSourceKind } from "../../contracts/ipc";
+import type { EvidenceSourceKind, ProviderHealth, ProviderKind } from "../../contracts/ipc";
 
 const th = {
   health: {
@@ -117,6 +117,86 @@ const th = {
     defaultDashboardUid: "Default Dashboard UID",
     httpsGuidance: "แนะนำให้ใช้ HTTPS สำหรับการตั้งค่าใช้งานจริง",
     httpWarning: "อนุญาตปลายทางแบบ HTTP แต่จะไม่มีการป้องกันการรับส่งข้อมูลแบบ HTTPS"
+  },
+  ai: {
+    eyebrow: "เกตเวย์ผู้ให้บริการ AI",
+    title: "ผู้ให้บริการ AI",
+    description: "ตรวจสอบการเข้าถึงข้อมูลประจำตัว และลำดับที่ใช้สำหรับการสลับเมื่อได้รับอนุญาต",
+    providers: "ผู้ให้บริการ AI ที่ตั้งค่าแล้ว",
+    loading: "กำลังโหลดผู้ให้บริการ AI…",
+    empty: "ยังไม่ได้ตั้งค่าผู้ให้บริการ AI",
+    loadError: "ไม่สามารถโหลดผู้ให้บริการ AI ได้",
+    orderError: "ไม่สามารถบันทึกลำดับสำรองได้",
+    addProvider: "เพิ่มผู้ให้บริการ",
+    editProvider: "แก้ไขผู้ให้บริการ",
+    endpoint: "ปลายทาง",
+    credential: "ข้อมูลประจำตัว",
+    credentialConfigured: "ตั้งค่าข้อมูลประจำตัวแล้ว",
+    credentialNotConfigured: "ยังไม่ได้ตั้งค่าข้อมูลประจำตัว",
+    models: "โมเดล",
+    kinds: {
+      open_ai_compatible: "เข้ากันได้กับ OpenAI",
+      anthropic: "Anthropic",
+      ollama: "Ollama",
+      vllm: "vLLM"
+    } satisfies Record<ProviderKind, string>,
+    healthStates: {
+      healthy: "พร้อมใช้งาน",
+      unreachable: "เข้าถึงไม่ได้",
+      unauthorized: "ไม่ได้รับอนุญาต",
+      model_unavailable: "โมเดลไม่พร้อมใช้งาน",
+      rate_limited: "ถูกจำกัดอัตรา",
+      budget_exhausted: "งบประมาณหมด",
+      unknown: "ไม่ทราบสถานะ"
+    } satisfies Record<ProviderHealth, string> & { unknown: string },
+    form: {
+      eyebrow: "การตั้งค่าผู้ให้บริการ",
+      addTitle: "เพิ่มผู้ให้บริการ AI",
+      editTitle: "แก้ไขผู้ให้บริการ AI",
+      providerId: "รหัสผู้ให้บริการ",
+      kind: "ชนิดผู้ให้บริการ",
+      chooseKind: "เลือกชนิดผู้ให้บริการ",
+      endpoint: "ปลายทาง",
+      credential: "ข้อมูลประจำตัว",
+      credentialKeep: "เว้นว่างเพื่อเก็บข้อมูลประจำตัวเดิมไว้",
+      credentialOptional: "ไม่บังคับ ระบบจะจัดเก็บอย่างปลอดภัยและไม่แสดงผล",
+      models: "โมเดล",
+      modelsDescription: "ระบุโมเดลที่ผู้ให้บริการนี้เปิดให้เกตเวย์ใช้งาน",
+      addModel: "เพิ่มโมเดล",
+      modelNumber: "โมเดล {{position}}",
+      modelId: "รหัสโมเดล",
+      contextWindow: "โทเคนหน้าต่างบริบท",
+      maxOutput: "โทเคนผลลัพธ์สูงสุด",
+      supportsSystem: "รองรับคำสั่งระบบ",
+      inputPrice: "ราคาข้อมูลเข้า ไมโครต่อโทเคนล้านรายการ",
+      outputPrice: "ราคาข้อมูลออก ไมโครต่อโทเคนล้านรายการ",
+      removeModel: "ลบโมเดล {{position}}",
+      removeModelText: "ลบ",
+      noModels: "เพิ่มอย่างน้อยหนึ่งโมเดลก่อนบันทึก",
+      providerIdRequired: "กรอกรหัสผู้ให้บริการ",
+      kindRequired: "เลือกชนิดผู้ให้บริการ",
+      endpointRequired: "กรอกปลายทาง",
+      modelRequired: "เพิ่มอย่างน้อยหนึ่งโมเดล",
+      modelIdRequired: "ทุกโมเดลต้องมีรหัส",
+      numberRequired: "กรอกจำนวนเต็มไม่ติดลบสำหรับขีดจำกัดและราคาโมเดล",
+      save: "บันทึกผู้ให้บริการ",
+      saving: "กำลังบันทึกผู้ให้บริการ…",
+      cancel: "ยกเลิก",
+      saveFailed: "ไม่สามารถบันทึกการตั้งค่าผู้ให้บริการได้"
+    },
+    fallback: {
+      eyebrow: "เส้นทางส่งออก",
+      title: "ลำดับสำรอง",
+      description: "เฉพาะผู้ให้บริการในลำดับนี้เท่านั้นที่ตอบได้เมื่อสลับแบบได้รับอนุญาต",
+      failoverOff: "ปิดการสลับจนกว่าจะเลือกลำดับผู้ให้บริการ",
+      position: "ลำดับสำรอง {{position}}",
+      configuredProviders: "ผู้ให้บริการที่ตั้งค่านอกลำดับ",
+      notFallback: "{{id}} — ไม่ใช่ตัวสำรอง",
+      addToOrder: "เพิ่ม {{id}} ในลำดับสำรอง",
+      addToOrderText: "เพิ่มในลำดับ",
+      moveUp: "เลื่อน {{id}} ขึ้น",
+      moveDown: "เลื่อน {{id}} ลง"
+    }
   },
   observability: {
     empty: "ยังไม่มีการตั้งค่าตัวเชื่อมต่อการสังเกตการณ์",

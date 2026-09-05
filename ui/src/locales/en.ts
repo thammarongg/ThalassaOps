@@ -1,4 +1,4 @@
-import type { EvidenceSourceKind } from "../../contracts/ipc";
+import type { EvidenceSourceKind, ProviderHealth, ProviderKind } from "../../contracts/ipc";
 
 const en = {
   health: {
@@ -117,6 +117,87 @@ const en = {
     defaultDashboardUid: "Default Dashboard UID",
     httpsGuidance: "Use HTTPS for production configurations.",
     httpWarning: "HTTP endpoints are allowed, but they do not provide HTTPS transport protection."
+  },
+  ai: {
+    eyebrow: "AI provider gateway",
+    title: "AI providers",
+    description:
+      "Review provider reachability, credentials and the order used for permitted failover.",
+    providers: "Configured AI providers",
+    loading: "Loading AI providers…",
+    empty: "No AI providers are configured.",
+    loadError: "AI providers could not be loaded.",
+    orderError: "The fallback order could not be saved.",
+    addProvider: "Add provider",
+    editProvider: "Edit provider",
+    endpoint: "Endpoint",
+    credential: "Credential",
+    credentialConfigured: "Credential configured",
+    credentialNotConfigured: "Credential not configured",
+    models: "Models",
+    kinds: {
+      open_ai_compatible: "OpenAI-compatible",
+      anthropic: "Anthropic",
+      ollama: "Ollama",
+      vllm: "vLLM"
+    } satisfies Record<ProviderKind, string>,
+    healthStates: {
+      healthy: "Healthy",
+      unreachable: "Unreachable",
+      unauthorized: "Unauthorized",
+      model_unavailable: "Model unavailable",
+      rate_limited: "Rate limited",
+      budget_exhausted: "Budget exhausted",
+      unknown: "Unknown"
+    } satisfies Record<ProviderHealth, string> & { unknown: string },
+    form: {
+      eyebrow: "Provider configuration",
+      addTitle: "Add AI provider",
+      editTitle: "Edit AI provider",
+      providerId: "Provider ID",
+      kind: "Provider kind",
+      chooseKind: "Choose a provider kind",
+      endpoint: "Endpoint",
+      credential: "Credential",
+      credentialKeep: "Leave blank to keep the stored credential.",
+      credentialOptional: "Optional. It is stored securely and never displayed.",
+      models: "Models",
+      modelsDescription: "Describe the models this provider makes available to the gateway.",
+      addModel: "Add model",
+      modelNumber: "Model {{position}}",
+      modelId: "Model ID",
+      contextWindow: "Context window tokens",
+      maxOutput: "Max output tokens",
+      supportsSystem: "Supports system instruction",
+      inputPrice: "Input price, micros per million tokens",
+      outputPrice: "Output price, micros per million tokens",
+      removeModel: "Remove model {{position}}",
+      removeModelText: "Remove",
+      noModels: "Add at least one model before saving.",
+      providerIdRequired: "Enter a provider ID.",
+      kindRequired: "Choose a provider kind.",
+      endpointRequired: "Enter an endpoint.",
+      modelRequired: "Add at least one model.",
+      modelIdRequired: "Every model needs an ID.",
+      numberRequired: "Enter non-negative whole numbers for model limits and prices.",
+      save: "Save provider",
+      saving: "Saving provider…",
+      cancel: "Cancel",
+      saveFailed: "The provider configuration could not be saved."
+    },
+    fallback: {
+      eyebrow: "Egress route",
+      title: "Fallback order",
+      description: "Only providers in this order may answer after a permitted failover.",
+      failoverOff: "Failover is off until you choose a provider order.",
+      position: "Fallback {{position}}",
+      configuredProviders: "Configured providers outside the order",
+      notFallback: "{{id}} — not a fallback",
+      addToOrder: "Add {{id}} to fallback order",
+      addToOrderText: "Add to order",
+      moveUp: "Move {{id}} up",
+      moveDown: "Move {{id}} down"
+    }
   },
   observability: {
     empty: "No observability connectors are configured.",
