@@ -1,8 +1,9 @@
 # Sprint 17 — AI provider gateway
 
-> **Status: draft, not approved.** Sections 2 and 14 carry decisions that are
-> the product owner's, not the implementer's. No task plan should be written
-> against this document until those are settled.
+> **Status: approved 2026-09-05.** The three open questions that gated this
+> design were answered by the product owner and are now binding decisions 8, 9
+> and 10. Section 14 records what is left as debt rather than what is
+> undecided.
 
 ## 1. Outcome
 
@@ -29,7 +30,7 @@ branch.
    same way `correlation_evidence` does and reports the denial.
 2. **Sprint 18 owns classification and redaction, so Sprint 17 cannot send
    incident content to a hosted provider.** This is the sprint's central
-   constraint and section 14.1 states what that leaves. Building the gateway now
+   constraint; binding decision 8 and section 14.1 state what it leaves. Building the gateway now
    and the redaction that feeds it later is the sequence the sprint plan chose;
    the honest consequence is that Sprint 17's hosted path is exercised by
    fixtures and by a caller-supplied `Public` payload, not by real telemetry.
@@ -56,14 +57,33 @@ branch.
    testable against a recorded fixture; no test performs a network call. The
    fixture corpus keeps the `2026-08-28` fixture day the rest of the repository
    uses.
+8. **The live path accepts `Public` and nothing else.** Every adapter ships with
+   a recorded fixture corpus proving its wire format, and a real request may
+   leave the machine only when the caller declares the content `Public`. The
+   policy runtime refuses every other class on its own; the gateway adds no
+   second gate and no override. Sprint 18 connects real telemetry once
+   classification and redaction exist. Section 13.5 states what a `Public`
+   declaration does and does not mean.
+9. **Three adapters ship: OpenAI-compatible, Anthropic, and the local path.**
+   Together they cover OpenAI, vLLM, Ollama and custom endpoints. Gemini's
+   request shape differs most from the rest and is deferred to Sprint 18, where
+   it can be added behind the contract this sprint freezes.
+10. **Failover is opt-in, named in the response, and configurable.** See section
+    8.1. The gateway never silently answers from a different model: a request
+    that permits failover carries the permission explicitly, the response says
+    which provider actually answered and which one it fell back from, and the
+    order it may fall back through is a setting the operator controls rather
+    than an order the registry invents.
 
 ## 3. Scope
 
 ### 3.1 Included
 
 - a provider registry with declared model capability metadata;
-- adapters for OpenAI, Anthropic, Gemini and OpenAI-compatible endpoints;
+- adapters for OpenAI-compatible endpoints and Anthropic;
 - a local path for Ollama and vLLM;
+- opt-in failover through an operator-configured provider order, reported in
+  the response;
 - a provider-neutral request and response contract in `thalassa-domain`;
 - per-request and per-window token and cost budgets, with a typed refusal when
   a budget is exhausted;
@@ -86,8 +106,12 @@ branch.
 - **Prompt templates and system-behaviour policies, Skills and plugins.** Later.
 - **Embeddings and vector storage.** No sprint in the plan requires them yet.
 - **A model-selection UI.** Sprint 19 renders the assistant; this sprint
-  exposes the registry through IPC and nothing more.
-- **Retry on provider error.** See section 14.3.
+  exposes the registry through IPC and the provider-order setting, and nothing
+  more.
+- **Gemini.** Deferred to Sprint 18 by binding decision 9.
+- **Retry against the same provider.** Failover moves to the next provider in
+  the configured order; it does not re-send to the one that just failed. A
+  retry policy is a separate concern and no sprint requires one yet.
 
 ## 4. Canonical language
 
@@ -176,9 +200,12 @@ pub struct ModelRequest {
     pub budget: ModelBudget,
     pub timeout_ms: u64,
     pub model: ModelSelector,
+    pub failover: FailoverPermission,
 }
 
 pub enum ModelSelector { Explicit { provider_id: String, model_id: String }, Capability(ModelCapabilityRequirement) }
+
+pub enum FailoverPermission { Forbidden, Permitted }
 
 pub struct ModelResponse {
     pub request_id: Uuid,
@@ -187,7 +214,16 @@ pub struct ModelResponse {
     pub content: String,
     pub usage: ModelUsage,
     pub finish: ModelFinishReason,
+    pub attempts: Vec<ModelAttempt>,
 }
+
+pub struct ModelAttempt {
+    pub provider_id: String,
+    pub model_id: String,
+    pub outcome: ModelAttemptOutcome,
+}
+
+pub enum ModelAttemptOutcome { Answered, Failed(ProviderErrorReason) }
 
 pub struct ModelUsage { pub input_tokens: u64, pub output_tokens: u64, pub cost_micros: Option<u64> }
 
@@ -197,6 +233,14 @@ pub enum ModelFinishReason { Complete, MaxOutputTokens, Cancelled, ProviderStop 
 Cost is `Option<u64>` in micros because a local provider has none and a hosted
 one may not report one. It is never a float and never a rendered currency
 string: the UI formats it.
+
+`attempts` is always populated, with one entry when nothing failed. A caller
+therefore reads the answering provider from the same field whether or not a
+failover happened, and cannot accidentally treat a fallback answer as having
+come from the requested model. `usage` is the answering attempt's usage; a
+failed attempt that still consumed tokens records its own usage on the request
+row (section 9), because a provider that charged for a failed call charged for
+it.
 
 ## 7. Budgets
 
@@ -229,12 +273,42 @@ a cancelled hosted call still costs what it cost and the audit record says so.
 Cancellation is cooperative and explicit: the caller holds a token. Sprint 17
 exposes it through the IPC layer as a `ai.cancel` command keyed by `request_id`.
 
+The deadline covers the whole request, failover included. A request that permits
+failover does not get a fresh timeout per attempt: it gets the deadline it
+asked for, and the gateway stops trying when that deadline passes, whichever
+attempt it is on.
+
+### 8.1 Failover
+
+Failover happens only when three things hold: the request carries
+`FailoverPermission::Permitted`, the failure is one the next provider could
+plausibly answer — unreachable, rate limited, model unavailable — and the
+operator's configured order names a next provider whose manifest satisfies the
+same capability requirement. An `Unauthorized` failure does not fail over: a
+missing credential is a configuration problem the operator must see, not a
+reason to spend against a different account. A budget refusal never fails over,
+because the budget is the caller's, not the provider's.
+
+The order is a stored setting, `provider_order`, that the operator edits — a
+list of provider ids. The registry never invents a fallback order, and a
+provider absent from the list is never selected as a fallback even when it is
+configured and healthy. This is deliberate: a fallback is a decision about which
+vendor may receive the request, and that is an operator's decision.
+
+Every attempt is recorded, in order, in `ModelResponse::attempts` and on the
+request row. A failover is visible to the caller, to the audit trail, and in the
+UI; a completion whose provenance is not the requested model can never be
+mistaken for one that is.
+
 ## 9. Persistence
 
-One new table, `ai_requests`, recording per request: id, provider id, model id,
-data class, input and output tokens, cost micros, finish reason, policy version,
-started and finished timestamps, and the typed error when there was one. It
-records **no prompt and no completion content**. That is deliberate: the content
+One new table, `ai_requests`, recording per request: id, data class, budget,
+finish reason, policy version, started and finished timestamps, and the typed
+error when there was one. A second table, `ai_request_attempts`, records one row
+per attempt — request id, ordinal, provider id, model id, outcome, input and
+output tokens, cost micros — so a failover's full cost is recoverable and a
+failed attempt that still consumed tokens is not lost. Neither table records
+**any prompt or completion content**. That is deliberate: the content
 is the thing the policy runtime governs, and Sprint 18 has not yet built the
 redaction that would make storing it safe. Sprint 19's AI Assistant Log will
 need content; it must add it with redaction in place, not by widening this table
@@ -246,6 +320,7 @@ quietly.
 | --- | --- | --- |
 | `ai.providers` | `WorkspaceRead` | `ViewWorkspace` |
 | `ai.configure_provider` | `WorkspaceWrite` | `ManageConnectors` |
+| `ai.set_provider_order` | `WorkspaceWrite` | `ManageConnectors` |
 | `ai.probe` | `WorkspaceRead` | `ViewWorkspace` |
 | `ai.complete` | `AiInvoke` | `InvestigateIncident` |
 | `ai.cancel` | `AiInvoke` | `InvestigateIncident` |
@@ -277,8 +352,11 @@ Deliberately minimal, because Sprint 19 owns the assistant:
   provider, showing kind, health, and whether a credential is configured;
 - a provider configuration form that writes through `ai.configure_provider` and
   never reads a secret back;
-- English and Thai strings for both, with the key-parity test the repository
-  already enforces.
+- a fallback-order control that writes through `ai.set_provider_order`: an
+  ordered list of the configured providers the operator permits as fallbacks,
+  empty by default, so failover does nothing until someone chooses it;
+- English and Thai strings for all three, with the key-parity test the
+  repository already enforces.
 
 No chat surface, no model picker, no cost dashboard. Sprint 25 owns cost
 reporting.
@@ -312,58 +390,67 @@ mirrors `ObservabilityClient`.
 The credential is read from the store at call time and dropped. The read model
 carries a boolean. The audit record carries provider id, never the key.
 
-## 14. Open decisions — these need the product owner
+### 13.5 A `Public` declaration is a human claim, not a machine fact
 
-### 14.1 What may Sprint 17 actually send?
+Binding decision 8 lets a caller send content it declares `Public`. Nothing in
+Sprint 17 can verify that claim — the classifier that would is Sprint 18's. So
+the declaration is exactly as trustworthy as the person making it, and the
+design says so rather than implying the gateway checked. Two things keep the
+blast radius small: the only caller in this sprint is a hand-typed question, so
+no telemetry, evidence excerpt or incident field can reach a provider by
+accident; and the policy runtime independently refuses `Internal`,
+`Confidential` and `Restricted` to `HostedAi`, so a mistaken declaration is the
+only path through, not a missing check.
 
-Sprint 18 delivers classification and redaction; until then no caller can
-honestly set `classification_verified`. Three options:
+Sprint 18 must replace the declaration with a verified classification before any
+automated caller is connected. Until then, a `Public` request is the one place
+in the application where a human assertion substitutes for a policy control.
 
-- **(a) Fixture-only hosted path.** The gateway is complete and exercised
-  against recorded fixtures and a live probe; no real content leaves. Sprint 18
-  connects it to real data. Honest, and leaves the exit criterion demonstrable
-  only against fixtures.
-- **(b) Public-only live path.** A caller may send content it declares
-  `Public` — a hand-typed question with no telemetry in it. Demonstrates the
-  real path end to end; relies on a human declaration that nothing in the string
-  is sensitive.
-- **(c) Defer the hosted adapters to Sprint 18** and ship only the local path
-  now, where the egress destination is `LocalModel` and the data never leaves
-  the machine.
+## 14. Decisions taken on 2026-09-05
 
-Recommendation: **(b) plus (a)** — fixtures for every adapter's wire format, and
-a live path restricted to `Public`, refused by the policy runtime for anything
-else. It proves the contract without pretending redaction exists.
+The product owner settled the three questions this design was blocked on. They
+are binding decisions 8, 9 and 10; this section records what was chosen over
+what, so a later reader does not reopen a closed question.
 
-### 14.2 Which providers ship in this sprint?
+### 14.1 What Sprint 17 may send — fixtures plus a `Public`-only live path
 
-Four adapters is a lot of wire format for one sprint, and each needs a recorded
-fixture corpus and an error-mapping table. Shipping OpenAI-compatible plus
-Anthropic plus a local path would cover OpenAI, vLLM, Ollama and most custom
-endpoints, leaving Gemini — whose request shape differs most — for Sprint 18.
-This is a scope decision, not a technical one.
+Chosen over a fixture-only path and over deferring the hosted adapters. Every
+adapter carries a recorded fixture corpus, and a live request may leave only
+when its caller declares the content `Public`. Section 13.5 states plainly that
+the declaration is a human claim the application cannot verify until Sprint 18,
+and what keeps its blast radius small.
 
-### 14.3 What happens when a provider fails?
+### 14.2 Three adapters — OpenAI-compatible, Anthropic, local
 
-No automatic failover is proposed: silently answering from a different model
-changes the answer's provenance, and an investigation that cites evidence must
-say which model produced it. But a rate-limited provider with a configured
-sibling is exactly when an operator wants a fallback. The decision is whether
-the gateway may fail over when the caller explicitly permits it per request.
+Chosen over all four. The three cover OpenAI, vLLM, Ollama and custom
+endpoints; Gemini's request shape differs most and is deferred to Sprint 18,
+behind the contract this sprint freezes. Each adapter costs a fixture corpus and
+an error-mapping table, which is what made four too many for one sprint.
 
-### 14.4 Does `AiInvoke` belong to the incident permission?
+### 14.3 Failover — opt-in, named, and operator-configured
 
-The table above attaches `ai.complete` to `InvestigateIncident`, which makes
-model spend a property of incident work. That is the narrowest existing fit, but
-it also means a principal who may investigate may spend. Sprint 20's Policy
-Center is where a spend permission would properly live; the question is whether
-to introduce it now or accept the coupling and record it as a debt.
+Chosen over both no failover and automatic failover. The product owner added two
+requirements beyond the question asked: the response must say which provider
+answered, and the operator must be able to configure which providers may be
+used as fallbacks rather than accepting an order the system picks. Section 8.1
+is the resulting contract, `ModelResponse::attempts` carries the provenance, and
+`ai.set_provider_order` carries the setting, empty by default.
 
-### 14.5 Where do window budgets reset?
+### 14.4 `AiInvoke` stays attached to `InvestigateIncident`, as a recorded debt
 
-A rolling window needs a clock and an owner: per principal, per workspace, or
-per provider account. Per principal matches the audit model; per provider
-account matches how the bill actually arrives.
+Not put to the product owner: it is an implementation-level coupling with no
+better home today. A principal permitted to investigate an incident is thereby
+permitted to spend against a hosted provider. A spend permission belongs in
+Sprint 20's Policy Center, alongside the rest of the permission model, and
+introducing a half-modelled one here would have to be migrated then. Recorded as
+debt 5 in section 15.
+
+### 14.5 Window budgets are per principal
+
+Not put to the product owner: per principal matches the audit model, where every
+request already carries an actor, and it is the only owner the application can
+attribute a request to today. Per provider account matches how the bill arrives
+and is the better fit once Sprint 20 models accounts; recorded as debt 6.
 
 ## 15. Known limitations and debts
 
@@ -377,6 +464,15 @@ account matches how the bill actually arrives.
 3. **No streaming** means a long completion is invisible until it finishes.
 4. **Health is a point observation**, not a rolling window. A provider that
    fails one request in ten reads as healthy.
+5. **`AiInvoke` is attached to `InvestigateIncident`**, so a principal who may
+   investigate may spend against a hosted provider. A spend permission belongs
+   in Sprint 20's Policy Center; see section 14.4.
+6. **Window budgets are owned per principal**, which does not match how a
+   provider bill arrives. Sprint 20 should revisit this once provider accounts
+   are modelled; see section 14.5.
+7. **A `Public` declaration is unverified** until Sprint 18 delivers
+   classification. It is the one control in the application that rests on a
+   human assertion; see section 13.5.
 
 ## 16. Testing
 
