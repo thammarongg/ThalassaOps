@@ -1,7 +1,7 @@
 use thalassa_ai::budget::{BudgetBound, BudgetLedger, WindowBudget};
 use thalassa_domain::{
-    FailoverPermission, ModelBudget, ModelDescriptor, ModelMessage, ModelRequest, ModelRole,
-    ModelSelector, ModelUsage,
+    ContentDeclaration, FailoverPermission, ModelBudget, ModelDescriptor, ModelMessage,
+    ModelRequest, ModelRole, ModelSelector, ModelUsage,
 };
 use uuid::Uuid;
 
@@ -14,6 +14,7 @@ fn request(content: &str) -> ModelRequest {
             content: content.into(),
         }],
         data_class: "public".into(),
+        declaration: ContentDeclaration::OperatorDeclared,
         budget: ModelBudget {
             max_input_tokens: None,
             max_output_tokens: 32,

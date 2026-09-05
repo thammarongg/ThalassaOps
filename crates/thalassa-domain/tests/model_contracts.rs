@@ -1,7 +1,7 @@
 use thalassa_domain::{
-    validate_model_request, FailoverPermission, ModelBudget, ModelCapabilityRequirement,
-    ModelMessage, ModelRequest, ModelRole, ModelSelector, MODEL_MESSAGE_MAXIMUM,
-    MODEL_TIMEOUT_MAXIMUM_MS,
+    validate_model_request, ContentDeclaration, FailoverPermission, ModelBudget,
+    ModelCapabilityRequirement, ModelMessage, ModelRequest, ModelRole, ModelSelector,
+    MODEL_MESSAGE_MAXIMUM, MODEL_TIMEOUT_MAXIMUM_MS,
 };
 use uuid::Uuid;
 
@@ -11,6 +11,7 @@ fn request(messages: Vec<ModelMessage>) -> ModelRequest {
         instruction: None,
         messages,
         data_class: "public".into(),
+        declaration: ContentDeclaration::OperatorDeclared,
         budget: ModelBudget {
             max_input_tokens: Some(100),
             max_output_tokens: 32,
@@ -68,5 +69,12 @@ fn model_request_rejects_zero_output_budget() {
 fn model_request_accepts_a_cost_budget_without_provider_pricing() {
     let mut request = request(vec![user_message("hello")]);
     request.budget.max_cost_micros = Some(500);
+    assert!(validate_model_request(&request).is_ok());
+}
+
+#[test]
+fn model_request_accepts_an_operator_content_declaration() {
+    let request = request(vec![user_message("human-declared public content")]);
+
     assert!(validate_model_request(&request).is_ok());
 }

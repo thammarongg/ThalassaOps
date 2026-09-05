@@ -6500,12 +6500,22 @@ pub const MODEL_TIMEOUT_MAXIMUM_MS: u64 = 5 * 60 * 1_000;
 /// duplicate its enum; the gateway resolves it at the policy boundary.
 pub type ModelDataClass = String;
 
+/// The caller's assertion about how the request content was classified and
+/// redacted. Sprint 17 accepts only an operator declaration; a later sprint
+/// may add a machine-verified declaration without changing the request shape.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentDeclaration {
+    OperatorDeclared,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModelRequest {
     pub request_id: Uuid,
     pub instruction: Option<String>,
     pub messages: Vec<ModelMessage>,
     pub data_class: ModelDataClass,
+    pub declaration: ContentDeclaration,
     pub budget: ModelBudget,
     pub timeout_ms: u64,
     pub model: ModelSelector,
