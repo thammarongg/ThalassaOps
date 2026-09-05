@@ -106,6 +106,14 @@ else is sequential.
   `ModelFinishReason`, `ProviderErrorReason`, `ProviderKind`, `ProviderHealth`,
   `ModelDescriptor`, and `validate_model_request`.
 
+> **Amended 2026-09-05, after Task 1 was committed as `0cce241`.** `ModelRequest`
+> gains one more field, `declaration: ContentDeclaration`, an enum whose only
+> Sprint 17 variant is `OperatorDeclared`. Task 1 shipped without it and the
+> omission is what stopped Task 4: the policy runtime denies every request whose
+> verification flags are false, and the caller had nowhere to set them. Design
+> sections 13.6 and 14.6 record the decision. Add the field and a validation
+> test as the first step of Task 4; do not rewrite `0cce241`.
+
 **Grounding.** `DataClass` already exists in `thalassa-policy`, not in
 `thalassa-domain`; check which crate the request should hold before writing the
 field, and do not duplicate the enum. `Permission` lives at
@@ -251,14 +259,36 @@ git commit -m "feat(ai): enforce token and cost budgets before and after a call"
 - Produces: `Gateway::complete(request, deadline, cancel) -> Result<ModelResponse, GatewayError>`.
 
 **Grounding — read before writing the test.**
-`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, around
-line 205) denies when `classification_verified` or `redaction_verified` is
-false, denies `Restricted` and immutable-secret content to `HostedAi`, and
-otherwise checks the destination's permitted data classes from the policy
-document. `EgressDestination` already has `HostedAi` and `LocalModel`. The
-gateway picks the destination from the selected provider's kind — a local
-provider is `LocalModel` — and it does **not** set the verification flags on the
-caller's behalf.
+`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, line 207)
+denies when `classification_verified` or `redaction_verified` is false, denies
+`Restricted` and immutable-secret content to `HostedAi`, and otherwise checks
+the destination's permitted data classes from the policy document.
+`EgressDestination` already has `HostedAi` and `LocalModel`. The gateway picks
+the destination from the selected provider's kind — a local provider is
+`LocalModel`.
+
+The gateway does **not** invent the verification flags, and it does not call
+`EgressRequest::verified` on the caller's behalf. It maps
+`ModelRequest::declaration` onto them: `ContentDeclaration::OperatorDeclared`
+sets both flags, because a person asserted the content was safe to send, and
+that assertion arrived inside the request. There is no other variant in Sprint
+17, so there is no other path to a set flag. Design 13.6.
+
+`ModelRequest::data_class` is `ModelDataClass`, which Task 1 made a `String`
+alias so `thalassa-domain` need not depend on `thalassa-policy`. The gateway is
+the crate that resolves that string to a `DataClass`; a string that names no
+data class is a typed refusal, never a silent `Public`.
+
+- [ ] **Step 0: Land the amended contract**
+
+Add `declaration: ContentDeclaration` to `ModelRequest` and the
+`ContentDeclaration` enum to `crates/thalassa-domain/src/lib.rs`, following the
+serde conventions already in the file. Extend the Task 1 validation tests with
+one case that a request carrying the declaration validates. Commit separately:
+
+```bash
+git commit -m "feat(ai): carry the caller's content declaration in the request"
+```
 
 Failover rules are design 8.1 and they are not symmetric: unreachable, rate
 limited and model unavailable may fail over; `Unauthorized` may not, because a
@@ -287,6 +317,8 @@ Drive a fake `ModelProvider`. The tests that earn their place:
 - `Permitted` with an `Unauthorized` first provider does **not** fail over;
 - a provider absent from the configured order is never chosen as a fallback,
   even when it is registered and healthy;
+- a `data_class` string that names no `DataClass` is refused, and the fake was
+  never called;
 - `attempts` has exactly one entry when nothing failed.
 
 - [ ] **Step 2: Run test to verify it fails**

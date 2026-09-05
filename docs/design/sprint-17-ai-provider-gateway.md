@@ -197,11 +197,17 @@ pub struct ModelRequest {
     pub instruction: Option<String>,
     pub messages: Vec<ModelMessage>,
     pub data_class: DataClass,
+    pub declaration: ContentDeclaration,
     pub budget: ModelBudget,
     pub timeout_ms: u64,
     pub model: ModelSelector,
     pub failover: FailoverPermission,
 }
+
+/// Who asserts that this content was classified and redacted.  Section 13.5
+/// says plainly that in Sprint 17 the answer is "a person did", and this field
+/// is where that assertion is carried rather than assumed.
+pub enum ContentDeclaration { OperatorDeclared }
 
 pub enum ModelSelector { Explicit { provider_id: String, model_id: String }, Capability(ModelCapabilityRequirement) }
 
@@ -426,6 +432,24 @@ Sprint 18 must replace the declaration with a verified classification before any
 automated caller is connected. Until then, a `Public` request is the one place
 in the application where a human assertion substitutes for a policy control.
 
+### 13.6 How the declaration reaches the policy runtime
+
+`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, line 207)
+denies outright when `classification_verified` or `redaction_verified` is false,
+and it is the caller's job to set them — every existing caller in the
+application does exactly that, from `app/connectors.rs` to `app/observability.rs`,
+by constructing `EgressRequest::verified`. The gateway is not an exception to
+that rule and it does not get to invent the flags: it maps
+`ModelRequest::declaration` onto them. `ContentDeclaration::OperatorDeclared` is
+the only variant Sprint 17 ships, so the flags are set only because a person
+declared the content, and the declaration travels inside the request, which
+means the `ai_requests` row records *that a human asserted it* rather than
+implying the application checked.
+
+The enum has one variant on purpose. Sprint 18 adds the variant that a
+classifier produces, and the gateway's mapping is the one place that has to
+change — the request contract, the IPC command and the UI do not.
+
 ## 14. Decisions taken on 2026-09-05
 
 The product owner settled the three questions this design was blocked on. They
@@ -471,6 +495,17 @@ Not put to the product owner: per principal matches the audit model, where every
 request already carries an actor, and it is the only owner the application can
 attribute a request to today. Per provider account matches how the bill arrives
 and is the better fit once Sprint 20 models accounts; recorded as debt 6.
+
+### 14.6 The declaration is a request field, not a gateway argument
+
+Settled on 2026-09-05, after Task 3, when the worker stopped at Task 4 with a
+contract it could not implement faithfully: `evaluate_egress` denies every
+request whose verification flags are false, and the approved `ModelRequest` gave
+the caller nowhere to set them. Chosen over passing an attestation as a separate
+`Gateway::complete` argument, which matches how `app/*.rs` calls the policy
+runtime today but leaves the assertion outside the serialized request and so out
+of the `ai_requests` row. A human claim that cannot be audited is worse than the
+plumbing it saves. Section 13.6 is the resulting contract.
 
 ## 15. Known limitations and debts
 
