@@ -7,8 +7,12 @@ use std::time::Instant;
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod budget;
 pub mod registry;
 
+pub use budget::{
+    estimate_input_tokens, BudgetBound, BudgetLedger, BudgetRefusal, PreparedRequest, WindowBudget,
+};
 pub use registry::{ProviderRegistry, ProviderSelection, RegistryError};
 pub use thalassa_domain::{
     FailoverPermission, ModelAttempt, ModelAttemptOutcome, ModelBudget, ModelCapabilityRequirement,
