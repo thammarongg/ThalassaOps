@@ -18,6 +18,54 @@ fn system_context(
     state.context(envelope)
 }
 
+#[tauri::command]
+fn ai_providers(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<thalassaops::ai::config::ProviderSummary>> {
+    state.ai_providers(envelope)
+}
+
+#[tauri::command]
+fn ai_configure_provider(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassaops::ai::config::ProviderSummary> {
+    state.ai_configure_provider(envelope)
+}
+
+#[tauri::command]
+fn ai_set_provider_order(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<String>> {
+    state.ai_set_provider_order(envelope)
+}
+
+#[tauri::command]
+fn ai_probe(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassaops::ai::config::ProviderSummary> {
+    state.ai_probe(envelope)
+}
+
+#[tauri::command]
+fn ai_complete(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<thalassa_domain::ModelResponse> {
+    state.ai_complete(envelope)
+}
+
+#[tauri::command]
+fn ai_cancel(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<serde_json::Value> {
+    state.ai_cancel(envelope)
+}
+
 macro_rules! connector_command {
     ($name:ident, $method:ident, $result:ty) => {
         #[tauri::command]
@@ -339,6 +387,12 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             system_health,
             system_context,
+            ai_providers,
+            ai_configure_provider,
+            ai_set_provider_order,
+            ai_probe,
+            ai_complete,
+            ai_cancel,
             connector_list,
             connector_add,
             connector_enable,

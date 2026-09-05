@@ -6510,6 +6510,7 @@ pub enum ContentDeclaration {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelRequest {
     pub request_id: Uuid,
     pub instruction: Option<String>,

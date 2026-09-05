@@ -122,6 +122,43 @@ fn incident_commands_separate_reads_from_writes() {
 }
 
 #[test]
+fn ai_commands_keep_provider_configuration_reads_separate_from_model_invocation() {
+    for (descriptor, name, capability) in [
+        (
+            ai_providers_descriptor(),
+            "ai.providers",
+            Capability::ConnectorRead,
+        ),
+        (
+            ai_configure_provider_descriptor(),
+            "ai.configure_provider",
+            Capability::ConnectorAct,
+        ),
+        (
+            ai_set_provider_order_descriptor(),
+            "ai.set_provider_order",
+            Capability::ConnectorAct,
+        ),
+        (ai_probe_descriptor(), "ai.probe", Capability::ConnectorRead),
+    ] {
+        assert_eq!(descriptor.name.to_string(), name);
+        assert_eq!(descriptor.required_capability, capability);
+        assert_eq!(descriptor.required_permission, Permission::Read);
+        assert!(!descriptor.scope.is_bounded());
+    }
+
+    for (descriptor, name) in [
+        (ai_complete_descriptor(), "ai.complete"),
+        (ai_cancel_descriptor(), "ai.cancel"),
+    ] {
+        assert_eq!(descriptor.name.to_string(), name);
+        assert_eq!(descriptor.required_capability, Capability::AiInvoke);
+        assert_eq!(descriptor.required_permission, Permission::Investigate);
+        assert!(!descriptor.scope.is_bounded());
+    }
+}
+
+#[test]
 fn write_contention_has_its_own_wire_code() {
     assert_eq!(
         serde_json::to_value(IpcErrorCode::WriteContention).unwrap(),

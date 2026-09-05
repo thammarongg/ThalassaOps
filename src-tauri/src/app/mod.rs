@@ -1,3 +1,4 @@
+mod ai;
 pub(crate) mod change;
 pub(crate) mod cloud;
 mod connectors;
@@ -8,6 +9,8 @@ mod observability;
 mod operations;
 mod topology;
 
+pub use ai::{AI_COMPLETE_ENVELOPE_COMMAND, AI_COMPLETE_TAURI_COMMAND};
+
 use crate::connectors::{
     ConnectorError, ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
 };
@@ -15,13 +18,15 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thalassa_domain::{
     Membership, MembershipRole, Organization, Permission, Principal, ResourceScope, Team, Workspace,
 };
 use thalassa_ipc::{Capability, CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode};
 use thalassa_policy::{DataClass, EgressDestination, EgressRequest, PolicyDocument, PolicyRuntime};
+use uuid::Uuid;
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_local_workspace.sql");
 const CONNECTOR_MIGRATION: &str = include_str!("../../migrations/0002_connector_registry.sql");
@@ -48,6 +53,8 @@ pub struct AppState {
     pub policy: PolicyRuntime,
     database_path: PathBuf,
     credential_store: SharedCredentialStore,
+    pub(crate) ai_config: Arc<Mutex<crate::ai::config::ProviderConfigStore>>,
+    pub(crate) ai_cancellations: Arc<Mutex<HashMap<Uuid, thalassa_ai::CancellationToken>>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -107,6 +114,10 @@ impl AppState {
             bootstrap,
             policy,
             database_path,
+            ai_config: Arc::new(Mutex::new(crate::ai::config::ProviderConfigStore::new(
+                credential_store.clone(),
+            ))),
+            ai_cancellations: Arc::new(Mutex::new(HashMap::new())),
             credential_store,
         })
     }
