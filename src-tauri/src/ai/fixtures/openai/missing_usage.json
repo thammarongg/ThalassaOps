@@ -1,0 +1,16 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 200,
+  "body": {
+    "id": "chatcmpl-missing-usage",
+    "object": "chat.completion",
+    "model": "gpt-fixture",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "fixture completion"},
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

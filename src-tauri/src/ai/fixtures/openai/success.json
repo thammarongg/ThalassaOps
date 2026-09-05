@@ -1,0 +1,17 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 200,
+  "body": {
+    "id": "chatcmpl-fixture",
+    "object": "chat.completion",
+    "model": "gpt-fixture",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "fixture completion"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19}
+  }
+}
