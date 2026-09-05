@@ -5406,6 +5406,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "thalassa-ai"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thalassa-domain",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
 name = "thalassa-connectors"
 version = "0.1.0"
 dependencies = [
