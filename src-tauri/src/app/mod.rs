@@ -30,6 +30,7 @@ const SOURCE_RECORD_EVIDENCE_MIGRATION: &str =
     include_str!("../../migrations/0004_source_record_evidence.sql");
 const CHANGE_RECORDS_MIGRATION: &str = include_str!("../../migrations/0005_change_records.sql");
 const INCIDENT_MIGRATION: &str = include_str!("../../migrations/0006_incidents.sql");
+const AI_REQUESTS_MIGRATION: &str = include_str!("../../migrations/0007_ai_requests.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -339,6 +340,20 @@ pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateEr
     if incident_migration.is_none() {
         connection.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
+    connection.execute_batch(AI_REQUESTS_MIGRATION)?;
+    let ai_requests_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 7",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if ai_requests_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?1)",
             [Utc::now().to_rfc3339()],
         )?;
     }
