@@ -318,17 +318,36 @@ quietly.
 
 | Command | Capability | Permission |
 | --- | --- | --- |
-| `ai.providers` | `WorkspaceRead` | `ViewWorkspace` |
-| `ai.configure_provider` | `WorkspaceWrite` | `ManageConnectors` |
-| `ai.set_provider_order` | `WorkspaceWrite` | `ManageConnectors` |
-| `ai.probe` | `WorkspaceRead` | `ViewWorkspace` |
-| `ai.complete` | `AiInvoke` | `InvestigateIncident` |
-| `ai.cancel` | `AiInvoke` | `InvestigateIncident` |
+| `ai.providers` | `ConnectorRead` | `Read` |
+| `ai.configure_provider` | `ConnectorAct` | `Read` |
+| `ai.set_provider_order` | `ConnectorAct` | `Read` |
+| `ai.probe` | `ConnectorRead` | `Read` |
+| `ai.complete` | `AiInvoke` | `Investigate` |
+| `ai.cancel` | `AiInvoke` | `Investigate` |
 
-`AiInvoke` is a new capability. It exists so that a principal who may read the
+These are the enum members that exist. `Capability` today is `WorkspaceRead`,
+`EnvironmentRead`, `ResourceRead`, `IncidentRead`, `IncidentWrite`,
+`PolicyEvaluate`, `PolicyManage`, `ConnectorRead` and `ConnectorAct`
+(`crates/thalassa-ipc/src/lib.rs`), and `Permission` is `Read`, `Investigate`,
+`RecommendAction`, `ExecuteAction`, `ManagePolicy`, `ManageMembership`,
+`ManageIncident` and `AuditRead` (`crates/thalassa-domain/src/lib.rs`). There is
+no `WorkspaceWrite`, no `ManageConnectors` and no `InvestigateIncident`.
+
+The four configuration and read commands therefore reuse the connector
+capabilities, matching `connector_add` and `connector_test`, which construct
+`CommandDescriptor::new("connector", verb, Capability::ConnectorAct | ConnectorRead,
+Permission::Read)` (`src-tauri/src/app/connectors.rs`). Configuring a model
+provider is the same class of act as configuring a connector, and reusing the
+capability keeps one answer to "who may point this application at an external
+endpoint".
+
+`AiInvoke` is the one new member. It exists so that a principal who may read the
 workspace is not thereby permitted to spend money against a hosted provider,
-which is the same separation the connector capabilities already make between
-reading and acting. Section 14.4 records what this leaves unresolved.
+which is the separation the connector capabilities already make between reading
+and acting. Adding it changes `crates/thalassa-ipc`, and the contract test in
+`crates/thalassa-ipc/tests/contracts.rs` enumerates descriptors, so it must be
+extended in the same commit. `Permission::Investigate` is the existing member
+that names this work; section 14.4 records the coupling as a debt.
 
 Every payload uses `deny_unknown_fields` and exact keys, like every other
 command in `src-tauri/src/app/`. Errors use `IpcErrorCode` with a typed
@@ -437,7 +456,7 @@ used as fallbacks rather than accepting an order the system picks. Section 8.1
 is the resulting contract, `ModelResponse::attempts` carries the provenance, and
 `ai.set_provider_order` carries the setting, empty by default.
 
-### 14.4 `AiInvoke` stays attached to `InvestigateIncident`, as a recorded debt
+### 14.4 `AiInvoke` stays attached to `Permission::Investigate`, as a recorded debt
 
 Not put to the product owner: it is an implementation-level coupling with no
 better home today. A principal permitted to investigate an incident is thereby
@@ -465,8 +484,8 @@ and is the better fit once Sprint 20 models accounts; recorded as debt 6.
 3. **No streaming** means a long completion is invisible until it finishes.
 4. **Health is a point observation**, not a rolling window. A provider that
    fails one request in ten reads as healthy.
-5. **`AiInvoke` is attached to `InvestigateIncident`**, so a principal who may
-   investigate may spend against a hosted provider. A spend permission belongs
+5. **`AiInvoke` is attached to `Permission::Investigate`**, so a principal who
+   may investigate may spend against a hosted provider. A spend permission belongs
    in Sprint 20's Policy Center; see section 14.4.
 6. **Window budgets are owned per principal**, which does not match how a
    provider bill arrives. Sprint 20 models the permissions and Sprint 24 the
