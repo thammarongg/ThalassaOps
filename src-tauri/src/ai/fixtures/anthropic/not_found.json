@@ -1,0 +1,5 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 404,
+  "body": {"type": "error", "error": {"type": "not_found_error", "message": "model unavailable fixture"}}
+}

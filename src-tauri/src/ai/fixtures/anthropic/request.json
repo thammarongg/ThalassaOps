@@ -1,0 +1,11 @@
+{
+  "fixture_date": "2026-08-28",
+  "request": {
+    "model": "claude-fixture",
+    "system": "fixture system instruction",
+    "messages": [
+      {"role": "user", "content": "fixture question"}
+    ],
+    "max_tokens": 37
+  }
+}

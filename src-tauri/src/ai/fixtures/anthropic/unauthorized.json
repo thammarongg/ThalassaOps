@@ -1,0 +1,5 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 401,
+  "body": {"type": "error", "error": {"type": "authentication_error", "message": "unauthorized fixture"}}
+}

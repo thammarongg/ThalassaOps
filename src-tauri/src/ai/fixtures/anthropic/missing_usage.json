@@ -1,0 +1,12 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 200,
+  "body": {
+    "id": "msg_missing_usage",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-fixture",
+    "content": [{"type": "text", "text": "fixture completion"}],
+    "stop_reason": "end_turn"
+  }
+}
