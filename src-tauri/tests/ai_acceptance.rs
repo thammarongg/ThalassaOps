@@ -295,7 +295,7 @@ fn restricted_content_is_refused_by_the_hosted_provider_and_answered_by_the_loca
 
 #[test]
 fn a_cost_bound_is_honoured_by_the_priced_hosted_model_and_refused_by_the_unpriced_local_one() {
-    // Design section 8: a model with no pricing cannot honour a cost bound, and
+    // Design section 7: a model with no pricing cannot honour a cost bound, and
     // a request that sets one against such a provider is refused rather than
     // allowed unpriced. So a shared contract that carries `max_cost_micros` is
     // the one thing a caller cannot point at both destinations unchanged.

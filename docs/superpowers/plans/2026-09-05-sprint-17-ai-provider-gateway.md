@@ -696,13 +696,20 @@ with the adapter never called, and an answer from the local one under a policy
 document that permits `Restricted` there. A third test records the one
 destination-sensitive part of the contract: a `max_cost_micros` bound is
 honoured by the priced hosted model and refused with `UnpricedCost` by the
-unpriced local one, per design section 8.
+unpriced local one, per design section 7.
 
 `ui/src/ai/ai.acceptance.test.tsx` (3 tests) drives the panel through health
 and credential facts, an empty order that says failover is off, two additions
 and a reorder that round-trip through `ai_set_provider_order`, and a re-save
 that sends no `credential` key; every call is asserted against both the tauri
 command name and the envelope command and capability.
+
+Neither acceptance test drives `AppState::ai_complete` to a success: the
+handler builds its registry privately from real HTTP adapters, so there is no
+seam a fixture provider can enter through, and `ai_ipc.rs` covers only its four
+refusal paths. The handler's success path — `complete_model`, `finish_ai`, the
+serialized `ModelResponse` — has no test on this branch. The missing seam is the
+same one open decision 10's follow-up has to build.
 
 **The third Rust bullet is not asserted.** Nothing writes to `AiRequestStore`,
 so there is no request row to count; see open decision 10 in the design. A test

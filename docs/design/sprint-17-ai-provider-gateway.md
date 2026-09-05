@@ -560,7 +560,7 @@ plumbing it saves. Section 13.6 is the resulting contract.
     migration 0007, and `apply_migrations` creates both tables, but
     `record_request` has no caller: `AppState` holds no store handle and
     `complete_model` returns the gateway's answer without recording anything.
-    Section 5 promises "an audit record per model request" and section 8 has the
+    Section 3 promises "an audit record per model request" and section 7 has the
     window accounting reading usage back out of it, so this is not a missing
     line of plumbing — three contract mismatches have to be settled first, and
     each is a decision rather than a fix:
@@ -577,14 +577,17 @@ plumbing it saves. Section 13.6 is the resulting contract.
       attempt that still consumed tokens is not lost" has no field to travel in.
 
     Wiring the store now would either record successes only, contradicting
-    section 5, or write a zero `ModelUsage` for failed attempts — a value that
+    section 3, or write a zero `ModelUsage` for failed attempts — a value that
     passes every validator and states something nobody observed, which is the
     Sprint 16 Task 12 defect in a new place. The same root cause makes
     `WindowBudget` inert: `complete_model` builds a fresh `BudgetLedger` per
     request, so nothing accumulates across calls. Task 13 therefore asserts the
     first two of its three Rust bullets and leaves the store one unasserted.
-    Closing this needs its own task, and it blocks the Sprint 18 redaction work
-    that expects rows to exist.
+    Closing this needs its own task. Nothing in a later sprint is stated to read
+    these rows yet — section 17 puts the AI Assistant Log in Sprint 19, whose
+    assistant is the first real caller of `ai.complete` — but section 7's window
+    accounting already depends on them, so the budget is per request in practice
+    however it is configured.
 
 
 ## 16. Testing
