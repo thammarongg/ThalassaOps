@@ -358,8 +358,9 @@ Deliberately minimal, because Sprint 19 owns the assistant:
 - English and Thai strings for all three, with the key-parity test the
   repository already enforces.
 
-No chat surface, no model picker, no cost dashboard. Sprint 25 owns cost
-reporting.
+No chat surface, no model picker, no cost dashboard. Sprint 26 owns capacity,
+reliability and provider cost reporting; this sprint only records the per-attempt
+numbers that sprint will aggregate.
 
 ## 13. Safety and policy
 
@@ -468,11 +469,13 @@ and is the better fit once Sprint 20 models accounts; recorded as debt 6.
    investigate may spend against a hosted provider. A spend permission belongs
    in Sprint 20's Policy Center; see section 14.4.
 6. **Window budgets are owned per principal**, which does not match how a
-   provider bill arrives. Sprint 20 should revisit this once provider accounts
-   are modelled; see section 14.5.
+   provider bill arrives. Sprint 20 models the permissions and Sprint 24 the
+   membership that a per-account budget would need; revisit it there. See
+   section 14.5.
 7. **A `Public` declaration is unverified** until Sprint 18 delivers
    classification. It is the one control in the application that rests on a
    human assertion; see section 13.5.
+
 
 ## 16. Testing
 
@@ -487,3 +490,35 @@ and is the better fit once Sprint 20 models accounts; recorded as debt 6.
   local provider follows the local data classes.
 - An IPC test asserts the exact payload keys and the typed error reasons.
 - No test performs a network call, and no fixture contains a real key.
+
+## 17. Reconciliation with Sprints 18-26
+
+Checked against `docs/planning/sprint-plan.md` so this sprint neither duplicates
+a later one nor blocks it.
+
+- **Sprint 18** adds classification, redaction and Gemini. It is what replaces
+  the unverified `Public` declaration of section 13.5, and it inherits a frozen
+  request contract to add Gemini behind. Nothing here hard-codes a redaction
+  behaviour, which that sprint's plan explicitly forbids.
+- **Sprint 19** adds the tool registry, structured findings and the AI Assistant
+  Log. This sprint deliberately ships no tool surface and persists no content,
+  so Sprint 19 adds both with redaction in place rather than inheriting an
+  unredacted store. Its assistant is the first real caller of `ai.complete`.
+- **Sprint 20** owns the Policy Center, where a spend permission belongs. Debt 5
+  is its inheritance, not a gap to close here.
+- **Sprint 21** owns actions and approvals. The gateway grants no mutation
+  authority, which is what ADR 0005 requires and what keeps that sprint's
+  approval framework the only path to a change.
+- **Sprint 23** generates management summaries from evidence and will drive this
+  gateway. It needs no new contract, but its content leaves for a third party,
+  so it must derive its own egress allowlist from Sprint 18's classification —
+  the same warning the Sprint 16 design records for the summary card.
+- **Sprint 24** models organization, team and workspace membership. A per-
+  provider-account budget needs that model; debt 6 waits for it.
+- **Sprint 25** hardens the keychain, secret storage and IPC capabilities.
+  Binding decision 4 keeps provider secrets inside the existing
+  `CredentialStore`, so that hardening covers them automatically instead of
+  finding a second, parallel secret path.
+- **Sprint 26** benchmarks investigation latency and token cost and reports
+  provider cost metadata. Section 9's per-attempt rows are the data it will
+  read; this sprint builds no aggregation of its own.
