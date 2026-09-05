@@ -196,13 +196,19 @@ pub struct ModelRequest {
     pub request_id: Uuid,
     pub instruction: Option<String>,
     pub messages: Vec<ModelMessage>,
-    pub data_class: DataClass,
+    pub data_class: ModelDataClass,
     pub declaration: ContentDeclaration,
     pub budget: ModelBudget,
     pub timeout_ms: u64,
     pub model: ModelSelector,
     pub failover: FailoverPermission,
 }
+
+/// `DataClass` is owned by `thalassa-policy`, and `thalassa-domain` cannot
+/// depend on the policy crate, so the request carries the caller's label
+/// opaquely and the gateway is what resolves it.  A string naming no data
+/// class is a typed refusal, never a silent `Public`.
+pub type ModelDataClass = String;
 
 /// Who asserts that this content was classified and redacted.  Section 13.5
 /// says plainly that in Sprint 17 the answer is "a person did", and this field
@@ -529,6 +535,16 @@ plumbing it saves. Section 13.6 is the resulting contract.
 7. **A `Public` declaration is unverified** until Sprint 18 delivers
    classification. It is the one control in the application that rests on a
    human assertion; see section 13.5.
+8. **The gateway always tells the policy runtime `contains_immutable_secret:
+   false`.** `EgressRequest` carries the flag and callers such as
+   `app/connectors.rs` set it deliberately, but `ModelRequest` has no field the
+   gateway could read it from, so the gateway asserts the policy default rather
+   than an observation. The control that still bites is the data-class one:
+   `Restricted` never reaches `HostedAi`. What is not covered is a secret pasted
+   into content its author declared `Public` — the same blast radius section
+   13.5 already describes, reached by a second route. Sprint 18's classifier is
+   what closes it; until then, do not read a permitted egress as evidence that
+   the content held no credential.
 
 
 ## 16. Testing
