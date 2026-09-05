@@ -1,0 +1,5 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 429,
+  "body": {"error": "rate limited fixture"}
+}

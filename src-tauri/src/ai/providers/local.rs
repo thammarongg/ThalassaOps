@@ -9,74 +9,75 @@ use thalassa_ai::{
     ModelProvider, ProviderError, ProviderManifest, ProviderRequest, ProviderResponse,
 };
 use thalassa_domain::{
-    ModelDescriptor, ModelFinishReason, ModelMessage, ModelRole, ModelUsage, ProviderErrorReason,
-    ProviderHealth,
+    ModelFinishReason, ModelRole, ModelUsage, ProviderErrorReason, ProviderHealth, ProviderKind,
 };
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::connectors::CredentialStore;
+use super::openai_compatible::{openai_request_body, parse_openai_response};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The local adapter covers both local runtimes deliberately: vLLM reuses the
+/// OpenAI-compatible wire helpers, while Ollama uses its native `/api/chat`
+/// shape and mapping below. They are not treated as interchangeable formats.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OpenAiCompatibleConfig {
+pub struct LocalProviderConfig {
     pub endpoint: String,
 }
 
 #[derive(Debug, Error)]
-pub enum OpenAiCompatibleError {
-    #[error("invalid provider configuration: {0}")]
+pub enum LocalProviderError {
+    #[error("invalid local provider configuration: {0}")]
     Configuration(String),
-    #[error("invalid provider endpoint: {0}")]
+    #[error("invalid local provider endpoint: {0}")]
     InvalidEndpoint(String),
-    #[error("provider credential error: {0}")]
-    Credential(String),
-    #[error("provider credential is not configured")]
-    MissingCredential,
-    #[error("could not build provider HTTP client")]
+    #[error("could not build local provider HTTP client")]
     HttpClient,
 }
 
 #[derive(Debug)]
-pub struct OpenAiCompatibleProvider {
+pub struct LocalProvider {
     client: Client,
     endpoint: Url,
-    credential: String,
     manifest: ProviderManifest,
 }
 
-impl OpenAiCompatibleProvider {
+impl LocalProvider {
     pub fn new(
         manifest: ProviderManifest,
         config_metadata: Value,
-        credential_store: &dyn CredentialStore,
-    ) -> Result<Self, OpenAiCompatibleError> {
-        let config: OpenAiCompatibleConfig = serde_json::from_value(config_metadata)
-            .map_err(|error| OpenAiCompatibleError::Configuration(error.to_string()))?;
+    ) -> Result<Self, LocalProviderError> {
+        if !manifest.kind.is_local() {
+            return Err(LocalProviderError::Configuration(
+                "local provider kind must be ollama or vllm".into(),
+            ));
+        }
+        let config: LocalProviderConfig = serde_json::from_value(config_metadata)
+            .map_err(|error| LocalProviderError::Configuration(error.to_string()))?;
         let endpoint = validate_endpoint(&config.endpoint)?;
-        let credential = credential_store
-            .get(&format!("provider/{}", manifest.id))
-            .map_err(|error| OpenAiCompatibleError::Credential(error.to_string()))?
-            .filter(|credential| !credential.trim().is_empty())
-            .ok_or(OpenAiCompatibleError::MissingCredential)?;
         let client = Client::builder()
             .timeout(HTTP_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|_| OpenAiCompatibleError::HttpClient)?;
-
+            .map_err(|_| LocalProviderError::HttpClient)?;
         Ok(Self {
             client,
             endpoint,
-            credential,
             manifest,
         })
     }
 
-    pub fn request_body(&self, request: &ProviderRequest) -> Result<Value, OpenAiCompatibleError> {
-        openai_request_body(request)
+    pub fn request_body(&self, request: &ProviderRequest) -> Result<Value, LocalProviderError> {
+        match self.manifest.kind {
+            ProviderKind::Vllm => openai_request_body(request)
+                .map_err(|error| LocalProviderError::Configuration(error.to_string())),
+            ProviderKind::Ollama => ollama_request_body(request),
+            _ => Err(LocalProviderError::Configuration(
+                "local provider kind must be ollama or vllm".into(),
+            )),
+        }
     }
 
     pub fn parse_response(
@@ -84,15 +85,22 @@ impl OpenAiCompatibleProvider {
         status: u16,
         body: &Value,
     ) -> Result<ProviderResponse, ProviderError> {
-        parse_openai_response(&self.manifest, status, body)
-    }
-
-    fn request_error(error: OpenAiCompatibleError) -> ProviderError {
-        ProviderError::new(ProviderErrorReason::InvalidRequest, error.to_string())
+        match self.manifest.kind {
+            ProviderKind::Vllm => {
+                let mut response = parse_openai_response(&self.manifest, status, body)?;
+                response.usage.cost_micros = None;
+                Ok(response)
+            }
+            ProviderKind::Ollama => parse_ollama_response(status, body),
+            _ => Err(ProviderError::new(
+                ProviderErrorReason::InvalidRequest,
+                "local provider kind must be ollama or vllm",
+            )),
+        }
     }
 }
 
-impl ModelProvider for OpenAiCompatibleProvider {
+impl ModelProvider for LocalProvider {
     fn manifest(&self) -> &ProviderManifest {
         &self.manifest
     }
@@ -109,12 +117,13 @@ impl ModelProvider for OpenAiCompatibleProvider {
                 "provider deadline elapsed before request",
             ));
         }
-        let body = self.request_body(request).map_err(Self::request_error)?;
+        let body = self.request_body(request).map_err(|error| {
+            ProviderError::new(ProviderErrorReason::InvalidRequest, error.to_string())
+        })?;
         let response = self
             .client
             .post(self.endpoint.clone())
             .timeout(remaining)
-            .bearer_auth(&self.credential)
             .json(&body)
             .send()
             .map_err(|_| {
@@ -123,7 +132,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
         let status = response.status().as_u16();
         let body = response
             .json::<Value>()
-            .map_err(|_| malformed_response("OpenAI-compatible provider returned invalid JSON"))?;
+            .map_err(|_| malformed_response("local provider returned invalid JSON"))?;
         self.parse_response(status, &body)
     }
 
@@ -152,39 +161,20 @@ impl ModelProvider for OpenAiCompatibleProvider {
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAiResponse {
-    model: Option<String>,
-    choices: Vec<OpenAiChoice>,
-    usage: Option<OpenAiUsage>,
+struct OllamaResponse {
+    message: OllamaMessage,
+    done: bool,
+    done_reason: Option<String>,
+    prompt_eval_count: Option<u64>,
+    eval_count: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAiChoice {
-    message: OpenAiMessage,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiMessage {
+struct OllamaMessage {
     content: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct OpenAiUsage {
-    prompt_tokens: u64,
-    completion_tokens: u64,
-}
-
-fn message_value(message: &ModelMessage) -> Value {
-    json!({
-        "role": role_wire(message.role),
-        "content": message.content,
-    })
-}
-
-pub(crate) fn openai_request_body(
-    request: &ProviderRequest,
-) -> Result<Value, OpenAiCompatibleError> {
+fn ollama_request_body(request: &ProviderRequest) -> Result<Value, LocalProviderError> {
     let mut messages = Vec::with_capacity(request.messages.len() + 1);
     if let Some(instruction) = &request.instruction {
         messages.push(json!({
@@ -192,51 +182,46 @@ pub(crate) fn openai_request_body(
             "content": instruction,
         }));
     }
-    messages.extend(request.messages.iter().map(message_value));
+    messages.extend(request.messages.iter().map(|message| {
+        json!({
+            "role": role_wire(message.role),
+            "content": message.content,
+        })
+    }));
     Ok(json!({
         "model": request.model_id,
         "messages": messages,
-        "max_tokens": request.max_output_tokens,
+        "stream": false,
+        "options": {"num_predict": request.max_output_tokens},
     }))
 }
 
-pub(crate) fn parse_openai_response(
-    manifest: &ProviderManifest,
-    status: u16,
-    body: &Value,
-) -> Result<ProviderResponse, ProviderError> {
+fn parse_ollama_response(status: u16, body: &Value) -> Result<ProviderResponse, ProviderError> {
     if !(200..=299).contains(&status) {
         return Err(ProviderError::new(
             reason_for_status(status),
-            format!("OpenAI-compatible provider returned status {status}"),
+            format!("Ollama provider returned status {status}"),
         ));
     }
-
-    let parsed: OpenAiResponse = serde_json::from_value(body.clone())
-        .map_err(|_| malformed_response("OpenAI-compatible response does not match its schema"))?;
-    let choice = parsed
-        .choices
-        .first()
-        .ok_or_else(|| malformed_response("OpenAI-compatible response has no choices"))?;
-    let usage = parsed
-        .usage
-        .ok_or_else(|| malformed_response("OpenAI-compatible response has no usage"))?;
-    let model = parsed
-        .model
-        .as_deref()
-        .and_then(|model_id| manifest.model(model_id))
-        .or_else(|| manifest.models.first());
-
+    let parsed: OllamaResponse = serde_json::from_value(body.clone())
+        .map_err(|_| malformed_response("Ollama response does not match its schema"))?;
+    if !parsed.done {
+        return Err(malformed_response("Ollama response is not complete"));
+    }
+    let input_tokens = parsed
+        .prompt_eval_count
+        .ok_or_else(|| malformed_response("Ollama response has no input usage"))?;
+    let output_tokens = parsed
+        .eval_count
+        .ok_or_else(|| malformed_response("Ollama response has no output usage"))?;
     Ok(ProviderResponse {
-        content: choice.message.content.clone(),
+        content: parsed.message.content,
         usage: ModelUsage {
-            input_tokens: usage.prompt_tokens,
-            output_tokens: usage.completion_tokens,
-            cost_micros: model.and_then(|model| {
-                cost_for_usage(model, usage.prompt_tokens, usage.completion_tokens)
-            }),
+            input_tokens,
+            output_tokens,
+            cost_micros: None,
         },
-        finish: finish_reason(choice.finish_reason.as_deref())?,
+        finish: finish_reason(parsed.done_reason.as_deref())?,
     })
 }
 
@@ -248,28 +233,28 @@ fn role_wire(role: ModelRole) -> &'static str {
     }
 }
 
-fn validate_endpoint(value: &str) -> Result<Url, OpenAiCompatibleError> {
+fn validate_endpoint(value: &str) -> Result<Url, LocalProviderError> {
     let endpoint = Url::parse(value)
-        .map_err(|error| OpenAiCompatibleError::InvalidEndpoint(error.to_string()))?;
+        .map_err(|error| LocalProviderError::InvalidEndpoint(error.to_string()))?;
     let scheme_allowed =
         endpoint.scheme() == "https" || (endpoint.scheme() == "http" && is_loopback(&endpoint));
     if !scheme_allowed {
-        return Err(OpenAiCompatibleError::InvalidEndpoint(
+        return Err(LocalProviderError::InvalidEndpoint(
             "endpoint must use https, or http for a loopback host".into(),
         ));
     }
     if endpoint.host_str().is_none() {
-        return Err(OpenAiCompatibleError::InvalidEndpoint(
+        return Err(LocalProviderError::InvalidEndpoint(
             "endpoint must have a host".into(),
         ));
     }
     if !endpoint.username().is_empty() || endpoint.password().is_some() {
-        return Err(OpenAiCompatibleError::InvalidEndpoint(
+        return Err(LocalProviderError::InvalidEndpoint(
             "endpoint cannot contain embedded credentials".into(),
         ));
     }
     if endpoint.query().is_some() || endpoint.fragment().is_some() {
-        return Err(OpenAiCompatibleError::InvalidEndpoint(
+        return Err(LocalProviderError::InvalidEndpoint(
             "endpoint cannot contain a query or fragment".into(),
         ));
     }
@@ -300,29 +285,13 @@ fn finish_reason(reason: Option<&str>) -> Result<ModelFinishReason, ProviderErro
     match reason {
         Some("stop") => Ok(ModelFinishReason::Complete),
         Some("length") => Ok(ModelFinishReason::MaxOutputTokens),
-        Some("content_filter") => Ok(ModelFinishReason::ProviderStop),
+        Some("unload") => Ok(ModelFinishReason::ProviderStop),
         _ => Err(malformed_response(
-            "OpenAI-compatible response has an unknown finish reason",
+            "Ollama response has an unknown finish reason",
         )),
     }
 }
 
 fn malformed_response(message: &str) -> ProviderError {
     ProviderError::new(ProviderErrorReason::MalformedResponse, message)
-}
-
-fn cost_for_usage(model: &ModelDescriptor, input_tokens: u64, output_tokens: u64) -> Option<u64> {
-    let input_price = model.input_cost_micros_per_million_tokens?;
-    let output_price = model.output_cost_micros_per_million_tokens?;
-    Some(
-        cost_for_tokens(input_tokens, input_price)
-            .saturating_add(cost_for_tokens(output_tokens, output_price)),
-    )
-}
-
-fn cost_for_tokens(tokens: u64, price_micros_per_million: u64) -> u64 {
-    let amount = (u128::from(tokens) * u128::from(price_micros_per_million))
-        .saturating_add(999_999)
-        / 1_000_000;
-    amount.min(u128::from(u64::MAX)) as u64
 }
