@@ -34,6 +34,13 @@ Design: `docs/design/sprint-17-ai-provider-gateway.md` (approved 2026-09-05).
 
 ## Task DAG
 
+> Bookkeeping: Tasks 1-12 shipped as `080fc95`, `72c3860`, `8247c13`, `ccd36ee`,
+> `06402cb`, `336b4bf`, `2af2c4e`, `345bd59`, `16c20f6`, `8abea4b` and `a6c6c4d`,
+> but their step boxes were never ticked as the work landed. They are left
+> unticked rather than back-filled from the commit log; the commits are the
+> record.
+
+
 ```
 Task 1 domain contracts
   |
@@ -642,7 +649,7 @@ git commit -m "feat(ai): add the provider status, configuration and fallback sur
 The sprint's exit criterion is that the same request contract runs against a
 hosted provider and a local one without a UI change. Prove exactly that:
 
-- [ ] **Step 1: Write the acceptance test**
+- [x] **Step 1: Write the acceptance test**
 
 Rust, with fixture-backed adapters and the real gateway, registry, budget
 ledger, policy runtime and store:
@@ -662,7 +669,7 @@ round-trips. Assert the tauri command name and the envelope command for every
 call, as the Sprint 16 acceptance test does — reading the command off the wrong
 argument of `invoke` is a mistake this repository has already made once.
 
-- [ ] **Step 2: Run every gate**
+- [x] **Step 2: Run every gate**
 
 ```bash
 cargo fmt --all -- --check
@@ -673,11 +680,39 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 
 Report the exact counts against the 577 / 216 baseline.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -m "test(ai): verify one request contract across hosted and local providers"
 ```
+
+Done: `0cd2549`. `src-tauri/tests/ai_acceptance.rs` (3 tests) runs the real
+gateway, registry, budget ledger and policy runtime over two fixture adapters
+and asserts the exit criterion directly: the hosted and local responses are
+equal once `provider_id`, `model_id`, `usage` and `attempts` are removed, and
+the payload sent to each adapter is the same apart from `model_id`. The
+restricted split asserts `ImmutableRestrictedData` for the hosted destination
+with the adapter never called, and an answer from the local one under a policy
+document that permits `Restricted` there. A third test records the one
+destination-sensitive part of the contract: a `max_cost_micros` bound is
+honoured by the priced hosted model and refused with `UnpricedCost` by the
+unpriced local one, per design section 8.
+
+`ui/src/ai/ai.acceptance.test.tsx` (3 tests) drives the panel through health
+and credential facts, an empty order that says failover is off, two additions
+and a reorder that round-trip through `ai_set_provider_order`, and a re-save
+that sends no `credential` key; every call is asserted against both the tauri
+command name and the envelope command and capability.
+
+**The third Rust bullet is not asserted.** Nothing writes to `AiRequestStore`,
+so there is no request row to count; see open decision 10 in the design. A test
+that called `record_request` by hand would be a green check on a path the
+application never takes.
+
+Gates on the branch: `cargo fmt --check` clean, `cargo clippy --all-targets
+--all-features -D warnings` clean, `cargo test` 642 passed (639 before),
+`npm run format:check`, `lint`, `typecheck` clean, `npm test` 230 passed
+(227 before).
 
 ---
 
