@@ -8,17 +8,19 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub mod budget;
+pub mod gateway;
 pub mod registry;
 
 pub use budget::{
     estimate_input_tokens, BudgetBound, BudgetLedger, BudgetRefusal, PreparedRequest, WindowBudget,
 };
+pub use gateway::{CancellationToken, Gateway, GatewayError};
 pub use registry::{ProviderRegistry, ProviderSelection, RegistryError};
 pub use thalassa_domain::{
-    FailoverPermission, ModelAttempt, ModelAttemptOutcome, ModelBudget, ModelCapabilityRequirement,
-    ModelDescriptor, ModelFinishReason, ModelMessage, ModelRequest, ModelRequestError,
-    ModelResponse, ModelRole, ModelSelector, ModelUsage, ProviderErrorReason, ProviderHealth,
-    ProviderKind,
+    ContentDeclaration, FailoverPermission, ModelAttempt, ModelAttemptOutcome, ModelBudget,
+    ModelCapabilityRequirement, ModelDataClass, ModelDescriptor, ModelFinishReason, ModelMessage,
+    ModelRequest, ModelRequestError, ModelResponse, ModelRole, ModelSelector, ModelUsage,
+    ProviderErrorReason, ProviderHealth, ProviderKind,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
