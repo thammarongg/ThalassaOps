@@ -1,12 +1,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use thalassa_ai::{
-    BudgetBound, BudgetLedger, Gateway, GatewayError, ModelProvider, ProviderManifest,
-    ProviderRegistry,
+    BudgetBound, BudgetLedger, Gateway, GatewayError, GatewayFailure, ModelProvider,
+    ProviderManifest, ProviderRegistry, RegistryError,
 };
 use thalassa_domain::{
     ModelRequest, ProviderErrorReason, ProviderHealth, ProviderKind, ResourceScope,
@@ -23,6 +24,7 @@ use crate::ai::config::{ProviderConfigError, ProviderConfiguration, ProviderSumm
 use crate::ai::providers::{
     anthropic::AnthropicProvider, local::LocalProvider, openai_compatible::OpenAiCompatibleProvider,
 };
+use crate::ai::store::{AiAttemptRecord, AiRequestOutcome, AiStoreError};
 use crate::connectors::CredentialStore;
 
 pub const AI_COMPLETE_TAURI_COMMAND: &str = "ai_complete";
@@ -59,6 +61,11 @@ pub struct AiProbeRequest {
 #[serde(deny_unknown_fields)]
 pub struct AiCancelRequest {
     pub request_id: Uuid,
+}
+
+enum AiCompleteError {
+    Gateway(GatewayFailure),
+    Store(AiStoreError),
 }
 
 impl From<AiConfigureProviderRequest> for ProviderConfiguration {
@@ -240,16 +247,51 @@ impl AppState {
             }
         }
 
-        let result = self.complete_model(request, cancellation);
+        let started_at = Utc::now();
+        let result = self.complete_model(request.clone(), cancellation);
+        let finished_at = Utc::now();
         self.ai_cancellations
             .lock()
             .expect("AI cancellation mutex poisoned")
             .remove(&request_id);
         match result {
-            Ok(response) => self.finish_ai(response),
-            Err(error) => IpcResult::Err {
+            Ok(response) => {
+                let outcome = AiRequestOutcome {
+                    finish: Some(response.finish),
+                    error: None,
+                    started_at,
+                    finished_at: Some(finished_at),
+                };
+                if let Err(error) = self.record_ai_request(&request, outcome, &response.attempts) {
+                    return IpcResult::Err {
+                        ok: false,
+                        error: audit_store_error(error),
+                    };
+                }
+                self.finish_ai(response)
+            }
+            Err(AiCompleteError::Gateway(failure)) => {
+                let ipc_error = gateway_error(failure.error);
+                let outcome = AiRequestOutcome {
+                    finish: None,
+                    error: Some(gateway_audit_error(&ipc_error)),
+                    started_at,
+                    finished_at: Some(finished_at),
+                };
+                if let Err(error) = self.record_ai_request(&request, outcome, &failure.attempts) {
+                    return IpcResult::Err {
+                        ok: false,
+                        error: audit_store_error(error),
+                    };
+                }
+                IpcResult::Err {
+                    ok: false,
+                    error: ipc_error,
+                }
+            }
+            Err(AiCompleteError::Store(error)) => IpcResult::Err {
                 ok: false,
-                error: gateway_error(error),
+                error: audit_store_error(error),
             },
         }
     }
@@ -340,13 +382,69 @@ impl AppState {
         &self,
         request: ModelRequest,
         cancellation: thalassa_ai::CancellationToken,
-    ) -> Result<thalassa_domain::ModelResponse, GatewayError> {
-        let registry = self.build_registry().map_err(GatewayError::Registry)?;
-        let gateway = Gateway::new(registry, BudgetLedger::new(), self.policy.clone());
-        gateway.complete(
-            request.clone(),
-            Instant::now() + Duration::from_millis(request.timeout_ms),
-            &cancellation,
+    ) -> Result<thalassa_domain::ModelResponse, AiCompleteError> {
+        let registry = self.registry_for_request().map_err(|error| {
+            AiCompleteError::Gateway(GatewayFailure {
+                error: GatewayError::Registry(error),
+                attempts: Vec::new(),
+            })
+        })?;
+        let usage = self
+            .ai_store
+            .window_usage(self.bootstrap.principal.id)
+            .map_err(AiCompleteError::Store)?;
+        let window_budget = self
+            .ai_window_budget
+            .lock()
+            .expect("AI window budget mutex poisoned")
+            .clone();
+        let gateway = Gateway::new(
+            registry,
+            BudgetLedger::with_window_usage(window_budget, usage),
+            self.policy.clone(),
+        );
+        gateway
+            .complete(
+                request.clone(),
+                Instant::now() + Duration::from_millis(request.timeout_ms),
+                &cancellation,
+            )
+            .map_err(AiCompleteError::Gateway)
+    }
+
+    fn registry_for_request(&self) -> Result<ProviderRegistry, RegistryError> {
+        let override_registry = self
+            .ai_registry_override
+            .lock()
+            .expect("AI registry override mutex poisoned");
+        if let Some(registry) = override_registry.as_ref() {
+            return clone_registry(registry);
+        }
+        drop(override_registry);
+        self.build_registry()
+    }
+
+    fn record_ai_request(
+        &self,
+        request: &ModelRequest,
+        outcome: AiRequestOutcome,
+        attempts: &[thalassa_domain::ModelAttempt],
+    ) -> Result<(), AiStoreError> {
+        let attempts: Vec<AiAttemptRecord> = attempts
+            .iter()
+            .enumerate()
+            .map(|(ordinal, attempt)| AiAttemptRecord {
+                ordinal: u32::try_from(ordinal).expect("AI attempt count exceeds u32"),
+                attempt: attempt.clone(),
+                usage: attempt.usage,
+            })
+            .collect();
+        self.ai_store.record_request(
+            self.bootstrap.principal.id,
+            request,
+            self.policy.version(),
+            outcome,
+            &attempts,
         )
     }
 
@@ -398,6 +496,21 @@ impl AppState {
         registry.set_provider_order(provider_order)?;
         Ok(registry)
     }
+}
+
+fn clone_registry(registry: &ProviderRegistry) -> Result<ProviderRegistry, RegistryError> {
+    let mut cloned = ProviderRegistry::new();
+    for provider_id in registry.declared_provider_ids() {
+        let provider =
+            registry
+                .provider(provider_id)
+                .ok_or_else(|| RegistryError::ProviderNotFound {
+                    provider_id: provider_id.clone(),
+                })?;
+        cloned.register_arc(provider)?;
+    }
+    cloned.set_provider_order(registry.provider_order().iter().cloned())?;
+    Ok(cloned)
 }
 
 fn provider_from_configuration(
@@ -496,6 +609,22 @@ fn gateway_error(error: GatewayError) -> IpcError {
             message: _,
         } => provider_error(reason),
     }
+}
+
+fn gateway_audit_error(error: &IpcError) -> Value {
+    error
+        .details
+        .get("reason")
+        .cloned()
+        .unwrap_or_else(|| Value::String(error.message.clone()))
+}
+
+fn audit_store_error(error: AiStoreError) -> IpcError {
+    IpcError::new(
+        IpcErrorCode::InternalError,
+        "AI audit store operation failed",
+        json!({ "reason": "ai_audit_store_failed", "error": error.to_string() }),
+    )
 }
 
 fn provider_error(reason: ProviderErrorReason) -> IpcError {

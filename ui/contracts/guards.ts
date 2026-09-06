@@ -432,12 +432,14 @@ const isModelDescriptor = (value: unknown): value is ModelDescriptor =>
 const isModelAttempt = (value: unknown): value is ModelAttempt => {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["provider_id", "model_id", "outcome"]) ||
+    (!hasExactKeys(value, ["provider_id", "model_id", "outcome"]) &&
+      !hasExactKeys(value, ["provider_id", "model_id", "outcome", "usage"])) ||
     !isSafeDisplayText(value.provider_id) ||
     !isSafeDisplayText(value.model_id)
   ) {
     return false;
   }
+  if ("usage" in value && value.usage !== null && !isModelUsage(value.usage)) return false;
   if (value.outcome === "answered") return true;
   return (
     isRecord(value.outcome) &&

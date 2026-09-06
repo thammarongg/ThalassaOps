@@ -188,6 +188,7 @@ export type ModelAttempt = {
   provider_id: string;
   model_id: string;
   outcome: ModelAttemptOutcome;
+  usage?: ModelUsage | null;
 };
 export type ModelUsage = {
   input_tokens: number;

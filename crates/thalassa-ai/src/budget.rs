@@ -73,9 +73,13 @@ impl BudgetLedger {
     }
 
     pub fn with_window(window: WindowBudget) -> Self {
+        Self::with_window_usage(window, ModelUsage::default())
+    }
+
+    pub fn with_window_usage(window: WindowBudget, usage: ModelUsage) -> Self {
         Self {
             window: Some(window),
-            usage: ModelUsage::default(),
+            usage,
         }
     }
 

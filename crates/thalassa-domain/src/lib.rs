@@ -6594,6 +6594,7 @@ pub struct ModelAttempt {
     pub provider_id: String,
     pub model_id: String,
     pub outcome: ModelAttemptOutcome,
+    pub usage: Option<ModelUsage>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -54,12 +54,17 @@ fn attempt(
             provider_id: provider_id.into(),
             model_id: "model".into(),
             outcome,
+            usage: Some(ModelUsage {
+                input_tokens,
+                output_tokens,
+                cost_micros: Some(3),
+            }),
         },
-        usage: ModelUsage {
+        usage: Some(ModelUsage {
             input_tokens,
             output_tokens,
             cost_micros: Some(3),
-        },
+        }),
     }
 }
 

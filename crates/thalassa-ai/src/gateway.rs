@@ -64,6 +64,14 @@ pub enum GatewayError {
     },
 }
 
+#[derive(Debug, Error, Eq, PartialEq)]
+#[error("{error}")]
+pub struct GatewayFailure {
+    #[source]
+    pub error: GatewayError,
+    pub attempts: Vec<ModelAttempt>,
+}
+
 #[derive(Clone)]
 pub struct Gateway {
     registry: Arc<ProviderRegistry>,
@@ -85,37 +93,49 @@ impl Gateway {
         request: ModelRequest,
         deadline: Instant,
         cancel: &CancellationToken,
-    ) -> Result<ModelResponse, GatewayError> {
-        validate_model_request(&request).map_err(GatewayError::InvalidRequest)?;
+    ) -> Result<ModelResponse, GatewayFailure> {
+        validate_model_request(&request)
+            .map_err(GatewayError::InvalidRequest)
+            .map_err(|error| failure(error, Vec::new()))?;
         let data_class = parse_data_class(&request.data_class).ok_or_else(|| {
-            GatewayError::InvalidDataClass {
-                data_class: request.data_class.clone(),
-            }
+            failure(
+                GatewayError::InvalidDataClass {
+                    data_class: request.data_class.clone(),
+                },
+                Vec::new(),
+            )
         })?;
-        check_request_state(deadline, cancel)?;
+        check_request_state(deadline, cancel).map_err(|error| failure(error, Vec::new()))?;
 
-        let initial = self.registry.select(&request.model)?;
+        let initial = self
+            .registry
+            .select(&request.model)
+            .map_err(GatewayError::Registry)
+            .map_err(|error| failure(error, Vec::new()))?;
         let fallbacks = self.fallbacks(&request, &initial);
         let total_attempts = fallbacks.len() + 1;
         let mut attempts = Vec::new();
 
         for (index, selection) in std::iter::once(initial).chain(fallbacks).enumerate() {
-            check_request_state(deadline, cancel)?;
-            self.check_policy(&request, data_class, &selection)?;
+            check_request_state(deadline, cancel)
+                .map_err(|error| failure(error, attempts.clone()))?;
+            self.check_policy(&request, data_class, &selection)
+                .map_err(|error| failure(error, attempts.clone()))?;
 
             let prepared = self
                 .budget
                 .lock()
                 .expect("gateway budget mutex poisoned")
                 .prepare(&request, &selection.model)
-                .map_err(GatewayError::Budget)?;
+                .map_err(GatewayError::Budget)
+                .map_err(|error| failure(error, attempts.clone()))?;
 
             let provider_result = selection
                 .provider
                 .complete(&prepared.provider_request, deadline);
 
             if Instant::now() >= deadline {
-                return Err(GatewayError::DeadlineExceeded);
+                return Err(failure(GatewayError::DeadlineExceeded, attempts));
             }
 
             match provider_result {
@@ -129,6 +149,7 @@ impl Gateway {
                         provider_id: selection.provider_id.clone(),
                         model_id: selection.model.id.clone(),
                         outcome: ModelAttemptOutcome::Answered,
+                        usage: Some(usage),
                     });
                     let finish = if cancel.is_cancelled() {
                         thalassa_domain::ModelFinishReason::Cancelled
@@ -146,33 +167,33 @@ impl Gateway {
                     });
                 }
                 Err(error) => {
-                    if error.reason == ProviderErrorReason::DeadlineExceeded {
-                        return Err(GatewayError::DeadlineExceeded);
-                    }
-                    if error.reason == ProviderErrorReason::Cancelled {
-                        return Err(GatewayError::Cancelled);
-                    }
                     attempts.push(ModelAttempt {
                         provider_id: selection.provider_id.clone(),
                         model_id: selection.model.id.clone(),
                         outcome: ModelAttemptOutcome::Failed(error.reason),
+                        usage: None,
                     });
+                    if error.reason == ProviderErrorReason::DeadlineExceeded {
+                        return Err(failure(GatewayError::DeadlineExceeded, attempts));
+                    }
+                    if error.reason == ProviderErrorReason::Cancelled {
+                        return Err(failure(GatewayError::Cancelled, attempts));
+                    }
                     let can_fail_over = request.failover == FailoverPermission::Permitted
                         && is_failover_reason(error.reason)
                         && index + 1 < total_attempts;
                     if can_fail_over {
                         continue;
                     }
-                    return Err(provider_error(
-                        selection.provider_id,
-                        selection.model.id,
-                        error,
+                    return Err(failure(
+                        provider_error(selection.provider_id, selection.model.id, error),
+                        attempts,
                     ));
                 }
             }
         }
 
-        Err(GatewayError::Cancelled)
+        Err(failure(GatewayError::Cancelled, attempts))
     }
 
     fn check_policy(
@@ -235,6 +256,10 @@ impl Gateway {
         candidates.retain(|selection| selection.provider_id != initial.provider_id);
         candidates
     }
+}
+
+fn failure(error: GatewayError, attempts: Vec<ModelAttempt>) -> GatewayFailure {
+    GatewayFailure { error, attempts }
 }
 
 fn check_request_state(deadline: Instant, cancel: &CancellationToken) -> Result<(), GatewayError> {

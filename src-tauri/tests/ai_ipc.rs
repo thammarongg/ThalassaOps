@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rusqlite::Connection;
 use serde_json::{json, Value};
 use tempfile::tempdir;
 use thalassa_ai::ModelDescriptor;
@@ -256,7 +257,7 @@ fn complete_with_the_wrong_capability_names_only_the_required_command() {
 
 #[test]
 fn policy_denial_exposes_its_typed_reason() {
-    let (_directory, state) = state();
+    let (directory, state) = state();
     let configured = state.ai_configure_provider(envelope(
         &state,
         "configure_provider",
@@ -276,6 +277,18 @@ fn policy_denial_exposes_its_typed_reason() {
     };
     assert_eq!(error.code, IpcErrorCode::PolicyDenied);
     assert_eq!(error.details["reason"], "ImmutableRestrictedData");
+
+    let connection = Connection::open(directory.path().join("thalassaops.sqlite")).unwrap();
+    let stored_error: Option<String> = connection
+        .query_row("SELECT error_reason FROM ai_requests", [], |row| row.get(0))
+        .unwrap();
+    let attempt_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM ai_request_attempts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(stored_error.as_deref(), Some("\"ImmutableRestrictedData\""));
+    assert_eq!(attempt_count, 0);
 }
 
 #[test]

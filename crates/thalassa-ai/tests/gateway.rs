@@ -154,7 +154,7 @@ fn restricted_hosted_request_is_denied_before_the_provider_is_called() {
         .unwrap_err();
 
     assert!(matches!(
-        error,
+        error.error,
         thalassa_ai::GatewayError::PolicyDenied {
             reason: PolicyDenyReason::ImmutableRestrictedData,
             policy_version: 1,
@@ -222,7 +222,10 @@ fn deadline_covers_failover_and_never_starts_a_late_second_attempt() {
         )
         .unwrap_err();
 
-    assert!(matches!(error, thalassa_ai::GatewayError::DeadlineExceeded));
+    assert!(matches!(
+        error.error,
+        thalassa_ai::GatewayError::DeadlineExceeded
+    ));
     assert_eq!(calls(&first_calls), 1);
     assert_eq!(calls(&second_calls), 0);
 }
@@ -270,7 +273,7 @@ fn forbidden_failover_returns_rate_limit_without_touching_the_next_provider() {
     registry.register(second).unwrap();
     registry.set_provider_order(["second"]).unwrap();
 
-    let error = gateway(registry, PolicyRuntime::baseline())
+    let failure = gateway(registry, PolicyRuntime::baseline())
         .complete(
             capability_request("public", FailoverPermission::Forbidden),
             Instant::now() + Duration::from_secs(1),
@@ -279,12 +282,14 @@ fn forbidden_failover_returns_rate_limit_without_touching_the_next_provider() {
         .unwrap_err();
 
     assert!(matches!(
-        error,
+        failure.error,
         thalassa_ai::GatewayError::Provider {
             reason: ProviderErrorReason::RateLimited,
             ..
         }
     ));
+    assert_eq!(failure.attempts.len(), 1);
+    assert_eq!(failure.attempts[0].usage, None);
     assert_eq!(calls(&first_calls), 1);
     assert_eq!(calls(&second_calls), 0);
 }
@@ -323,11 +328,13 @@ fn permitted_failover_returns_the_second_answer_and_both_attempts() {
                 provider_id: "first".into(),
                 model_id: "model".into(),
                 outcome: ModelAttemptOutcome::Failed(ProviderErrorReason::RateLimited),
+                usage: None,
             },
             ModelAttempt {
                 provider_id: "second".into(),
                 model_id: "model".into(),
                 outcome: ModelAttemptOutcome::Answered,
+                usage: Some(response("backup answer").usage),
             },
         ]
     );
@@ -364,7 +371,7 @@ fn unauthorized_failure_does_not_fail_over() {
         .unwrap_err();
 
     assert!(matches!(
-        error,
+        error.error,
         thalassa_ai::GatewayError::Provider {
             reason: ProviderErrorReason::Unauthorized,
             ..
@@ -399,7 +406,7 @@ fn provider_absent_from_configured_order_is_not_a_fallback() {
         .unwrap_err();
 
     assert!(matches!(
-        error,
+        error.error,
         thalassa_ai::GatewayError::Provider {
             reason: ProviderErrorReason::RateLimited,
             ..
@@ -428,7 +435,7 @@ fn unknown_data_class_is_refused_before_the_provider_is_called() {
         .unwrap_err();
 
     assert!(matches!(
-        error,
+        error.error,
         thalassa_ai::GatewayError::InvalidDataClass { data_class } if data_class == "not-a-data-class"
     ));
     assert_eq!(calls(&call_count), 0);

@@ -54,6 +54,9 @@ pub struct AppState {
     database_path: PathBuf,
     credential_store: SharedCredentialStore,
     pub(crate) ai_config: Arc<Mutex<crate::ai::config::ProviderConfigStore>>,
+    pub(crate) ai_store: Arc<crate::ai::store::AiRequestStore>,
+    pub(crate) ai_registry_override: Arc<Mutex<Option<thalassa_ai::ProviderRegistry>>>,
+    pub(crate) ai_window_budget: Arc<Mutex<thalassa_ai::WindowBudget>>,
     pub(crate) ai_cancellations: Arc<Mutex<HashMap<Uuid, thalassa_ai::CancellationToken>>>,
 }
 
@@ -110,6 +113,7 @@ impl AppState {
         apply_migrations(&connection)?;
         let bootstrap = load_or_bootstrap(&mut connection)?;
         let policy = load_or_seed_policy(&connection)?;
+        let ai_store = Arc::new(crate::ai::store::AiRequestStore::open(&database_path)?);
         Ok(Self {
             bootstrap,
             policy,
@@ -117,9 +121,28 @@ impl AppState {
             ai_config: Arc::new(Mutex::new(crate::ai::config::ProviderConfigStore::new(
                 credential_store.clone(),
             ))),
+            ai_store,
+            ai_registry_override: Arc::new(Mutex::new(None)),
+            ai_window_budget: Arc::new(Mutex::new(thalassa_ai::WindowBudget::default())),
             ai_cancellations: Arc::new(Mutex::new(HashMap::new())),
             credential_store,
         })
+    }
+
+    pub fn with_ai_registry(self, registry: thalassa_ai::ProviderRegistry) -> Self {
+        *self
+            .ai_registry_override
+            .lock()
+            .expect("AI registry override mutex poisoned") = Some(registry);
+        self
+    }
+
+    pub fn with_ai_window_budget(self, budget: thalassa_ai::WindowBudget) -> Self {
+        *self
+            .ai_window_budget
+            .lock()
+            .expect("AI window budget mutex poisoned") = budget;
+        self
     }
 
     pub fn health(&self, envelope: CommandEnvelope<Value>) -> IpcResult<HealthResponse> {
@@ -485,6 +508,8 @@ pub enum AppStateError {
     Policy(#[from] thalassa_policy::PolicyLoadError),
     #[error("connector error: {0}")]
     Connector(#[from] ConnectorError),
+    #[error("AI audit store error: {0}")]
+    AiStore(#[from] crate::ai::store::AiStoreError),
     #[error("observability client error: {0}")]
     ObservabilityClient(#[from] crate::observability::client::ObservabilityClientError),
     #[error("prometheus error: {0}")]

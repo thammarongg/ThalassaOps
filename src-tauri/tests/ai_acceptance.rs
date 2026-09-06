@@ -9,28 +9,35 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use rusqlite::Connection;
 use serde_json::Value;
+use tempfile::{tempdir, TempDir};
 use thalassa_ai::{
     BudgetBound, BudgetLedger, BudgetRefusal, CancellationToken, Gateway, GatewayError,
-    ModelProvider, ProviderError, ProviderManifest, ProviderRegistry, ProviderRequest,
-    ProviderResponse,
+    GatewayFailure, ModelProvider, ProviderError, ProviderManifest, ProviderRegistry,
+    ProviderRequest, ProviderResponse, WindowBudget,
 };
 use thalassa_domain::{
     ContentDeclaration, FailoverPermission, ModelBudget, ModelDescriptor, ModelFinishReason,
     ModelMessage, ModelRequest, ModelResponse, ModelRole, ModelSelector, ModelUsage,
-    ProviderHealth, ProviderKind,
+    ProviderErrorReason, ProviderHealth, ProviderKind,
 };
+use thalassa_ipc::{Capability, CommandEnvelope, CommandName};
 use thalassa_policy::{DataClass, PolicyDenyReason, PolicyDocument, PolicyRuntime};
+use thalassaops::app::{AppState, IpcResult};
+use thalassaops::connectors::{InMemoryCredentialStore, SharedCredentialStore};
 use uuid::Uuid;
 
 const REQUEST_ID: Uuid = Uuid::from_u128(0x1707);
 const ANSWER: &str = "restart the checkout deployment and watch the error rate";
+type AttemptRow = (i64, String, Option<i64>, Option<i64>, Option<i64>);
 
 /// A recorded-response adapter that also keeps what the gateway asked it, so a
 /// test can prove both destinations received the same provider request.
 struct FixtureProvider {
     manifest: ProviderManifest,
     response: ProviderResponse,
+    failure: Option<ProviderError>,
     received: Mutex<Vec<ProviderRequest>>,
 }
 
@@ -54,8 +61,25 @@ impl FixtureProvider {
                 usage,
                 finish: ModelFinishReason::Complete,
             },
+            failure: None,
             received: Mutex::new(Vec::new()),
         }
+    }
+
+    fn failing(id: &str, kind: ProviderKind, model_id: &str, reason: ProviderErrorReason) -> Self {
+        let mut provider = Self::new(
+            id,
+            kind,
+            model_id,
+            ModelUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cost_micros: None,
+            },
+            None,
+        );
+        provider.failure = Some(ProviderError::new(reason, "fixture failure"));
+        provider
     }
 
     fn calls(&self) -> Vec<ProviderRequest> {
@@ -74,6 +98,9 @@ impl ModelProvider for FixtureProvider {
         _deadline: Instant,
     ) -> Result<ProviderResponse, ProviderError> {
         self.received.lock().unwrap().push(request.clone());
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
+        }
         Ok(self.response.clone())
     }
 
@@ -188,7 +215,7 @@ fn gateway_over(
     Gateway::new(registry, BudgetLedger::new(), policy)
 }
 
-fn complete(gateway: &Gateway, request: ModelRequest) -> Result<ModelResponse, GatewayError> {
+fn complete(gateway: &Gateway, request: ModelRequest) -> Result<ModelResponse, GatewayFailure> {
     gateway.complete(
         request,
         Instant::now() + Duration::from_secs(1),
@@ -202,6 +229,159 @@ fn restricted_locally() -> PolicyRuntime {
         .local_model_data_classes
         .push(DataClass::Restricted);
     PolicyRuntime::load(document).unwrap()
+}
+
+fn app_state() -> (TempDir, AppState) {
+    let directory = tempdir().unwrap();
+    let credentials: SharedCredentialStore = Arc::new(InMemoryCredentialStore::default());
+    let state = AppState::open_with_credential_store(
+        directory.path().join("thalassaops.sqlite"),
+        credentials,
+    )
+    .unwrap();
+    (directory, state)
+}
+
+fn ai_envelope(state: &AppState, payload: Value) -> CommandEnvelope<Value> {
+    CommandEnvelope {
+        request_id: Uuid::new_v4(),
+        command: CommandName::new("ai", "complete").unwrap(),
+        capability: Capability::AiInvoke,
+        scope: state.bootstrap.scope.clone(),
+        payload,
+    }
+}
+
+fn registry(providers: Vec<Arc<FixtureProvider>>, order: &[&str]) -> ProviderRegistry {
+    let mut registry = ProviderRegistry::new();
+    for provider in providers {
+        registry
+            .register_arc(provider as Arc<dyn ModelProvider>)
+            .unwrap();
+    }
+    registry.set_provider_order(order.iter().copied()).unwrap();
+    registry
+}
+
+#[test]
+fn app_state_ai_complete_records_success_and_reported_usage() {
+    let (directory, state) = app_state();
+    let hosted = Arc::new(hosted_provider());
+    let state = state.with_ai_registry(registry(vec![hosted], &[]));
+    let (_, request) = addressed_to(&request_payload("public", None), "hosted", "hosted-model");
+
+    let result = state.ai_complete(ai_envelope(&state, serde_json::to_value(request).unwrap()));
+    assert!(matches!(result, IpcResult::Ok { .. }));
+
+    let connection = Connection::open(directory.path().join("thalassaops.sqlite")).unwrap();
+    let request_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM ai_requests", [], |row| row.get(0))
+        .unwrap();
+    let attempt: (String, String, Option<i64>, Option<i64>, Option<i64>) = connection
+        .query_row(
+            "SELECT provider_id, model_id, input_tokens, output_tokens, cost_micros
+             FROM ai_request_attempts",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(request_count, 1);
+    assert_eq!(
+        attempt,
+        (
+            "hosted".into(),
+            "hosted-model".into(),
+            Some(24),
+            Some(11),
+            Some(340)
+        )
+    );
+}
+
+#[test]
+fn app_state_ai_complete_records_failover_attempts_without_inventing_failed_usage() {
+    let (directory, state) = app_state();
+    let first = Arc::new(FixtureProvider::failing(
+        "first",
+        ProviderKind::OpenAiCompatible,
+        "model",
+        ProviderErrorReason::RateLimited,
+    ));
+    let second = Arc::new(FixtureProvider::new(
+        "second",
+        ProviderKind::OpenAiCompatible,
+        "model",
+        hosted_usage(),
+        Some((2_000, 4_000)),
+    ));
+    let state = state.with_ai_registry(registry(vec![first, second], &["second"]));
+    let (mut payload, _) = addressed_to(&request_payload("public", None), "first", "model");
+    payload["failover"] = serde_json::json!("permitted");
+
+    let result = state.ai_complete(ai_envelope(&state, payload));
+    assert!(matches!(result, IpcResult::Ok { .. }));
+
+    let connection = Connection::open(directory.path().join("thalassaops.sqlite")).unwrap();
+    let mut statement = connection
+        .prepare(
+            "SELECT ordinal, provider_id, input_tokens, output_tokens, cost_micros
+             FROM ai_request_attempts ORDER BY ordinal",
+        )
+        .unwrap();
+    let attempts: Vec<AttemptRow> = statement
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        attempts,
+        vec![
+            (0, "first".into(), None, None, None),
+            (1, "second".into(), Some(24), Some(11), Some(340)),
+        ]
+    );
+}
+
+#[test]
+fn app_state_ai_complete_seeds_the_window_budget_from_recorded_usage() {
+    let (_directory, state) = app_state();
+    let hosted = Arc::new(hosted_provider());
+    let state = state
+        .with_ai_registry(registry(vec![hosted], &[]))
+        .with_ai_window_budget(WindowBudget::new(Some(24), None, None));
+
+    let (first_payload, _) =
+        addressed_to(&request_payload("public", None), "hosted", "hosted-model");
+    let first_id = first_payload["request_id"].clone();
+    let first = state.ai_complete(ai_envelope(&state, first_payload));
+    assert!(matches!(first, IpcResult::Ok { .. }));
+
+    let (mut second_payload, _) =
+        addressed_to(&request_payload("public", None), "hosted", "hosted-model");
+    second_payload["request_id"] = serde_json::json!(Uuid::new_v4());
+    assert_ne!(first_id, second_payload["request_id"]);
+    let second = state.ai_complete(ai_envelope(&state, second_payload));
+    let IpcResult::Err { error, .. } = second else {
+        panic!("the recorded window usage should refuse the second request");
+    };
+    assert_eq!(error.details["reason"], "budget_refused");
+    assert_eq!(error.details["bound"], "window_input_tokens");
 }
 
 #[test]
@@ -276,7 +456,7 @@ fn restricted_content_is_refused_by_the_hosted_provider_and_answered_by_the_loca
 
     let denial = complete(&gateway, hosted_request).unwrap_err();
     assert_eq!(
-        denial,
+        denial.error,
         GatewayError::PolicyDenied {
             reason: PolicyDenyReason::ImmutableRestrictedData,
             policy_version: 2,
@@ -312,7 +492,7 @@ fn a_cost_bound_is_honoured_by_the_priced_hosted_model_and_refused_by_the_unpric
 
     let refusal = complete(&gateway, local_request).unwrap_err();
     assert_eq!(
-        refusal,
+        refusal.error,
         GatewayError::Budget(BudgetRefusal {
             bound: BudgetBound::UnpricedCost,
             requested: 0,

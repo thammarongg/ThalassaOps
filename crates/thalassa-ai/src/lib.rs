@@ -14,7 +14,7 @@ pub mod registry;
 pub use budget::{
     estimate_input_tokens, BudgetBound, BudgetLedger, BudgetRefusal, PreparedRequest, WindowBudget,
 };
-pub use gateway::{CancellationToken, Gateway, GatewayError};
+pub use gateway::{CancellationToken, Gateway, GatewayError, GatewayFailure};
 pub use registry::{ProviderRegistry, ProviderSelection, RegistryError};
 pub use thalassa_domain::{
     ContentDeclaration, FailoverPermission, ModelAttempt, ModelAttemptOutcome, ModelBudget,

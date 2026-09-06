@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use thalassa_domain::{
     ContentDeclaration, ModelAttempt, ModelBudget, ModelFinishReason, ModelRequest, ModelUsage,
-    PrincipalId, ProviderErrorReason,
+    PrincipalId,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -28,13 +29,13 @@ pub enum AiStoreError {
 pub struct AiAttemptRecord {
     pub ordinal: u32,
     pub attempt: ModelAttempt,
-    pub usage: ModelUsage,
+    pub usage: Option<ModelUsage>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AiRequestOutcome {
     pub finish: Option<ModelFinishReason>,
-    pub error: Option<ProviderErrorReason>,
+    pub error: Option<Value>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
 }
@@ -50,7 +51,7 @@ pub struct AiRequestRecord {
     pub policy_version: u64,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
-    pub error: Option<ProviderErrorReason>,
+    pub error: Option<Value>,
 }
 
 pub type StoredAiRequest = AiRequestRecord;
@@ -70,6 +71,7 @@ impl AiRequestStore {
         connection
             .execute_batch(AI_REQUESTS_MIGRATION)
             .map_err(database_error)?;
+        ensure_attempt_usage_nullable(&connection)?;
         Ok(Self { database_path })
     }
 
@@ -86,9 +88,9 @@ impl AiRequestStore {
                 "policy version must be greater than zero".into(),
             ));
         }
-        if attempts.is_empty() {
+        if attempts.is_empty() && outcome.error.is_none() {
             return Err(AiStoreError::Invalid(
-                "an AI request records at least one attempt".into(),
+                "a successful AI request records at least one attempt".into(),
             ));
         }
         for (expected, attempt) in attempts.iter().enumerate() {
@@ -110,6 +112,7 @@ impl AiRequestStore {
         connection
             .execute_batch(AI_REQUESTS_MIGRATION)
             .map_err(database_error)?;
+        ensure_attempt_usage_nullable(&connection)?;
         let transaction = connection.transaction().map_err(database_error)?;
         insert_request(
             &transaction,
@@ -148,6 +151,33 @@ impl AiRequestStore {
             .query_map(params![principal_id.to_string(), limit], decode_request)
             .map_err(database_error)?;
         rows.map(|row| row.map_err(database_error)).collect()
+    }
+
+    pub fn window_usage(&self, principal_id: PrincipalId) -> Result<ModelUsage, AiStoreError> {
+        let connection = Connection::open(&self.database_path).map_err(database_error)?;
+        let (input_tokens, output_tokens, cost_micros): (i64, i64, Option<i64>) = connection
+            .query_row(
+                "SELECT COALESCE(SUM(a.input_tokens), 0),
+                        COALESCE(SUM(a.output_tokens), 0),
+                        SUM(a.cost_micros)
+                 FROM ai_request_attempts a
+                 INNER JOIN ai_requests r ON r.id = a.request_id
+                 WHERE r.principal_id = ?1",
+                [principal_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(database_error)?;
+        Ok(ModelUsage {
+            input_tokens: u64::try_from(input_tokens)
+                .map_err(|_| AiStoreError::Corruption("input token usage".into()))?,
+            output_tokens: u64::try_from(output_tokens)
+                .map_err(|_| AiStoreError::Corruption("output token usage".into()))?,
+            cost_micros: cost_micros
+                .map(|value| {
+                    u64::try_from(value).map_err(|_| AiStoreError::Corruption("cost usage".into()))
+                })
+                .transpose()?,
+        })
     }
 }
 
@@ -205,9 +235,22 @@ fn insert_attempt(
                 attempt.attempt.provider_id,
                 attempt.attempt.model_id,
                 to_json(&attempt.attempt.outcome)?,
-                to_i64(attempt.usage.input_tokens)?,
-                to_i64(attempt.usage.output_tokens)?,
-                attempt.usage.cost_micros.map(to_i64).transpose()?,
+                attempt
+                    .usage
+                    .as_ref()
+                    .map(|usage| to_i64(usage.input_tokens))
+                    .transpose()?,
+                attempt
+                    .usage
+                    .as_ref()
+                    .map(|usage| to_i64(usage.output_tokens))
+                    .transpose()?,
+                attempt
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.cost_micros)
+                    .map(to_i64)
+                    .transpose()?,
             ],
         )
         .map(|_| ())
@@ -306,4 +349,55 @@ fn parse_timestamp(value: &str) -> Result<DateTime<Utc>, AiStoreError> {
     DateTime::parse_from_rfc3339(value)
         .map(|timestamp| timestamp.with_timezone(&Utc))
         .map_err(|_| AiStoreError::Corruption("timestamp".into()))
+}
+
+fn ensure_attempt_usage_nullable(connection: &Connection) -> Result<(), AiStoreError> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(ai_request_attempts)")
+        .map_err(database_error)?;
+    let mut rows = statement.query([]).map_err(database_error)?;
+    let mut input_tokens_not_null = false;
+    let mut output_tokens_not_null = false;
+    while let Some(row) = rows.next().map_err(database_error)? {
+        let name: String = row.get(1).map_err(database_error)?;
+        let not_null: i64 = row.get(3).map_err(database_error)?;
+        match name.as_str() {
+            "input_tokens" => input_tokens_not_null = not_null != 0,
+            "output_tokens" => output_tokens_not_null = not_null != 0,
+            _ => {}
+        }
+    }
+    drop(rows);
+    drop(statement);
+    if !input_tokens_not_null && !output_tokens_not_null {
+        return Ok(());
+    }
+
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             BEGIN;
+             ALTER TABLE ai_request_attempts RENAME TO ai_request_attempts_legacy;
+             CREATE TABLE ai_request_attempts (
+                 request_id TEXT NOT NULL REFERENCES ai_requests(id),
+                 ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+                 provider_id TEXT NOT NULL,
+                 model_id TEXT NOT NULL,
+                 outcome_json TEXT NOT NULL,
+                 input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                 output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                 cost_micros INTEGER CHECK (cost_micros IS NULL OR cost_micros >= 0),
+                 PRIMARY KEY (request_id, ordinal)
+             );
+             INSERT INTO ai_request_attempts
+                 (request_id, ordinal, provider_id, model_id, outcome_json,
+                  input_tokens, output_tokens, cost_micros)
+             SELECT request_id, ordinal, provider_id, model_id, outcome_json,
+                    input_tokens, output_tokens, cost_micros
+             FROM ai_request_attempts_legacy;
+             DROP TABLE ai_request_attempts_legacy;
+             COMMIT;
+             PRAGMA foreign_keys = ON;",
+        )
+        .map_err(database_error)
 }
