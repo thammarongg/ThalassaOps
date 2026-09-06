@@ -27,6 +27,14 @@ fn ai_providers(
 }
 
 #[tauri::command]
+fn ai_provider_order(
+    envelope: CommandEnvelope<serde_json::Value>,
+    state: tauri::State<'_, thalassaops::app::AppState>,
+) -> thalassaops::app::IpcResult<Vec<String>> {
+    state.ai_provider_order(envelope)
+}
+
+#[tauri::command]
 fn ai_configure_provider(
     envelope: CommandEnvelope<serde_json::Value>,
     state: tauri::State<'_, thalassaops::app::AppState>,
@@ -388,6 +396,7 @@ fn main() {
             system_health,
             system_context,
             ai_providers,
+            ai_provider_order,
             ai_configure_provider,
             ai_set_provider_order,
             ai_probe,

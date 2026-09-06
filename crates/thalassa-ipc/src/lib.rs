@@ -288,6 +288,15 @@ pub fn ai_providers_descriptor() -> CommandDescriptor {
     )
 }
 
+pub fn ai_provider_order_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "provider_order",
+        Capability::ConnectorRead,
+        Permission::Read,
+    )
+}
+
 pub fn ai_configure_provider_descriptor() -> CommandDescriptor {
     CommandDescriptor::new(
         "ai",

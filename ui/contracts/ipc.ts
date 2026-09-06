@@ -158,6 +158,7 @@ export type AiConfigureProviderRequest = ProviderConfiguration & {
   credential?: string | null;
 };
 export type AiProvidersRequest = Record<string, never>;
+export type AiProviderOrderRequest = Record<string, never>;
 export type AiSetProviderOrderRequest = { provider_order: string[] };
 export type AiProbeRequest = { provider_id: string };
 export type AiCancelRequest = { request_id: UUID };

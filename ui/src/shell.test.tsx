@@ -147,6 +147,7 @@ it("mounts the AI provider panel beside connectors and round-trips fallback orde
           ok: true,
           value: [unauthorizedHostedProvider, localProvider]
         });
+      if (name === "ai_provider_order") return Promise.resolve({ ok: true, value: [] });
       if (name === "ai_set_provider_order") {
         const payload = args?.envelope?.payload as { provider_order: string[] };
         return Promise.resolve({ ok: true, value: payload.provider_order });

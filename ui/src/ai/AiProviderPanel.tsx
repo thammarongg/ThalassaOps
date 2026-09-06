@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  AiProviderOrderRequest,
   AiProvidersRequest,
   AiSetProviderOrderRequest,
   CommandEnvelope,
@@ -17,7 +18,7 @@ import "./ai.css";
 
 type AiProviderPanelProps = {
   invoke: Invoke;
-  providerOrder: string[];
+  providerOrder?: string[];
   onProviderOrderChange?: (nextOrder: string[]) => void;
 };
 
@@ -58,26 +59,40 @@ export function AiProviderPanel({
 }: AiProviderPanelProps) {
   const { t } = useTranslation();
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  const [currentOrder, setCurrentOrder] = useState(providerOrder);
+  const [currentOrder, setCurrentOrder] = useState(providerOrder ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderSummary>();
 
-  useEffect(() => setCurrentOrder(providerOrder), [providerOrder]);
+  useEffect(() => {
+    if (providerOrder !== undefined) setCurrentOrder(providerOrder);
+  }, [providerOrder]);
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const result = await invoke<AiProvidersRequest, ProviderSummary[]>("ai_providers", {
-        envelope: aiEnvelope("providers", "ConnectorRead", {})
-      });
-      if (!result.ok || !Array.isArray(result.value) || !result.value.every(isProviderSummary)) {
+      const [providersResult, orderResult] = await Promise.all([
+        invoke<AiProvidersRequest, ProviderSummary[]>("ai_providers", {
+          envelope: aiEnvelope("providers", "ConnectorRead", {})
+        }),
+        invoke<AiProviderOrderRequest, string[]>("ai_provider_order", {
+          envelope: aiEnvelope("provider_order", "ConnectorRead", {})
+        })
+      ]);
+      if (
+        !providersResult.ok ||
+        !Array.isArray(providersResult.value) ||
+        !providersResult.value.every(isProviderSummary) ||
+        !orderResult.ok ||
+        !isStringArray(orderResult.value)
+      ) {
         setError(t("ai.loadError"));
         return;
       }
-      setProviders(result.value);
+      setProviders(providersResult.value);
+      setCurrentOrder(orderResult.value);
     } catch {
       setError(t("ai.loadError"));
     } finally {

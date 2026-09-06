@@ -13,8 +13,8 @@ use thalassa_domain::{
 };
 use thalassa_ipc::{
     ai_cancel_descriptor, ai_complete_descriptor, ai_configure_provider_descriptor,
-    ai_probe_descriptor, ai_providers_descriptor, ai_set_provider_order_descriptor,
-    CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode,
+    ai_probe_descriptor, ai_provider_order_descriptor, ai_providers_descriptor,
+    ai_set_provider_order_descriptor, CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode,
 };
 use uuid::Uuid;
 
@@ -93,6 +93,26 @@ impl AppState {
             .expect("AI provider configuration mutex poisoned")
             .providers();
         self.finish_ai(providers)
+    }
+
+    pub fn ai_provider_order(&self, envelope: CommandEnvelope<Value>) -> IpcResult<Vec<String>> {
+        let descriptor = ai_provider_order_descriptor();
+        if let Err(error) = self.authorize_ai(&envelope, &descriptor) {
+            return IpcResult::Err { ok: false, error };
+        }
+        if parse_payload::<AiEmptyRequest>(envelope.payload).is_err() {
+            return IpcResult::Err {
+                ok: false,
+                error: invalid_ai_request("ai_invalid_payload"),
+            };
+        }
+        let provider_order = self
+            .ai_config
+            .lock()
+            .expect("AI provider configuration mutex poisoned")
+            .provider_order()
+            .to_vec();
+        self.finish_ai(provider_order)
     }
 
     pub fn ai_configure_provider(

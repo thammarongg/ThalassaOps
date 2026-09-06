@@ -485,7 +485,6 @@ function Integrations({ invoke }: { invoke: Invoke }) {
   const [diagnostics, setDiagnostics] = useState<ConnectorDiagnostics>();
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [providerOrder, setProviderOrder] = useState<string[]>([]);
   const load = () => {
     setLoading(true);
     invoke("connector_list", { envelope: connectorEnvelope("list", "ConnectorRead", null) })
@@ -613,13 +612,7 @@ function Integrations({ invoke }: { invoke: Invoke }) {
   return (
     <div className="integrations">
       {connectorContent}
-      {!showAddForm && (
-        <AiProviderPanel
-          invoke={invoke}
-          providerOrder={providerOrder}
-          onProviderOrderChange={setProviderOrder}
-        />
-      )}
+      {!showAddForm && <AiProviderPanel invoke={invoke} />}
     </div>
   );
 }

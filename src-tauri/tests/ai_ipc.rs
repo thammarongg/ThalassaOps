@@ -96,6 +96,16 @@ fn every_ai_command_rejects_unknown_payload_keys() {
     );
     assert_invalid(
         state
+            .ai_provider_order(envelope(
+                &state,
+                "provider_order",
+                Capability::ConnectorRead,
+                json!({"unexpected": true}),
+            ))
+            .map_value(),
+    );
+    assert_invalid(
+        state
             .ai_configure_provider(envelope(
                 &state,
                 "configure_provider",
@@ -143,6 +153,84 @@ fn every_ai_command_rejects_unknown_payload_keys() {
                 "cancel",
                 Capability::AiInvoke,
                 json!({"request_id": Uuid::new_v4(), "unexpected": true}),
+            ))
+            .map_value(),
+    );
+}
+
+#[test]
+fn provider_order_read_returns_configured_order_and_rejects_invalid_envelopes() {
+    let (_directory, state) = state();
+    let configured = state.ai_configure_provider(envelope(
+        &state,
+        "configure_provider",
+        Capability::ConnectorAct,
+        provider_configuration(),
+    ));
+    assert!(matches!(configured, IpcResult::Ok { .. }));
+    let set = state.ai_set_provider_order(envelope(
+        &state,
+        "set_provider_order",
+        Capability::ConnectorAct,
+        json!({"provider_order": ["openai"]}),
+    ));
+    assert!(matches!(set, IpcResult::Ok { .. }));
+
+    let read = state.ai_provider_order(envelope(
+        &state,
+        "provider_order",
+        Capability::ConnectorRead,
+        json!({}),
+    ));
+    let IpcResult::Ok { value, .. } = read else {
+        panic!("expected configured provider order");
+    };
+    assert_eq!(value, vec!["openai"]);
+
+    let mut wrong_command = envelope(
+        &state,
+        "provider_order",
+        Capability::ConnectorRead,
+        json!({}),
+    );
+    wrong_command.command = CommandName::new("ai", "providers").unwrap();
+    let IpcResult::Err { error, .. } = state.ai_provider_order(wrong_command).map_value() else {
+        panic!("expected wrong command to be denied");
+    };
+    assert_eq!(error.code, IpcErrorCode::PermissionDenied);
+
+    let IpcResult::Err { error, .. } = state
+        .ai_provider_order(envelope(
+            &state,
+            "provider_order",
+            Capability::ConnectorAct,
+            json!({}),
+        ))
+        .map_value()
+    else {
+        panic!("expected wrong capability to be denied");
+    };
+    assert_eq!(error.code, IpcErrorCode::PermissionDenied);
+
+    let mut bounded_scope = envelope(
+        &state,
+        "provider_order",
+        Capability::ConnectorRead,
+        json!({}),
+    );
+    bounded_scope.scope.resource_ids.push(Uuid::new_v4());
+    let IpcResult::Err { error, .. } = state.ai_provider_order(bounded_scope).map_value() else {
+        panic!("expected bounded scope to be denied");
+    };
+    assert_eq!(error.code, IpcErrorCode::PermissionDenied);
+
+    assert_invalid(
+        state
+            .ai_provider_order(envelope(
+                &state,
+                "provider_order",
+                Capability::ConnectorRead,
+                json!({"unexpected": true}),
             ))
             .map_value(),
     );

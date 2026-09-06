@@ -23,10 +23,16 @@ const providers: ProviderSummary[] = [unauthorizedHostedProvider, localProvider]
 
 /// The order command answers with the order it was given, the way the Rust
 /// handler does, so the round trip through the surface is real.
-const aiInvokeMock = (): InvokeMock =>
+const aiInvokeMock = (
+  providerOrder: string[] = [],
+  providerList: ProviderSummary[] = providers
+): InvokeMock =>
   vi.fn((tauriCommand: string, args: { envelope: CommandEnvelope<unknown> }) => {
     if (tauriCommand === "ai_providers") {
-      return Promise.resolve({ ok: true, value: providers });
+      return Promise.resolve({ ok: true, value: providerList });
+    }
+    if (tauriCommand === "ai_provider_order") {
+      return Promise.resolve({ ok: true, value: providerOrder });
     }
     if (tauriCommand === "ai_set_provider_order") {
       const { provider_order: providerOrder } = args.envelope.payload as {
@@ -43,7 +49,7 @@ const aiInvokeMock = (): InvokeMock =>
 const renderPanel = (invoke: InvokeMock) =>
   render(
     <I18nProvider>
-      <AiProviderPanel invoke={invoke as unknown as Invoke} providerOrder={[]} />
+      <AiProviderPanel invoke={invoke as unknown as Invoke} />
     </I18nProvider>
   );
 
@@ -96,6 +102,32 @@ it("lets an operator read provider health and build a fallback order across both
       localProvider.id
     )
   );
+});
+
+it("preserves the configured fallback order when adding another provider", async () => {
+  const user = userEvent.setup();
+  const thirdProvider: ProviderSummary = {
+    ...localProvider,
+    id: "vllm",
+    kind: "vllm",
+    endpoint: "http://model-host.example.test:8000/v1/chat/completions"
+  };
+  const invoke = aiInvokeMock(["openai", "ollama"], [...providers, thirdProvider]);
+  renderPanel(invoke);
+
+  const order = (await screen.findAllByRole("list"))[0];
+  await waitFor(() => {
+    expect(within(order).getAllByRole("listitem")[0]).toHaveTextContent("openai");
+    expect(within(order).getAllByRole("listitem")[1]).toHaveTextContent("ollama");
+  });
+  await user.click(screen.getByRole("button", { name: "Add vllm to fallback order" }));
+
+  await waitFor(() => {
+    const orderCall = invoke.mock.calls.find(([name]) => name === "ai_set_provider_order");
+    expect(orderCall?.[1].envelope.payload).toEqual({
+      provider_order: ["openai", "ollama", "vllm"]
+    });
+  });
 });
 
 it("re-saves a provider without sending the stored secret", async () => {
@@ -153,6 +185,11 @@ it("addresses every call to the tauri command and envelope command the handler r
   );
   expect(unique).toEqual([
     { tauriCommand: "ai_providers", envelopeCommand: "ai.providers", capability: "ConnectorRead" },
+    {
+      tauriCommand: "ai_provider_order",
+      envelopeCommand: "ai.provider_order",
+      capability: "ConnectorRead"
+    },
     {
       tauriCommand: "ai_set_provider_order",
       envelopeCommand: "ai.set_provider_order",
