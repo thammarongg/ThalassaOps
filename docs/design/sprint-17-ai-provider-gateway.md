@@ -333,6 +333,7 @@ quietly.
 | `ai.providers` | `ConnectorRead` | `Read` |
 | `ai.configure_provider` | `ConnectorAct` | `Read` |
 | `ai.set_provider_order` | `ConnectorAct` | `Read` |
+| `ai.provider_order` | `ConnectorRead` | `Read` |
 | `ai.probe` | `ConnectorRead` | `Read` |
 | `ai.complete` | `AiInvoke` | `Investigate` |
 | `ai.cancel` | `AiInvoke` | `Investigate` |
@@ -383,9 +384,11 @@ Deliberately minimal, because Sprint 19 owns the assistant:
   provider, showing kind, health, and whether a credential is configured;
 - a provider configuration form that writes through `ai.configure_provider` and
   never reads a secret back;
-- a fallback-order control that writes through `ai.set_provider_order`: an
-  ordered list of the configured providers the operator permits as fallbacks,
-  empty by default, so failover does nothing until someone chooses it;
+- a fallback-order control that reads through `ai.provider_order` and writes
+  through `ai.set_provider_order`: an ordered list of the configured providers
+  the operator permits as fallbacks, empty by default, so failover does nothing
+  until someone chooses it. The read is not decoration — without it the control
+  edits from an assumed empty list and overwrites whatever is configured;
 - English and Thai strings for all three, with the key-parity test the
   repository already enforces.
 
@@ -604,6 +607,34 @@ plumbing it saves. Section 13.6 is the resulting contract.
     that called `record_request` by hand would be the Sprint 16 defect again.
     Plan Task 15.
 
+
+11. **The fallback order could be written but never read.** Found on 2026-09-06
+    while reviewing Task 14's mount against the backend. `ai.providers` returns
+    `ProviderSummary`, which is `ProviderConfiguration` plus health and
+    credential state and carries no ordering; `ProviderConfigStore` keeps the
+    order in a separate `provider_order: Vec<String>` that `ai.set_provider_order`
+    writes and nothing reads back. `AiProviderPanel` therefore takes the order as
+    a prop, and once mounted the shell had nothing to seed it from but `[]`.
+
+    Two consequences, the second of them a real loss. The panel always claims
+    failover is off on first render, whatever the gateway is actually configured
+    to do — and `build_registry` reads the stored order, so the claim can be
+    false about live behaviour. Worse, `AiFallbackOrder` computes the next order
+    from the one it was given: with `[openai, ollama]` stored and `[]` displayed,
+    one "add ollama" click writes `[ollama]` and silently drops openai from the
+    control that decides which providers may receive a request.
+
+    Neither the panel's own tests nor Task 13's acceptance test can see it —
+    both start from an empty order and mock `ai_set_provider_order` to echo the
+    payload back, so the write direction is asserted and the read direction does
+    not exist. This is the shape [Sprint 16 shipped six times](../superpowers/reports/2026-09-05-sprint-16-verification.md):
+    green under its own mock, wrong against the backend.
+
+    **Settled 2026-09-06.** Add `ai.provider_order` as a `ConnectorRead` read
+    returning `Vec<String>`, additively — changing `ai.providers` to a wrapper
+    would break Task 11's array guard and Task 13's acceptance mock for no gain.
+    The backend default stays empty; the UI simply stops asserting it. Plan
+    Task 16.
 
 ## 16. Testing
 

@@ -74,9 +74,14 @@ Tasks 6, 7 and 8 are independent of each other and of Tasks 3-5. Everything
 else is sequential.
 
 Tasks 14 and 15 were added on 2026-09-06 after Task 13, when the user settled
-the two open decisions design section 15 records as 9 and 10. They are
-independent of each other — Task 14 is frontend-only and Task 15 is
-backend-only — and both are required before the sprint merges.
+the two open decisions design section 15 records as 9 and 10. Task 16 was added
+the same day, when reviewing Task 14's mount against the backend showed the
+fallback order has no read counterpart (design section 15 item 11). All three
+are required before the sprint merges.
+
+Task 14 is done (`0b109b0`, `e380b7f`). Run Task 16 next, then Task 15: Task 16
+edits `src-tauri/src/app/ai.rs` and `ui/contracts/ipc.ts`, which are inside Task
+15's boundary, and it is far the smaller of the two.
 
 ## File Map
 
@@ -859,6 +864,67 @@ git commit -m "feat(ai): record every model request in the audit store"
 ```
 
 Report the exact counts against the 642 / 230 baseline.
+
+---
+
+### Task 16: Read the Fallback Order Back
+
+Closes open decision 11, found on 2026-09-06 while reviewing Task 14's mount
+against the backend. Run this **before** Task 15: it touches
+`src-tauri/src/app/ai.rs` and `ui/contracts/ipc.ts`, both inside Task 15's
+boundary, and it is small enough that Task 15's heavier edits should land on
+top of it rather than the other way round.
+
+**Files:**
+- Modify: `src-tauri/src/ai/config.rs` if a getter is missing,
+  `src-tauri/src/app/ai.rs`, and the IPC descriptor module that
+  `ai_providers_descriptor` lives in
+- Modify: `ui/contracts/ipc.ts` and its guards, `ui/src/ai/AiProviderPanel.tsx`
+- Modify: `src-tauri/tests/ai_ipc.rs`, `ui/src/ai/AiProviderPanel.test.tsx`,
+  `ui/src/ai/ai.acceptance.test.tsx`, `ui/src/shell.test.tsx`
+
+**Grounding.** `ProviderConfiguration` is `{ id, kind, endpoint, models }` and
+`ProviderSummary` adds only `health` and `credential_configured` — neither
+carries a position, because `ProviderConfigStore` keeps the order in a separate
+`provider_order: Vec<String>`. Do not add a position field to either; the order
+is a property of the set, not of a provider.
+
+Add `ai.provider_order` as a `ConnectorRead` command returning `Vec<String>`,
+mirroring `ai_providers`: same authorization, same empty-payload parse, same
+`finish_ai`. Additive only — do not change `ai.providers`' return shape, which
+would break Task 11's `isProviderSummary` array guard and Task 13's acceptance
+mock for no gain.
+
+In `AiProviderPanel`, fetch the order inside `loadProviders` alongside the
+providers so a mounted panel shows what is configured. The `providerOrder` prop
+becomes optional: a caller may seed it, but the panel no longer depends on one
+to be truthful.
+
+- [ ] **Step 1: Write the failing tests**
+
+- Rust: `ai_provider_order` returns the configured order, and refuses the same
+  four ways `ai_providers` does (wrong command, wrong capability, bounded scope,
+  non-empty payload);
+- **the one that would have caught this**: mock `ai_provider_order` returning
+  `["openai", "ollama"]`, assert both render in the fallback region in that
+  order on mount, then add a third provider and assert the payload sent to
+  `ai_set_provider_order` is `["openai", "ollama", <third>]` — not `[<third>]`;
+- add the same case to `ai.acceptance.test.tsx`, which is the sprint's exit
+  check and today proves only the empty-to-populated direction.
+
+- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run every gate and commit**
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): read the configured fallback order back through IPC"
+```
+
+Baseline is 642 Rust / 232 frontend.
 
 ---
 
