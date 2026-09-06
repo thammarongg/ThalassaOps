@@ -553,8 +553,13 @@ plumbing it saves. Section 13.6 is the resulting contract.
    routes to them. This is not a Task 12 omission — neither task's file list
    includes `shell.tsx` — and Sprint 16's incident components are in the same
    state: `"incidents"` is in the navigation list with no component wired behind
-   it. Two sprints of UI now ship tested and unreachable. Whether to mount them
-   is an open decision, not an accepted debt; it needs a task of its own.
+   it. Two sprints of UI now ship tested and unreachable.
+
+   **Settled 2026-09-06.** Mount both. The provider surface goes into the
+   existing `integrations` area rather than a new `Area` member, because section
+   12 places it in "the existing connector/model status area" and the nav tree in
+   `ux-ui-concept.md` has no separate AI-admin area. The incident workspace takes
+   over the `"incidents"` entry that renders `EmptyState` today. Plan Task 14.
 
 10. **Nothing writes to the audit store.** Task 5 built `AiRequestStore` and
     migration 0007, and `apply_migrations` creates both tables, but
@@ -583,11 +588,21 @@ plumbing it saves. Section 13.6 is the resulting contract.
     `WindowBudget` inert: `complete_model` builds a fresh `BudgetLedger` per
     request, so nothing accumulates across calls. Task 13 therefore asserts the
     first two of its three Rust bullets and leaves the store one unasserted.
-    Closing this needs its own task. Nothing in a later sprint is stated to read
-    these rows yet — section 17 puts the AI Assistant Log in Sprint 19, whose
-    assistant is the first real caller of `ai.complete` — but section 7's window
-    accounting already depends on them, so the budget is per request in practice
-    however it is configured.
+    Nothing in a later sprint is stated to read these rows yet — section 17 puts
+    the AI Assistant Log in Sprint 19, whose assistant is the first real caller
+    of `ai.complete` — but section 7's window accounting already depends on them,
+    so the budget is per request in practice however it is configured.
+
+    **Settled 2026-09-06.** Fix the contracts rather than record successes only.
+    A refusal records a request row with no attempt; `GatewayError` carries the
+    attempt vector out of every failing path; per-attempt usage becomes
+    `Option<ModelUsage>` where `None` means *not observed*, never a zero; and the
+    ledger is seeded from the principal's recorded window usage instead of being
+    rebuilt per request. Because `build_registry` is private and builds real HTTP
+    adapters, the task also adds a registry injection seam so the store test can
+    drive `AppState::ai_complete` to a success and assert a real row — a test
+    that called `record_request` by hand would be the Sprint 16 defect again.
+    Plan Task 15.
 
 
 ## 16. Testing

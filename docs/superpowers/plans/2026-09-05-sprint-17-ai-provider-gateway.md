@@ -65,10 +65,18 @@ Task 1 domain contracts
                           +-- Task 12 UI: provider rows, form, fallback order
                                 |
                                 +-- Task 13 acceptance
+                                      |
+                                      +-- Task 14 mount the surfaces
+                                      +-- Task 15 wire the audit store
 ```
 
 Tasks 6, 7 and 8 are independent of each other and of Tasks 3-5. Everything
 else is sequential.
+
+Tasks 14 and 15 were added on 2026-09-06 after Task 13, when the user settled
+the two open decisions design section 15 records as 9 and 10. They are
+independent of each other — Task 14 is frontend-only and Task 15 is
+backend-only — and both are required before the sprint merges.
 
 ## File Map
 
@@ -720,6 +728,137 @@ Gates on the branch: `cargo fmt --check` clean, `cargo clippy --all-targets
 --all-features -D warnings` clean, `cargo test` 642 passed (639 before),
 `npm run format:check`, `lint`, `typecheck` clean, `npm test` 230 passed
 (227 before).
+
+---
+
+### Task 14: Mount the Provider Surface and the Incident Workspace
+
+Closes open decision 9. The user's call, 2026-09-06: mount both. The provider
+surface goes into the existing `integrations` area, not a new nav member —
+design section 12 places it in "the existing connector/model status area", and
+`ux-ui-concept.md`'s nav tree has no separate AI-admin area to add one to.
+
+**Files:**
+- Modify: `ui/src/shell.tsx`, `ui/src/shell.test.tsx`
+- Modify if a key is missing: `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
+
+**Grounding.** `Integrations` (`shell.tsx:478`) owns the connector list inside
+the `integrations` area. `AiProviderPanel` already composes `AiProviderForm` and
+`AiFallbackOrder` itself, so mounting is one child plus the `providerOrder`
+state it reads and writes: its props are `{ invoke, providerOrder,
+onProviderOrderChange? }`. `IncidentWorkspace` takes `{ invoke }` and nothing
+else. `"incidents"` is already in the `Area` union and the `areas` list, so it
+needs a branch in the `shell-main` conditional, not a new nav entry — today it
+falls through to `EmptyState titleKey="shell.routeUnavailable"`.
+
+Do not add an `ai` member to `Area`. Do not restyle either component; this task
+routes to what Tasks 12 and Sprint 16 already built and tested.
+
+- [ ] **Step 1: Write the failing test**
+
+In `ui/src/shell.test.tsx`, against the shell — not against either component in
+isolation, which is what already passes:
+
+- selecting the `incidents` nav entry renders the incident queue, and
+  `shell.routeUnavailable` is not in the document;
+- selecting `integrations` renders both the connector list and the AI provider
+  panel;
+- the fallback order the panel reports through `onProviderOrderChange` is the
+  order the panel is re-rendered with — assert the round trip, not just that the
+  handler fired;
+- both mounted surfaces receive the same `invoke` the shell was given, so the
+  capability envelopes stay the real ones.
+
+- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run the gate and commit**
+
+Two commits, the incident mount second so it can be dropped on its own:
+
+```bash
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): mount the provider surface in the integrations area"
+git commit -m "feat(incident): route the incidents area to the workspace"
+```
+
+---
+
+### Task 15: Wire the Audit Store
+
+Closes open decision 10. The user's call, 2026-09-06: fix the contracts, do not
+record successes only. Every sub-decision below is settled; implement them, do
+not re-open them.
+
+**Files:**
+- Modify: `crates/thalassa-domain/src/lib.rs` (`ModelAttempt`),
+  `crates/thalassa-ai/src/gateway.rs` (`GatewayError`),
+  `crates/thalassa-ai/src/budget.rs` if seeding needs a constructor
+- Modify: `src-tauri/src/ai/store.rs`, `src-tauri/src/app/ai.rs`,
+  `src-tauri/src/app/mod.rs` (`AppState`)
+- Modify: `src-tauri/tests/ai_store.rs`, `src-tauri/tests/ai_ipc.rs`,
+  `src-tauri/tests/ai_acceptance.rs`, `crates/thalassa-ai/tests/gateway.rs`
+- Modify: `ui/contracts/ipc.ts` and its guards only if a serialized shape moves
+
+**The four settled decisions:**
+
+1. **A refusal records with no attempt.** `record_request` rejects an empty
+   attempt list today, but the policy and budget checks run before the first
+   attempt is pushed. Relax the check to: a *successful* outcome records at
+   least one attempt; a refusal may record none. Design section 3 promises a
+   record per request, and a denial is the row an auditor most wants.
+2. **`GatewayError` carries the attempts.** Every failing path drops the vector
+   the gateway built, so a failover that burned tokens before giving up is
+   unrecoverable from the return shape. Either add the field to each variant
+   that can follow an attempt or wrap the whole error — prefer the wrapper
+   (`GatewayFailure { error, attempts }`) so the variants stay readable and no
+   caller can forget the vector.
+3. **Per-attempt usage is `Option<ModelUsage>`.** `AiAttemptRecord.usage` is
+   `ModelUsage` today and `ModelUsage` derives `Default`. Make the recorded
+   usage optional and let `None` mean *not observed*. Never write
+   `ModelUsage::default()` for an attempt that reported nothing: a zero row
+   passes every validator and states something no one observed. That is the
+   Sprint 16 Task 12 defect, and it is the reason this task exists.
+4. **The ledger is seeded from the store.** `complete_model` builds
+   `BudgetLedger::new()` per request, so `WindowBudget` never accumulates.
+   Read the principal's window usage back out of `ai_requests` and seed the
+   ledger with it (`BudgetLedger::with_window` exists; add a seeded constructor
+   if the accumulated usage cannot be set through it). Section 7's window
+   accounting reads usage out of the store, so this is the same wiring, not a
+   second feature.
+
+**The seam that makes the test real.** `build_registry` is private and
+constructs real HTTP adapters, so no fixture provider can enter through the IPC
+layer and `ai_ipc.rs` covers only refusals. Add a registry injection seam to
+`AppState` as part of this task. **The acceptance for this task is a test that
+drives `AppState::ai_complete` to a success through that seam and then asserts a
+real row in `ai_requests` with its attempt rows.** A test that calls
+`record_request` by hand is a green check on a path the application never takes;
+Sprint 16 shipped six defects that were green exactly that way.
+
+- [ ] **Step 1: Write the failing tests**
+
+- a success through `ai_complete` writes one request row and one attempt row
+  with the usage the provider reported;
+- a policy denial through `ai_complete` writes a request row with the deny
+  reason and no attempt row;
+- a failover — first provider fails, second answers — writes both attempts in
+  ordinal order, the failed one with `usage: None`, not a zero;
+- a second request from the same principal is refused by the window budget that
+  the first request's recorded usage exhausted.
+
+- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run every gate and commit**
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): record every model request in the audit store"
+```
+
+Report the exact counts against the 642 / 230 baseline.
 
 ---
 
