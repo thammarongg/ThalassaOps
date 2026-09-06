@@ -874,7 +874,33 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git commit -m "feat(ai): record every model request in the audit store"
 ```
 
-Report the exact counts against the 642 / 230 baseline.
+Done: `a488cc2`, 646 Rust (643 before) and 234 frontend (unchanged). All seven
+gates green. All four decisions landed as settled:
+
+- `record_request` refuses an empty attempt list only when `outcome.error` is
+  `None`, so a refusal records a request row with no attempt;
+- `GatewayFailure { error, attempts }` wraps every failing path, and the
+  deadline and cancellation early returns were moved *after* the attempt is
+  pushed, so an attempt that burned tokens before the deadline is no longer
+  dropped;
+- `ModelAttempt.usage` and `AiAttemptRecord.usage` are `Option<ModelUsage>`; the
+  gateway writes `Some(usage)` on an answer and `None` on a failure, and no zero
+  is invented anywhere;
+- `complete_model` seeds `BudgetLedger::with_window_usage` from
+  `AiRequestStore::window_usage`.
+
+The seam is `AppState::ai_registry_override` with a `with_ai_registry` builder,
+and the four tests drive the real handler rather than the store: a success
+records one request row with the reported usage, a failover records both
+attempts with the failed one's usage `None`, a second request is refused with
+`window_input_tokens` from the first request's recorded usage, and — in
+`ai_ipc.rs` — a policy denial records a request row with `ImmutableRestrictedData`
+and zero attempt rows.
+
+Two limitations surfaced in review and are recorded as design debts 12 and 13:
+`WindowBudget` has no period, so `window_usage` sums the principal's whole
+history and the window never rolls; and nothing in production sets a window
+budget, so the bound the accounting now supports is not yet configurable.
 
 ---
 

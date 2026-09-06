@@ -636,6 +636,25 @@ plumbing it saves. Section 13.6 is the resulting contract.
     The backend default stays empty; the UI simply stops asserting it. Plan
     Task 16.
 
+12. **The window never rolls.** Section 7 says a window budget "bounds a caller
+    across a rolling period", but `WindowBudget` carries only three limits and no
+    period, and `AiRequestStore::window_usage` sums every attempt row the
+    principal has ever produced. Task 15 seeded the ledger from that sum, which
+    is the only thing the type permits, so the accounting is now real and
+    permanent: a principal who reaches a limit never regains headroom. Giving the
+    window a period means putting one on `WindowBudget` and filtering
+    `window_usage` by it — a change to Task 3's contract, so it is recorded here
+    rather than folded into the wiring. Until then, read "window" as "since the
+    beginning of the store".
+
+13. **Nothing configures a window budget.** `AppState` initialises
+    `ai_window_budget` to `WindowBudget::default()`, whose three limits are all
+    `None`, and the only writer is `with_ai_window_budget`, a builder the
+    acceptance test uses. So the running application enforces no window bound —
+    what Task 15 changed is that the accounting behind one is correct and
+    seeded, not that a limit exists. A configuration surface belongs with the
+    spend permission in Sprint 20's Policy Center, alongside debts 5 and 6.
+
 ## 16. Testing
 
 - Contract tests in `thalassa-ai` drive a fake adapter: budget refusals,
