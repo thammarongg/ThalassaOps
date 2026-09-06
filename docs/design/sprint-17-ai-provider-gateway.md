@@ -589,9 +589,10 @@ plumbing it saves. Section 13.6 is the resulting contract.
     passes every validator and states something nobody observed, which is the
     Sprint 16 Task 12 defect in a new place. The same root cause makes
     `WindowBudget` inert: `complete_model` builds a fresh `BudgetLedger` per
-    request, so nothing accumulates across calls. Task 13 therefore asserts the
-    first two of its three Rust bullets and leaves the store one unasserted.
-    Nothing in a later sprint is stated to read these rows yet — section 17 puts
+    request, so nothing accumulates across calls. Task 13 therefore asserted the
+    first two of its three Rust bullets and left the store one unasserted; Task
+    15 closed it, and debts 12 and 13 record what the wiring exposed about the
+    window itself. Nothing in a later sprint is stated to read these rows yet — section 17 puts
     the AI Assistant Log in Sprint 19, whose assistant is the first real caller
     of `ai.complete` — but section 7's window accounting already depends on them,
     so the budget is per request in practice however it is configured.
@@ -667,6 +668,11 @@ plumbing it saves. Section 13.6 is the resulting contract.
   denied before any adapter is constructed, and that the same request to a
   local provider follows the local data classes.
 - An IPC test asserts the exact payload keys and the typed error reasons.
+- Store tests drive `AppState::ai_complete` itself through the registry seam,
+  not `record_request` by hand: a success records the reported usage, a failover
+  records the failed attempt with no usage rather than a zero, a policy denial
+  records a request row with no attempt, and a second request is refused by the
+  window budget the first one's recorded usage exhausted.
 - No test performs a network call, and no fixture contains a real key.
 
 ## 17. Reconciliation with Sprints 18-26
