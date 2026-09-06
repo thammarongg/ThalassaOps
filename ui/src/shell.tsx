@@ -26,6 +26,7 @@ import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 import { OperationsConsole } from "./OperationsConsole";
 import { CorrelationWorkspace } from "./correlation/CorrelationWorkspace";
 import { TopologyWorkspace } from "./topology/TopologyWorkspace";
+import { AiProviderPanel } from "./ai/AiProviderPanel";
 type Area =
   | "commandCenter"
   | "incidents"
@@ -481,6 +482,7 @@ function Integrations({ invoke }: { invoke: Invoke }) {
   const [diagnostics, setDiagnostics] = useState<ConnectorDiagnostics>();
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [providerOrder, setProviderOrder] = useState<string[]>([]);
   const load = () => {
     setLoading(true);
     invoke("connector_list", { envelope: connectorEnvelope("list", "ConnectorRead", null) })
@@ -521,22 +523,21 @@ function Integrations({ invoke }: { invoke: Invoke }) {
     }
   };
 
-  if (loading) return <p role="status">{t("integrations.loading")}</p>;
-  if (showAddForm)
-    return <AddConnectorForm onAdd={handleAdd} onCancel={() => setShowAddForm(false)} />;
-  if (!connectors.length)
-    return (
-      <EmptyState titleKey="integrations.empty">
-        <button type="button" onClick={() => setShowAddForm(true)}>
-          {t("integrations.addConnector")}
-        </button>
-      </EmptyState>
-    );
   const kubernetesConnectors = connectors.filter(
     (item) => item.kind === "kubernetes" && item.enabled
   );
-  return (
-    <div className="integrations">
+  const connectorContent = loading ? (
+    <p role="status">{t("integrations.loading")}</p>
+  ) : showAddForm ? (
+    <AddConnectorForm onAdd={handleAdd} onCancel={() => setShowAddForm(false)} />
+  ) : !connectors.length ? (
+    <EmptyState titleKey="integrations.empty">
+      <button type="button" onClick={() => setShowAddForm(true)}>
+        {t("integrations.addConnector")}
+      </button>
+    </EmptyState>
+  ) : (
+    <>
       <button type="button" onClick={() => setShowAddForm(true)}>
         {t("integrations.addConnector")}
       </button>
@@ -602,6 +603,19 @@ function Integrations({ invoke }: { invoke: Invoke }) {
       )}
       {kubernetesConnectors.length > 0 && (
         <KubernetesInspector invoke={invoke} connectors={kubernetesConnectors} />
+      )}
+    </>
+  );
+
+  return (
+    <div className="integrations">
+      {connectorContent}
+      {!showAddForm && (
+        <AiProviderPanel
+          invoke={invoke}
+          providerOrder={providerOrder}
+          onProviderOrderChange={setProviderOrder}
+        />
       )}
     </div>
   );
