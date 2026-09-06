@@ -1,0 +1,13 @@
+{
+  "fixture_date": "2026-08-28",
+  "status": 200,
+  "body": {
+    "id": "msg_max_tokens_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-fixture",
+    "content": [{"type": "text", "text": "fixture max token completion"}],
+    "stop_reason": "max_tokens",
+    "usage": {"input_tokens": 12, "output_tokens": 37}
+  }
+}

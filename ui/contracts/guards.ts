@@ -44,6 +44,16 @@ import type {
   IncidentTimelinePayload,
   IncidentTransition,
   IncidentTriggerInput,
+  ModelAttempt,
+  ModelDescriptor,
+  ModelRequest,
+  ModelResponse,
+  ModelUsage,
+  ProviderConfiguration,
+  ProviderErrorReason,
+  ProviderHealth,
+  ProviderKind,
+  ProviderSummary,
   ResourceScope,
   Signal,
   SignalKind,
@@ -370,6 +380,153 @@ export const isEvidenceResponse = (
     requestedIds.size === expectedIds.length &&
     returnedIds.size === requestedIds.size &&
     expectedIds.every((id) => returnedIds.has(id))
+  );
+};
+
+export const providerErrorReasonWireValues: ProviderErrorReason[] = [
+  "unreachable",
+  "unauthorized",
+  "model_unavailable",
+  "rate_limited",
+  "budget_exhausted",
+  "malformed_response",
+  "invalid_request",
+  "deadline_exceeded",
+  "cancelled"
+];
+
+const providerKinds: ProviderKind[] = ["open_ai_compatible", "anthropic", "ollama", "vllm"];
+const providerHealthValues: ProviderHealth[] = [
+  "healthy",
+  "unreachable",
+  "unauthorized",
+  "model_unavailable",
+  "rate_limited",
+  "budget_exhausted"
+];
+const modelFinishReasons = ["complete", "max_output_tokens", "cancelled", "provider_stop"] as const;
+
+const isSafeUnsignedInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+const isNullableSafeUnsignedInteger = (value: unknown): value is number | null =>
+  value === null || isSafeUnsignedInteger(value);
+
+const isModelDescriptor = (value: unknown): value is ModelDescriptor =>
+  isRecord(value) &&
+  hasExactKeys(value, [
+    "id",
+    "context_window_tokens",
+    "max_output_tokens",
+    "supports_system_instruction",
+    "input_cost_micros_per_million_tokens",
+    "output_cost_micros_per_million_tokens"
+  ]) &&
+  isSafeDisplayText(value.id) &&
+  isSafeUnsignedInteger(value.context_window_tokens) &&
+  isSafeUnsignedInteger(value.max_output_tokens) &&
+  isBoolean(value.supports_system_instruction) &&
+  isNullableSafeUnsignedInteger(value.input_cost_micros_per_million_tokens) &&
+  isNullableSafeUnsignedInteger(value.output_cost_micros_per_million_tokens);
+
+const isModelAttempt = (value: unknown): value is ModelAttempt => {
+  if (
+    !isRecord(value) ||
+    (!hasExactKeys(value, ["provider_id", "model_id", "outcome"]) &&
+      !hasExactKeys(value, ["provider_id", "model_id", "outcome", "usage"])) ||
+    !isSafeDisplayText(value.provider_id) ||
+    !isSafeDisplayText(value.model_id)
+  ) {
+    return false;
+  }
+  if ("usage" in value && value.usage !== null && !isModelUsage(value.usage)) return false;
+  if (value.outcome === "answered") return true;
+  return (
+    isRecord(value.outcome) &&
+    hasExactKeys(value.outcome, ["failed"]) &&
+    isEnum(value.outcome.failed, providerErrorReasonWireValues)
+  );
+};
+
+const isModelUsage = (value: unknown): value is ModelUsage =>
+  isRecord(value) &&
+  hasExactKeys(value, ["input_tokens", "output_tokens", "cost_micros"]) &&
+  isSafeUnsignedInteger(value.input_tokens) &&
+  isSafeUnsignedInteger(value.output_tokens) &&
+  isNullableSafeUnsignedInteger(value.cost_micros);
+
+const isProviderConfigurationFields = (value: unknown): value is ProviderConfiguration =>
+  isRecord(value) &&
+  isSafeDisplayText(value.id) &&
+  isEnum(value.kind, providerKinds) &&
+  isSafeDisplayText(value.endpoint) &&
+  Array.isArray(value.models) &&
+  value.models.length > 0 &&
+  value.models.every(isModelDescriptor);
+
+export const isProviderConfiguration = (value: unknown): value is ProviderConfiguration =>
+  isProviderConfigurationFields(value) &&
+  hasExactKeys(value, ["id", "kind", "endpoint", "models"]);
+
+export const isProviderSummary = (value: unknown): value is ProviderSummary => {
+  if (
+    !isProviderConfigurationFields(value) ||
+    !hasExactKeys(value, [
+      "id",
+      "kind",
+      "endpoint",
+      "models",
+      "health",
+      "credential_configured"
+    ])
+  ) {
+    return false;
+  }
+  const summary = value as ProviderSummary;
+  return (
+    (summary.health === null || isEnum(summary.health, providerHealthValues)) &&
+    isBoolean(summary.credential_configured)
+  );
+};
+
+export const isModelResponse = (
+  value: unknown,
+  request: ModelRequest,
+  reachableProviderIds: readonly string[]
+): value is ModelResponse => {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "request_id",
+      "provider_id",
+      "model_id",
+      "content",
+      "usage",
+      "finish",
+      "attempts"
+    ]) ||
+    value.request_id !== request.request_id ||
+    !isNonNilUuid(value.request_id) ||
+    !isSafeDisplayText(value.provider_id) ||
+    !isSafeDisplayText(value.model_id) ||
+    !isString(value.content) ||
+    !isModelUsage(value.usage) ||
+    !isEnum(value.finish, modelFinishReasons) ||
+    !Array.isArray(value.attempts) ||
+    value.attempts.length === 0 ||
+    !value.attempts.every(isModelAttempt)
+  ) {
+    return false;
+  }
+
+  const reachable = new Set(reachableProviderIds);
+  if (!reachable.has(value.provider_id)) return false;
+  if (value.attempts.some((attempt) => !reachable.has(attempt.provider_id))) return false;
+  return value.attempts.some(
+    (attempt) =>
+      attempt.provider_id === value.provider_id &&
+      attempt.model_id === value.model_id &&
+      attempt.outcome === "answered"
   );
 };
 

@@ -1,11 +1,17 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { I18nProvider, i18n } from "./i18n";
 import { Shell } from "./shell";
 import { open } from "@tauri-apps/plugin-shell";
 import type { CloudEnvironment, CloudResource } from "../contracts/ipc";
+import { localProvider, unauthorizedHostedProvider } from "./ai/ai-fixtures";
+import {
+  incidentFixtureEvidence,
+  incidentFixturePage,
+  incidentFixtureTimeline
+} from "./incident/incident-fixtures";
 
 vi.mock("@tauri-apps/plugin-shell", () => ({
   open: vi.fn()
@@ -89,6 +95,108 @@ it("shows an unavailable policy indicator and context error when the context req
   });
   const policyStatus = screen.getByText("Policy version …").parentElement;
   expect(policyStatus?.querySelector(".indicator")).toHaveClass("indicator--unavailable");
+});
+
+it("routes the incidents area to the incident queue through the shell", async () => {
+  const user = userEvent.setup();
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "incident_list") return Promise.resolve({ ok: true, value: incidentFixturePage });
+    if (name === "incident_timeline")
+      return Promise.resolve({ ok: true, value: incidentFixtureTimeline });
+    if (name === "correlation_evidence")
+      return Promise.resolve({ ok: true, value: incidentFixtureEvidence });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Incidents" }));
+  expect(await screen.findByRole("listbox", { name: "Incident queue" })).toBeInTheDocument();
+  expect(screen.queryByText("This product area is not yet available.")).not.toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledWith(
+    "incident_list",
+    expect.objectContaining({
+      envelope: expect.objectContaining({ capability: "IncidentRead" })
+    })
+  );
+});
+
+it("mounts the AI provider panel beside connectors and round-trips fallback order", async () => {
+  const user = userEvent.setup();
+  const connector = {
+    id: "fixture-1",
+    kind: "fixture",
+    display_name: "Fixture connector",
+    enabled: true,
+    config_metadata: {},
+    credential_configured: false,
+    health_state: "healthy"
+  };
+  const invoke = vi
+    .fn()
+    .mockImplementation((name: string, args?: { envelope?: { payload?: unknown } }) => {
+      if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+      if (name === "connector_list") return Promise.resolve({ ok: true, value: [connector] });
+      if (name === "ai_providers")
+        return Promise.resolve({
+          ok: true,
+          value: [unauthorizedHostedProvider, localProvider]
+        });
+      if (name === "ai_provider_order") return Promise.resolve({ ok: true, value: [] });
+      if (name === "ai_set_provider_order") {
+        const payload = args?.envelope?.payload as { provider_order: string[] };
+        return Promise.resolve({ ok: true, value: payload.provider_order });
+      }
+      return Promise.resolve({ ok: true, value: {} });
+    });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Integrations" }));
+  expect(await screen.findByRole("table", { name: "Configured connectors" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "AI providers" })).toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledWith(
+    "connector_list",
+    expect.objectContaining({
+      envelope: expect.objectContaining({ capability: "ConnectorRead" })
+    })
+  );
+  expect(invoke).toHaveBeenCalledWith(
+    "ai_providers",
+    expect.objectContaining({
+      envelope: expect.objectContaining({ capability: "ConnectorRead" })
+    })
+  );
+
+  await user.click(screen.getByRole("button", { name: "Add openai to fallback order" }));
+  await user.click(screen.getByRole("button", { name: "Add ollama to fallback order" }));
+  await user.click(screen.getByRole("button", { name: "Move ollama up" }));
+
+  await waitFor(() => {
+    const ordered = within(screen.getByRole("region", { name: "Fallback order" })).getByRole(
+      "list"
+    );
+    expect(ordered.children[0]).toHaveTextContent("ollama");
+    expect(ordered.children[1]).toHaveTextContent("openai");
+  });
+  expect(invoke).toHaveBeenCalledWith(
+    "ai_set_provider_order",
+    expect.objectContaining({
+      envelope: expect.objectContaining({
+        capability: "ConnectorAct",
+        payload: { provider_order: ["ollama", "openai"] }
+      })
+    })
+  );
 });
 
 it("adds and tests a fixture connector through the integrations IPC commands", async () => {
@@ -229,7 +337,7 @@ it("filters Kubernetes resources by health and shows a masked manifest banner", 
   expect(screen.queryByText("Service/stage/web")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Pod/prod/crashing" }));
   await user.click(screen.getByRole("button", { name: "View manifest" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("Sensitive fields redacted");
+  expect(await screen.findByText("Sensitive fields redacted")).toBeInTheDocument();
 });
 
 it("renders observability workspace, lists alerts, runs metric query, and handles context propagation", async () => {

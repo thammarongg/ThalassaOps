@@ -1,3 +1,4 @@
+mod ai;
 pub(crate) mod change;
 pub(crate) mod cloud;
 mod connectors;
@@ -8,6 +9,8 @@ mod observability;
 mod operations;
 mod topology;
 
+pub use ai::{AI_COMPLETE_ENVELOPE_COMMAND, AI_COMPLETE_TAURI_COMMAND};
+
 use crate::connectors::{
     ConnectorError, ConnectorSummary, OsKeychainCredentialStore, SharedCredentialStore,
 };
@@ -15,13 +18,15 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thalassa_domain::{
     Membership, MembershipRole, Organization, Permission, Principal, ResourceScope, Team, Workspace,
 };
 use thalassa_ipc::{Capability, CommandDescriptor, CommandEnvelope, IpcError, IpcErrorCode};
 use thalassa_policy::{DataClass, EgressDestination, EgressRequest, PolicyDocument, PolicyRuntime};
+use uuid::Uuid;
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_local_workspace.sql");
 const CONNECTOR_MIGRATION: &str = include_str!("../../migrations/0002_connector_registry.sql");
@@ -30,6 +35,7 @@ const SOURCE_RECORD_EVIDENCE_MIGRATION: &str =
     include_str!("../../migrations/0004_source_record_evidence.sql");
 const CHANGE_RECORDS_MIGRATION: &str = include_str!("../../migrations/0005_change_records.sql");
 const INCIDENT_MIGRATION: &str = include_str!("../../migrations/0006_incidents.sql");
+const AI_REQUESTS_MIGRATION: &str = include_str!("../../migrations/0007_ai_requests.sql");
 
 #[derive(Clone, Debug)]
 pub struct BootstrapState {
@@ -47,6 +53,11 @@ pub struct AppState {
     pub policy: PolicyRuntime,
     database_path: PathBuf,
     credential_store: SharedCredentialStore,
+    pub(crate) ai_config: Arc<Mutex<crate::ai::config::ProviderConfigStore>>,
+    pub(crate) ai_store: Arc<crate::ai::store::AiRequestStore>,
+    pub(crate) ai_registry_override: Arc<Mutex<Option<thalassa_ai::ProviderRegistry>>>,
+    pub(crate) ai_window_budget: Arc<Mutex<thalassa_ai::WindowBudget>>,
+    pub(crate) ai_cancellations: Arc<Mutex<HashMap<Uuid, thalassa_ai::CancellationToken>>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -102,12 +113,36 @@ impl AppState {
         apply_migrations(&connection)?;
         let bootstrap = load_or_bootstrap(&mut connection)?;
         let policy = load_or_seed_policy(&connection)?;
+        let ai_store = Arc::new(crate::ai::store::AiRequestStore::open(&database_path)?);
         Ok(Self {
             bootstrap,
             policy,
             database_path,
+            ai_config: Arc::new(Mutex::new(crate::ai::config::ProviderConfigStore::new(
+                credential_store.clone(),
+            ))),
+            ai_store,
+            ai_registry_override: Arc::new(Mutex::new(None)),
+            ai_window_budget: Arc::new(Mutex::new(thalassa_ai::WindowBudget::default())),
+            ai_cancellations: Arc::new(Mutex::new(HashMap::new())),
             credential_store,
         })
+    }
+
+    pub fn with_ai_registry(self, registry: thalassa_ai::ProviderRegistry) -> Self {
+        *self
+            .ai_registry_override
+            .lock()
+            .expect("AI registry override mutex poisoned") = Some(registry);
+        self
+    }
+
+    pub fn with_ai_window_budget(self, budget: thalassa_ai::WindowBudget) -> Self {
+        *self
+            .ai_window_budget
+            .lock()
+            .expect("AI window budget mutex poisoned") = budget;
+        self
     }
 
     pub fn health(&self, envelope: CommandEnvelope<Value>) -> IpcResult<HealthResponse> {
@@ -342,6 +377,20 @@ pub(crate) fn apply_migrations(connection: &Connection) -> Result<(), AppStateEr
             [Utc::now().to_rfc3339()],
         )?;
     }
+    connection.execute_batch(AI_REQUESTS_MIGRATION)?;
+    let ai_requests_migration: Option<i64> = connection
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = 7",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if ai_requests_migration.is_none() {
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?1)",
+            [Utc::now().to_rfc3339()],
+        )?;
+    }
     Ok(())
 }
 
@@ -459,6 +508,8 @@ pub enum AppStateError {
     Policy(#[from] thalassa_policy::PolicyLoadError),
     #[error("connector error: {0}")]
     Connector(#[from] ConnectorError),
+    #[error("AI audit store error: {0}")]
+    AiStore(#[from] crate::ai::store::AiStoreError),
     #[error("observability client error: {0}")]
     ObservabilityClient(#[from] crate::observability::client::ObservabilityClientError),
     #[error("prometheus error: {0}")]

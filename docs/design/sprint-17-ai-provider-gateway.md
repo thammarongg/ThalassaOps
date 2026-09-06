@@ -196,12 +196,24 @@ pub struct ModelRequest {
     pub request_id: Uuid,
     pub instruction: Option<String>,
     pub messages: Vec<ModelMessage>,
-    pub data_class: DataClass,
+    pub data_class: ModelDataClass,
+    pub declaration: ContentDeclaration,
     pub budget: ModelBudget,
     pub timeout_ms: u64,
     pub model: ModelSelector,
     pub failover: FailoverPermission,
 }
+
+/// `DataClass` is owned by `thalassa-policy`, and `thalassa-domain` cannot
+/// depend on the policy crate, so the request carries the caller's label
+/// opaquely and the gateway is what resolves it.  A string naming no data
+/// class is a typed refusal, never a silent `Public`.
+pub type ModelDataClass = String;
+
+/// Who asserts that this content was classified and redacted.  Section 13.5
+/// says plainly that in Sprint 17 the answer is "a person did", and this field
+/// is where that assertion is carried rather than assumed.
+pub enum ContentDeclaration { OperatorDeclared }
 
 pub enum ModelSelector { Explicit { provider_id: String, model_id: String }, Capability(ModelCapabilityRequirement) }
 
@@ -321,6 +333,7 @@ quietly.
 | `ai.providers` | `ConnectorRead` | `Read` |
 | `ai.configure_provider` | `ConnectorAct` | `Read` |
 | `ai.set_provider_order` | `ConnectorAct` | `Read` |
+| `ai.provider_order` | `ConnectorRead` | `Read` |
 | `ai.probe` | `ConnectorRead` | `Read` |
 | `ai.complete` | `AiInvoke` | `Investigate` |
 | `ai.cancel` | `AiInvoke` | `Investigate` |
@@ -371,9 +384,11 @@ Deliberately minimal, because Sprint 19 owns the assistant:
   provider, showing kind, health, and whether a credential is configured;
 - a provider configuration form that writes through `ai.configure_provider` and
   never reads a secret back;
-- a fallback-order control that writes through `ai.set_provider_order`: an
-  ordered list of the configured providers the operator permits as fallbacks,
-  empty by default, so failover does nothing until someone chooses it;
+- a fallback-order control that reads through `ai.provider_order` and writes
+  through `ai.set_provider_order`: an ordered list of the configured providers
+  the operator permits as fallbacks, empty by default, so failover does nothing
+  until someone chooses it. The read is not decoration — without it the control
+  edits from an assumed empty list and overwrites whatever is configured;
 - English and Thai strings for all three, with the key-parity test the
   repository already enforces.
 
@@ -426,6 +441,24 @@ Sprint 18 must replace the declaration with a verified classification before any
 automated caller is connected. Until then, a `Public` request is the one place
 in the application where a human assertion substitutes for a policy control.
 
+### 13.6 How the declaration reaches the policy runtime
+
+`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, line 207)
+denies outright when `classification_verified` or `redaction_verified` is false,
+and it is the caller's job to set them — every existing caller in the
+application does exactly that, from `app/connectors.rs` to `app/observability.rs`,
+by constructing `EgressRequest::verified`. The gateway is not an exception to
+that rule and it does not get to invent the flags: it maps
+`ModelRequest::declaration` onto them. `ContentDeclaration::OperatorDeclared` is
+the only variant Sprint 17 ships, so the flags are set only because a person
+declared the content, and the declaration travels inside the request, which
+means the `ai_requests` row records *that a human asserted it* rather than
+implying the application checked.
+
+The enum has one variant on purpose. Sprint 18 adds the variant that a
+classifier produces, and the gateway's mapping is the one place that has to
+change — the request contract, the IPC command and the UI do not.
+
 ## 14. Decisions taken on 2026-09-05
 
 The product owner settled the three questions this design was blocked on. They
@@ -472,6 +505,17 @@ request already carries an actor, and it is the only owner the application can
 attribute a request to today. Per provider account matches how the bill arrives
 and is the better fit once Sprint 20 models accounts; recorded as debt 6.
 
+### 14.6 The declaration is a request field, not a gateway argument
+
+Settled on 2026-09-05, after Task 3, when the worker stopped at Task 4 with a
+contract it could not implement faithfully: `evaluate_egress` denies every
+request whose verification flags are false, and the approved `ModelRequest` gave
+the caller nowhere to set them. Chosen over passing an attestation as a separate
+`Gateway::complete` argument, which matches how `app/*.rs` calls the policy
+runtime today but leaves the assertion outside the serialized request and so out
+of the `ai_requests` row. A human claim that cannot be audited is worse than the
+plumbing it saves. Section 13.6 is the resulting contract.
+
 ## 15. Known limitations and debts
 
 1. **No content is persisted**, so a failed investigation cannot be replayed
@@ -494,7 +538,123 @@ and is the better fit once Sprint 20 models accounts; recorded as debt 6.
 7. **A `Public` declaration is unverified** until Sprint 18 delivers
    classification. It is the one control in the application that rests on a
    human assertion; see section 13.5.
+8. **The gateway always tells the policy runtime `contains_immutable_secret:
+   false`.** `EgressRequest` carries the flag and callers such as
+   `app/connectors.rs` set it deliberately, but `ModelRequest` has no field the
+   gateway could read it from, so the gateway asserts the policy default rather
+   than an observation. The control that still bites is the data-class one:
+   `Restricted` never reaches `HostedAi`. What is not covered is a secret pasted
+   into content its author declared `Public` — the same blast radius section
+   13.5 already describes, reached by a second route. Sprint 18's classifier is
+   what closes it; until then, do not read a permitted egress as evidence that
+   the content held no credential.
 
+9. **The provider surface is not mounted in the application shell.** Task 12
+   builds `AiProviderPanel`, `AiProviderForm` and `AiFallbackOrder`, and Task 13
+   exercises them from fixtures, but `ui/src/shell.tsx` imports none of them and
+   its `Area` union has no `ai` member, so nothing in the running application
+   routes to them. This is not a Task 12 omission — neither task's file list
+   includes `shell.tsx` — and Sprint 16's incident components are in the same
+   state: `"incidents"` is in the navigation list with no component wired behind
+   it. Two sprints of UI now ship tested and unreachable.
+
+   **Settled 2026-09-06.** Mount both. The provider surface goes into the
+   existing `integrations` area rather than a new `Area` member, because section
+   12 places it in "the existing connector/model status area" and the nav tree in
+   `ux-ui-concept.md` has no separate AI-admin area. The incident workspace takes
+   over the `"incidents"` entry that renders `EmptyState` today. Plan Task 14.
+
+10. **Nothing writes to the audit store.** Task 5 built `AiRequestStore` and
+    migration 0007, and `apply_migrations` creates both tables, but
+    `record_request` has no caller: `AppState` holds no store handle and
+    `complete_model` returns the gateway's answer without recording anything.
+    Section 3 promises "an audit record per model request" and section 7 has the
+    window accounting reading usage back out of it, so this is not a missing
+    line of plumbing — three contract mismatches have to be settled first, and
+    each is a decision rather than a fix:
+
+    - `record_request` refuses an empty attempt list, but the policy check runs
+      before the first attempt is pushed, so a policy-denied request has no
+      attempt to record. Either the store accepts an attempt-less refusal or the
+      promise of a record per request does not hold for denials.
+    - `GatewayError` carries no attempts. Every failing path drops the vector
+      the gateway built, so a failover that burned tokens before giving up is
+      unrecoverable from the return shape.
+    - `AiAttemptRecord` wants per-attempt `ModelUsage`, and neither
+      `ModelAttempt` nor `ProviderError` carries any. Section 9's "a failed
+      attempt that still consumed tokens is not lost" has no field to travel in.
+
+    Wiring the store now would either record successes only, contradicting
+    section 3, or write a zero `ModelUsage` for failed attempts — a value that
+    passes every validator and states something nobody observed, which is the
+    Sprint 16 Task 12 defect in a new place. The same root cause makes
+    `WindowBudget` inert: `complete_model` builds a fresh `BudgetLedger` per
+    request, so nothing accumulates across calls. Task 13 therefore asserted the
+    first two of its three Rust bullets and left the store one unasserted; Task
+    15 closed it, and debts 12 and 13 record what the wiring exposed about the
+    window itself. Nothing in a later sprint is stated to read these rows yet — section 17 puts
+    the AI Assistant Log in Sprint 19, whose assistant is the first real caller
+    of `ai.complete` — but section 7's window accounting already depends on them,
+    so the budget is per request in practice however it is configured.
+
+    **Settled 2026-09-06.** Fix the contracts rather than record successes only.
+    A refusal records a request row with no attempt; `GatewayError` carries the
+    attempt vector out of every failing path; per-attempt usage becomes
+    `Option<ModelUsage>` where `None` means *not observed*, never a zero; and the
+    ledger is seeded from the principal's recorded window usage instead of being
+    rebuilt per request. Because `build_registry` is private and builds real HTTP
+    adapters, the task also adds a registry injection seam so the store test can
+    drive `AppState::ai_complete` to a success and assert a real row — a test
+    that called `record_request` by hand would be the Sprint 16 defect again.
+    Plan Task 15.
+
+
+11. **The fallback order could be written but never read.** Found on 2026-09-06
+    while reviewing Task 14's mount against the backend. `ai.providers` returns
+    `ProviderSummary`, which is `ProviderConfiguration` plus health and
+    credential state and carries no ordering; `ProviderConfigStore` keeps the
+    order in a separate `provider_order: Vec<String>` that `ai.set_provider_order`
+    writes and nothing reads back. `AiProviderPanel` therefore takes the order as
+    a prop, and once mounted the shell had nothing to seed it from but `[]`.
+
+    Two consequences, the second of them a real loss. The panel always claims
+    failover is off on first render, whatever the gateway is actually configured
+    to do — and `build_registry` reads the stored order, so the claim can be
+    false about live behaviour. Worse, `AiFallbackOrder` computes the next order
+    from the one it was given: with `[openai, ollama]` stored and `[]` displayed,
+    one "add ollama" click writes `[ollama]` and silently drops openai from the
+    control that decides which providers may receive a request.
+
+    Neither the panel's own tests nor Task 13's acceptance test can see it —
+    both start from an empty order and mock `ai_set_provider_order` to echo the
+    payload back, so the write direction is asserted and the read direction does
+    not exist. This is the shape [Sprint 16 shipped six times](../superpowers/reports/2026-09-05-sprint-16-verification.md):
+    green under its own mock, wrong against the backend.
+
+    **Settled 2026-09-06.** Add `ai.provider_order` as a `ConnectorRead` read
+    returning `Vec<String>`, additively — changing `ai.providers` to a wrapper
+    would break Task 11's array guard and Task 13's acceptance mock for no gain.
+    The backend default stays empty; the UI simply stops asserting it. Plan
+    Task 16.
+
+12. **The window never rolls.** Section 7 says a window budget "bounds a caller
+    across a rolling period", but `WindowBudget` carries only three limits and no
+    period, and `AiRequestStore::window_usage` sums every attempt row the
+    principal has ever produced. Task 15 seeded the ledger from that sum, which
+    is the only thing the type permits, so the accounting is now real and
+    permanent: a principal who reaches a limit never regains headroom. Giving the
+    window a period means putting one on `WindowBudget` and filtering
+    `window_usage` by it — a change to Task 3's contract, so it is recorded here
+    rather than folded into the wiring. Until then, read "window" as "since the
+    beginning of the store".
+
+13. **Nothing configures a window budget.** `AppState` initialises
+    `ai_window_budget` to `WindowBudget::default()`, whose three limits are all
+    `None`, and the only writer is `with_ai_window_budget`, a builder the
+    acceptance test uses. So the running application enforces no window bound —
+    what Task 15 changed is that the accounting behind one is correct and
+    seeded, not that a limit exists. A configuration surface belongs with the
+    spend permission in Sprint 20's Policy Center, alongside debts 5 and 6.
 
 ## 16. Testing
 
@@ -508,6 +668,11 @@ and is the better fit once Sprint 20 models accounts; recorded as debt 6.
   denied before any adapter is constructed, and that the same request to a
   local provider follows the local data classes.
 - An IPC test asserts the exact payload keys and the typed error reasons.
+- Store tests drive `AppState::ai_complete` itself through the registry seam,
+  not `record_request` by hand: a success records the reported usage, a failover
+  records the failed attempt with no usage rather than a zero, a policy denial
+  records a request row with no attempt, and a second request is refused by the
+  window budget the first one's recorded usage exhausted.
 - No test performs a network call, and no fixture contains a real key.
 
 ## 17. Reconciliation with Sprints 18-26

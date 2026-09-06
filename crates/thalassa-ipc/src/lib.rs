@@ -77,6 +77,7 @@ pub enum Capability {
     PolicyManage,
     ConnectorRead,
     ConnectorAct,
+    AiInvoke,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -275,6 +276,64 @@ pub fn incident_add_comment_descriptor() -> CommandDescriptor {
         "add_comment",
         Capability::IncidentWrite,
         Permission::ManageIncident,
+    )
+}
+
+pub fn ai_providers_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "providers",
+        Capability::ConnectorRead,
+        Permission::Read,
+    )
+}
+
+pub fn ai_provider_order_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "provider_order",
+        Capability::ConnectorRead,
+        Permission::Read,
+    )
+}
+
+pub fn ai_configure_provider_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "configure_provider",
+        Capability::ConnectorAct,
+        Permission::Read,
+    )
+}
+
+pub fn ai_set_provider_order_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "set_provider_order",
+        Capability::ConnectorAct,
+        Permission::Read,
+    )
+}
+
+pub fn ai_probe_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new("ai", "probe", Capability::ConnectorRead, Permission::Read)
+}
+
+pub fn ai_complete_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "complete",
+        Capability::AiInvoke,
+        Permission::Investigate,
+    )
+}
+
+pub fn ai_cancel_descriptor() -> CommandDescriptor {
+    CommandDescriptor::new(
+        "ai",
+        "cancel",
+        Capability::AiInvoke,
+        Permission::Investigate,
     )
 }
 

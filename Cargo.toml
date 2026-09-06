@@ -5,6 +5,7 @@ members = [
     "crates/thalassa-policy",
     "crates/thalassa-ipc",
     "crates/thalassa-connectors",
+    "crates/thalassa-ai",
 ]
 resolver = "2"
 

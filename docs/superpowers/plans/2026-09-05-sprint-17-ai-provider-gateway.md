@@ -34,6 +34,13 @@ Design: `docs/design/sprint-17-ai-provider-gateway.md` (approved 2026-09-05).
 
 ## Task DAG
 
+> Bookkeeping: Tasks 1-12 shipped as `080fc95`, `72c3860`, `8247c13`, `ccd36ee`,
+> `06402cb`, `336b4bf`, `2af2c4e`, `345bd59`, `16c20f6`, `8abea4b` and `a6c6c4d`,
+> but their step boxes were never ticked as the work landed. They are left
+> unticked rather than back-filled from the commit log; the commits are the
+> record.
+
+
 ```
 Task 1 domain contracts
   |
@@ -58,10 +65,23 @@ Task 1 domain contracts
                           +-- Task 12 UI: provider rows, form, fallback order
                                 |
                                 +-- Task 13 acceptance
+                                      |
+                                      +-- Task 14 mount the surfaces
+                                      +-- Task 15 wire the audit store
 ```
 
 Tasks 6, 7 and 8 are independent of each other and of Tasks 3-5. Everything
 else is sequential.
+
+Tasks 14 and 15 were added on 2026-09-06 after Task 13, when the user settled
+the two open decisions design section 15 records as 9 and 10. Task 16 was added
+the same day, when reviewing Task 14's mount against the backend showed the
+fallback order has no read counterpart (design section 15 item 11). All three
+are required before the sprint merges.
+
+Task 14 is done (`0b109b0`, `e380b7f`). Run Task 16 next, then Task 15: Task 16
+edits `src-tauri/src/app/ai.rs` and `ui/contracts/ipc.ts`, which are inside Task
+15's boundary, and it is far the smaller of the two.
 
 ## File Map
 
@@ -105,6 +125,14 @@ else is sequential.
   `ModelResponse`, `ModelAttempt`, `ModelAttemptOutcome`, `ModelUsage`,
   `ModelFinishReason`, `ProviderErrorReason`, `ProviderKind`, `ProviderHealth`,
   `ModelDescriptor`, and `validate_model_request`.
+
+> **Amended 2026-09-05, after Task 1 was committed as `0cce241`.** `ModelRequest`
+> gains one more field, `declaration: ContentDeclaration`, an enum whose only
+> Sprint 17 variant is `OperatorDeclared`. Task 1 shipped without it and the
+> omission is what stopped Task 4: the policy runtime denies every request whose
+> verification flags are false, and the caller had nowhere to set them. Design
+> sections 13.6 and 14.6 record the decision. Add the field and a validation
+> test as the first step of Task 4; do not rewrite `0cce241`.
 
 **Grounding.** `DataClass` already exists in `thalassa-policy`, not in
 `thalassa-domain`; check which crate the request should hold before writing the
@@ -251,14 +279,36 @@ git commit -m "feat(ai): enforce token and cost budgets before and after a call"
 - Produces: `Gateway::complete(request, deadline, cancel) -> Result<ModelResponse, GatewayError>`.
 
 **Grounding — read before writing the test.**
-`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, around
-line 205) denies when `classification_verified` or `redaction_verified` is
-false, denies `Restricted` and immutable-secret content to `HostedAi`, and
-otherwise checks the destination's permitted data classes from the policy
-document. `EgressDestination` already has `HostedAi` and `LocalModel`. The
-gateway picks the destination from the selected provider's kind — a local
-provider is `LocalModel` — and it does **not** set the verification flags on the
-caller's behalf.
+`PolicyRuntime::evaluate_egress` (`crates/thalassa-policy/src/lib.rs`, line 207)
+denies when `classification_verified` or `redaction_verified` is false, denies
+`Restricted` and immutable-secret content to `HostedAi`, and otherwise checks
+the destination's permitted data classes from the policy document.
+`EgressDestination` already has `HostedAi` and `LocalModel`. The gateway picks
+the destination from the selected provider's kind — a local provider is
+`LocalModel`.
+
+The gateway does **not** invent the verification flags, and it does not call
+`EgressRequest::verified` on the caller's behalf. It maps
+`ModelRequest::declaration` onto them: `ContentDeclaration::OperatorDeclared`
+sets both flags, because a person asserted the content was safe to send, and
+that assertion arrived inside the request. There is no other variant in Sprint
+17, so there is no other path to a set flag. Design 13.6.
+
+`ModelRequest::data_class` is `ModelDataClass`, which Task 1 made a `String`
+alias so `thalassa-domain` need not depend on `thalassa-policy`. The gateway is
+the crate that resolves that string to a `DataClass`; a string that names no
+data class is a typed refusal, never a silent `Public`.
+
+- [ ] **Step 0: Land the amended contract**
+
+Add `declaration: ContentDeclaration` to `ModelRequest` and the
+`ContentDeclaration` enum to `crates/thalassa-domain/src/lib.rs`, following the
+serde conventions already in the file. Extend the Task 1 validation tests with
+one case that a request carrying the declaration validates. Commit separately:
+
+```bash
+git commit -m "feat(ai): carry the caller's content declaration in the request"
+```
 
 Failover rules are design 8.1 and they are not symmetric: unreachable, rate
 limited and model unavailable may fail over; `Unauthorized` may not, because a
@@ -287,6 +337,8 @@ Drive a fake `ModelProvider`. The tests that earn their place:
 - `Permitted` with an `Unauthorized` first provider does **not** fail over;
 - a provider absent from the configured order is never chosen as a fallback,
   even when it is registered and healthy;
+- a `data_class` string that names no `DataClass` is refused, and the fake was
+  never called;
 - `attempts` has exactly one entry when nothing failed.
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -610,7 +662,7 @@ git commit -m "feat(ai): add the provider status, configuration and fallback sur
 The sprint's exit criterion is that the same request contract runs against a
 hosted provider and a local one without a UI change. Prove exactly that:
 
-- [ ] **Step 1: Write the acceptance test**
+- [x] **Step 1: Write the acceptance test**
 
 Rust, with fixture-backed adapters and the real gateway, registry, budget
 ledger, policy runtime and store:
@@ -630,7 +682,7 @@ round-trips. Assert the tauri command name and the envelope command for every
 call, as the Sprint 16 acceptance test does — reading the command off the wrong
 argument of `invoke` is a mistake this repository has already made once.
 
-- [ ] **Step 2: Run every gate**
+- [x] **Step 2: Run every gate**
 
 ```bash
 cargo fmt --all -- --check
@@ -641,11 +693,286 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 
 Report the exact counts against the 577 / 216 baseline.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -m "test(ai): verify one request contract across hosted and local providers"
 ```
+
+Done: `0cd2549`. `src-tauri/tests/ai_acceptance.rs` (3 tests) runs the real
+gateway, registry, budget ledger and policy runtime over two fixture adapters
+and asserts the exit criterion directly: the hosted and local responses are
+equal once `provider_id`, `model_id`, `usage` and `attempts` are removed, and
+the payload sent to each adapter is the same apart from `model_id`. The
+restricted split asserts `ImmutableRestrictedData` for the hosted destination
+with the adapter never called, and an answer from the local one under a policy
+document that permits `Restricted` there. A third test records the one
+destination-sensitive part of the contract: a `max_cost_micros` bound is
+honoured by the priced hosted model and refused with `UnpricedCost` by the
+unpriced local one, per design section 7.
+
+`ui/src/ai/ai.acceptance.test.tsx` (3 tests) drives the panel through health
+and credential facts, an empty order that says failover is off, two additions
+and a reorder that round-trip through `ai_set_provider_order`, and a re-save
+that sends no `credential` key; every call is asserted against both the tauri
+command name and the envelope command and capability.
+
+Neither acceptance test drives `AppState::ai_complete` to a success: the
+handler builds its registry privately from real HTTP adapters, so there is no
+seam a fixture provider can enter through, and `ai_ipc.rs` covers only its four
+refusal paths. The handler's success path — `complete_model`, `finish_ai`, the
+serialized `ModelResponse` — has no test on this branch. The missing seam is the
+same one open decision 10's follow-up has to build.
+
+**The third Rust bullet is not asserted.** Nothing writes to `AiRequestStore`,
+so there is no request row to count; see open decision 10 in the design. A test
+that called `record_request` by hand would be a green check on a path the
+application never takes.
+
+Gates on the branch: `cargo fmt --check` clean, `cargo clippy --all-targets
+--all-features -D warnings` clean, `cargo test` 642 passed (639 before),
+`npm run format:check`, `lint`, `typecheck` clean, `npm test` 230 passed
+(227 before).
+
+---
+
+### Task 14: Mount the Provider Surface and the Incident Workspace
+
+Closes open decision 9. The user's call, 2026-09-06: mount both. The provider
+surface goes into the existing `integrations` area, not a new nav member —
+design section 12 places it in "the existing connector/model status area", and
+`ux-ui-concept.md`'s nav tree has no separate AI-admin area to add one to.
+
+**Files:**
+- Modify: `ui/src/shell.tsx`, `ui/src/shell.test.tsx`
+- Modify if a key is missing: `ui/src/locales/en.ts`, `ui/src/locales/th.ts`
+
+**Grounding.** `Integrations` (`shell.tsx:478`) owns the connector list inside
+the `integrations` area. `AiProviderPanel` already composes `AiProviderForm` and
+`AiFallbackOrder` itself, so mounting is one child plus the `providerOrder`
+state it reads and writes: its props are `{ invoke, providerOrder,
+onProviderOrderChange? }`. `IncidentWorkspace` takes `{ invoke }` and nothing
+else. `"incidents"` is already in the `Area` union and the `areas` list, so it
+needs a branch in the `shell-main` conditional, not a new nav entry — today it
+falls through to `EmptyState titleKey="shell.routeUnavailable"`.
+
+Do not add an `ai` member to `Area`. Do not restyle either component; this task
+routes to what Tasks 12 and Sprint 16 already built and tested.
+
+- [ ] **Step 1: Write the failing test**
+
+In `ui/src/shell.test.tsx`, against the shell — not against either component in
+isolation, which is what already passes:
+
+- selecting the `incidents` nav entry renders the incident queue, and
+  `shell.routeUnavailable` is not in the document;
+- selecting `integrations` renders both the connector list and the AI provider
+  panel;
+- the fallback order the panel reports through `onProviderOrderChange` is the
+  order the panel is re-rendered with — assert the round trip, not just that the
+  handler fired;
+- both mounted surfaces receive the same `invoke` the shell was given, so the
+  capability envelopes stay the real ones.
+
+- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run the gate and commit**
+
+Two commits, the incident mount second so it can be dropped on its own:
+
+```bash
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): mount the provider surface in the integrations area"
+git commit -m "feat(incident): route the incidents area to the workspace"
+```
+
+Done: `0b109b0` and `e380b7f`, 232 frontend tests (230 before). `AiProviderPanel`
+renders inside `Integrations` beside the connector list — the early returns became
+a `connectorContent` expression so the panel is not lost behind a loading or empty
+connector state — and the `incidents` branch renders `IncidentWorkspace` with the
+shell's own `invoke`, asserted by a test that checks `shell.routeUnavailable` is
+gone rather than only that a heading appeared.
+
+Reviewing this mount against the backend is what found open decision 11; the
+provider-order state this task seeded with `[]` had nothing truthful to read
+from. Task 16 removed the seed.
+
+---
+
+### Task 15: Wire the Audit Store
+
+Closes open decision 10. The user's call, 2026-09-06: fix the contracts, do not
+record successes only. Every sub-decision below is settled; implement them, do
+not re-open them.
+
+**Files:**
+- Modify: `crates/thalassa-domain/src/lib.rs` (`ModelAttempt`),
+  `crates/thalassa-ai/src/gateway.rs` (`GatewayError`),
+  `crates/thalassa-ai/src/budget.rs` if seeding needs a constructor
+- Modify: `src-tauri/src/ai/store.rs`, `src-tauri/src/app/ai.rs`,
+  `src-tauri/src/app/mod.rs` (`AppState`)
+- Modify: `src-tauri/tests/ai_store.rs`, `src-tauri/tests/ai_ipc.rs`,
+  `src-tauri/tests/ai_acceptance.rs`, `crates/thalassa-ai/tests/gateway.rs`
+- Modify: `ui/contracts/ipc.ts` and its guards only if a serialized shape moves
+
+**The four settled decisions:**
+
+1. **A refusal records with no attempt.** `record_request` rejects an empty
+   attempt list today, but the policy and budget checks run before the first
+   attempt is pushed. Relax the check to: a *successful* outcome records at
+   least one attempt; a refusal may record none. Design section 3 promises a
+   record per request, and a denial is the row an auditor most wants.
+2. **`GatewayError` carries the attempts.** Every failing path drops the vector
+   the gateway built, so a failover that burned tokens before giving up is
+   unrecoverable from the return shape. Either add the field to each variant
+   that can follow an attempt or wrap the whole error — prefer the wrapper
+   (`GatewayFailure { error, attempts }`) so the variants stay readable and no
+   caller can forget the vector.
+3. **Per-attempt usage is `Option<ModelUsage>`.** `AiAttemptRecord.usage` is
+   `ModelUsage` today and `ModelUsage` derives `Default`. Make the recorded
+   usage optional and let `None` mean *not observed*. Never write
+   `ModelUsage::default()` for an attempt that reported nothing: a zero row
+   passes every validator and states something no one observed. That is the
+   Sprint 16 Task 12 defect, and it is the reason this task exists.
+4. **The ledger is seeded from the store.** `complete_model` builds
+   `BudgetLedger::new()` per request, so `WindowBudget` never accumulates.
+   Read the principal's window usage back out of `ai_requests` and seed the
+   ledger with it (`BudgetLedger::with_window` exists; add a seeded constructor
+   if the accumulated usage cannot be set through it). Section 7's window
+   accounting reads usage out of the store, so this is the same wiring, not a
+   second feature.
+
+**The seam that makes the test real.** `build_registry` is private and
+constructs real HTTP adapters, so no fixture provider can enter through the IPC
+layer and `ai_ipc.rs` covers only refusals. Add a registry injection seam to
+`AppState` as part of this task. **The acceptance for this task is a test that
+drives `AppState::ai_complete` to a success through that seam and then asserts a
+real row in `ai_requests` with its attempt rows.** A test that calls
+`record_request` by hand is a green check on a path the application never takes;
+Sprint 16 shipped six defects that were green exactly that way.
+
+- [ ] **Step 1: Write the failing tests**
+
+- a success through `ai_complete` writes one request row and one attempt row
+  with the usage the provider reported;
+- a policy denial through `ai_complete` writes a request row with the deny
+  reason and no attempt row;
+- a failover — first provider fails, second answers — writes both attempts in
+  ordinal order, the failed one with `usage: None`, not a zero;
+- a second request from the same principal is refused by the window budget that
+  the first request's recorded usage exhausted.
+
+- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run every gate and commit**
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): record every model request in the audit store"
+```
+
+Done: `a488cc2`, 646 Rust (643 before) and 234 frontend (unchanged). All seven
+gates green. All four decisions landed as settled:
+
+- `record_request` refuses an empty attempt list only when `outcome.error` is
+  `None`, so a refusal records a request row with no attempt;
+- `GatewayFailure { error, attempts }` wraps every failing path, and the
+  deadline and cancellation early returns were moved *after* the attempt is
+  pushed, so an attempt that burned tokens before the deadline is no longer
+  dropped;
+- `ModelAttempt.usage` and `AiAttemptRecord.usage` are `Option<ModelUsage>`; the
+  gateway writes `Some(usage)` on an answer and `None` on a failure, and no zero
+  is invented anywhere;
+- `complete_model` seeds `BudgetLedger::with_window_usage` from
+  `AiRequestStore::window_usage`.
+
+The seam is `AppState::ai_registry_override` with a `with_ai_registry` builder,
+and the four tests drive the real handler rather than the store: a success
+records one request row with the reported usage, a failover records both
+attempts with the failed one's usage `None`, a second request is refused with
+`window_input_tokens` from the first request's recorded usage, and — in
+`ai_ipc.rs` — a policy denial records a request row with `ImmutableRestrictedData`
+and zero attempt rows.
+
+Two limitations surfaced in review and are recorded as design debts 12 and 13:
+`WindowBudget` has no period, so `window_usage` sums the principal's whole
+history and the window never rolls; and nothing in production sets a window
+budget, so the bound the accounting now supports is not yet configurable.
+
+---
+
+### Task 16: Read the Fallback Order Back
+
+Closes open decision 11, found on 2026-09-06 while reviewing Task 14's mount
+against the backend. Run this **before** Task 15: it touches
+`src-tauri/src/app/ai.rs` and `ui/contracts/ipc.ts`, both inside Task 15's
+boundary, and it is small enough that Task 15's heavier edits should land on
+top of it rather than the other way round.
+
+**Files:**
+- Modify: `src-tauri/src/ai/config.rs` if a getter is missing,
+  `src-tauri/src/app/ai.rs`, and the IPC descriptor module that
+  `ai_providers_descriptor` lives in
+- Modify: `ui/contracts/ipc.ts` and its guards, `ui/src/ai/AiProviderPanel.tsx`
+- Modify: `src-tauri/tests/ai_ipc.rs`, `ui/src/ai/AiProviderPanel.test.tsx`,
+  `ui/src/ai/ai.acceptance.test.tsx`, `ui/src/shell.test.tsx`
+
+**Grounding.** `ProviderConfiguration` is `{ id, kind, endpoint, models }` and
+`ProviderSummary` adds only `health` and `credential_configured` — neither
+carries a position, because `ProviderConfigStore` keeps the order in a separate
+`provider_order: Vec<String>`. Do not add a position field to either; the order
+is a property of the set, not of a provider.
+
+Add `ai.provider_order` as a `ConnectorRead` command returning `Vec<String>`,
+mirroring `ai_providers`: same authorization, same empty-payload parse, same
+`finish_ai`. Additive only — do not change `ai.providers`' return shape, which
+would break Task 11's `isProviderSummary` array guard and Task 13's acceptance
+mock for no gain.
+
+In `AiProviderPanel`, fetch the order inside `loadProviders` alongside the
+providers so a mounted panel shows what is configured. The `providerOrder` prop
+becomes optional: a caller may seed it, but the panel no longer depends on one
+to be truthful.
+
+- [ ] **Step 1: Write the failing tests**
+
+- Rust: `ai_provider_order` returns the configured order, and refuses the same
+  four ways `ai_providers` does (wrong command, wrong capability, bounded scope,
+  non-empty payload);
+- **the one that would have caught this**: mock `ai_provider_order` returning
+  `["openai", "ollama"]`, assert both render in the fallback region in that
+  order on mount, then add a third provider and assert the payload sent to
+  `ai_set_provider_order` is `["openai", "ollama", <third>]` — not `[<third>]`;
+- add the same case to `ai.acceptance.test.tsx`, which is the sprint's exit
+  check and today proves only the empty-to-populated direction.
+
+- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run every gate and commit**
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+npm run format:check && npm run lint && npm run typecheck && npm test
+git commit -m "feat(ai): read the configured fallback order back through IPC"
+```
+
+Done: `2a07dfe`, 643 Rust (642 before) and 234 frontend (232 before). All seven
+gates green. `ai_provider_order` mirrors `ai_providers` exactly — same
+authorization, same empty-payload parse, same `finish_ai` — and is registered in
+`main.rs`, which turned out to be the only `invoke_handler` in the tree and so
+had to be added to the file boundary mid-task. The panel now reads the order in
+`loadProviders` and the `providerOrder` prop is optional, so `Integrations`
+passes only `invoke` and no longer asserts an empty order on the panel's behalf.
+
+The regression test is the one that would have caught the defect: with
+`["openai", "ollama"]` configured, adding a third provider sends
+`["openai", "ollama", "vllm"]`, not `["vllm"]`. The same case is in
+`ai.acceptance.test.tsx`.
 
 ---
 
