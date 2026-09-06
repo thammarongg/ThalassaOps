@@ -27,6 +27,7 @@ import { OperationsConsole } from "./OperationsConsole";
 import { CorrelationWorkspace } from "./correlation/CorrelationWorkspace";
 import { TopologyWorkspace } from "./topology/TopologyWorkspace";
 import { AiProviderPanel } from "./ai/AiProviderPanel";
+import { IncidentWorkspace } from "./incident/IncidentWorkspace";
 type Area =
   | "commandCenter"
   | "incidents"
@@ -225,6 +226,8 @@ export function Shell({ invoke }: { invoke: Invoke }) {
             onOpenIncidentTopology={openIncidentTopology}
             onOpenCorrelation={() => setActive("correlation")}
           />
+        ) : active === "incidents" ? (
+          <IncidentWorkspace invoke={invoke} />
         ) : active === "environments" ? (
           <>
             <h1>{t(`shell.${active}`)}</h1>

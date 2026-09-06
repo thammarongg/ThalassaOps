@@ -7,6 +7,11 @@ import { Shell } from "./shell";
 import { open } from "@tauri-apps/plugin-shell";
 import type { CloudEnvironment, CloudResource } from "../contracts/ipc";
 import { localProvider, unauthorizedHostedProvider } from "./ai/ai-fixtures";
+import {
+  incidentFixtureEvidence,
+  incidentFixturePage,
+  incidentFixtureTimeline
+} from "./incident/incident-fixtures";
 
 vi.mock("@tauri-apps/plugin-shell", () => ({
   open: vi.fn()
@@ -90,6 +95,35 @@ it("shows an unavailable policy indicator and context error when the context req
   });
   const policyStatus = screen.getByText("Policy version …").parentElement;
   expect(policyStatus?.querySelector(".indicator")).toHaveClass("indicator--unavailable");
+});
+
+it("routes the incidents area to the incident queue through the shell", async () => {
+  const user = userEvent.setup();
+  const invoke = vi.fn().mockImplementation((name: string) => {
+    if (name === "system_context") return Promise.resolve({ ok: true, value: context });
+    if (name === "incident_list") return Promise.resolve({ ok: true, value: incidentFixturePage });
+    if (name === "incident_timeline")
+      return Promise.resolve({ ok: true, value: incidentFixtureTimeline });
+    if (name === "correlation_evidence")
+      return Promise.resolve({ ok: true, value: incidentFixtureEvidence });
+    return Promise.resolve({ ok: true, value: {} });
+  });
+
+  render(
+    <I18nProvider>
+      <Shell invoke={invoke} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Incidents" }));
+  expect(await screen.findByRole("listbox", { name: "Incident queue" })).toBeInTheDocument();
+  expect(screen.queryByText("This product area is not yet available.")).not.toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledWith(
+    "incident_list",
+    expect.objectContaining({
+      envelope: expect.objectContaining({ capability: "IncidentRead" })
+    })
+  );
 });
 
 it("mounts the AI provider panel beside connectors and round-trips fallback order", async () => {
