@@ -786,6 +786,17 @@ git commit -m "feat(ai): mount the provider surface in the integrations area"
 git commit -m "feat(incident): route the incidents area to the workspace"
 ```
 
+Done: `0b109b0` and `e380b7f`, 232 frontend tests (230 before). `AiProviderPanel`
+renders inside `Integrations` beside the connector list — the early returns became
+a `connectorContent` expression so the panel is not lost behind a loading or empty
+connector state — and the `incidents` branch renders `IncidentWorkspace` with the
+shell's own `invoke`, asserted by a test that checks `shell.routeUnavailable` is
+gone rather than only that a heading appeared.
+
+Reviewing this mount against the backend is what found open decision 11; the
+provider-order state this task seeded with `[]` had nothing truthful to read
+from. Task 16 removed the seed.
+
 ---
 
 ### Task 15: Wire the Audit Store
@@ -924,7 +935,18 @@ npm run format:check && npm run lint && npm run typecheck && npm test
 git commit -m "feat(ai): read the configured fallback order back through IPC"
 ```
 
-Baseline is 642 Rust / 232 frontend.
+Done: `2a07dfe`, 643 Rust (642 before) and 234 frontend (232 before). All seven
+gates green. `ai_provider_order` mirrors `ai_providers` exactly — same
+authorization, same empty-payload parse, same `finish_ai` — and is registered in
+`main.rs`, which turned out to be the only `invoke_handler` in the tree and so
+had to be added to the file boundary mid-task. The panel now reads the order in
+`loadProviders` and the `providerOrder` prop is optional, so `Integrations`
+passes only `invoke` and no longer asserts an empty order on the panel's behalf.
+
+The regression test is the one that would have caught the defect: with
+`["openai", "ollama"]` configured, adding a third provider sends
+`["openai", "ollama", "vllm"]`, not `["vllm"]`. The same case is in
+`ai.acceptance.test.tsx`.
 
 ---
 
