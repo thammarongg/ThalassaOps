@@ -99,8 +99,10 @@ fields (finding via prose, confidence via the existing mono treatment).
 
 Add a text link "Show evidence" (13px, `--link` color, underline-on-hover —
 the handoff's existing link style) at the bottom of every such card. Expanding
-it reveals, using the same key/value row grammar as the Incident detail stat
-strip (11px/600 uppercase `--fg2` key, 12–13px value):
+it reveals key/value rows using the same key style as the Incident detail stat
+strip (11px/600 uppercase `--fg2`), but with a smaller 12–13px value instead of
+the stat strip's 18px/700 mono — the stat strip's size is tuned for a handful
+of headline numbers, not a multi-row evidence list:
 
 | Field | Rendering |
 |---|---|
@@ -142,8 +144,11 @@ position, so no layout restructuring is needed beyond the label swap.
 **Applies to:** Any AI-response card (Section 2) and any terminal/command
 output surface (Section 3, Sprint 22).
 
-A single conditional line, 11px mono, `--fg3` (the same tone already used for
-the shell's footer hint bar): `sensitive fields redacted: N`. Rendered only
+A single conditional line, 11px mono, `--fg3`: `sensitive fields redacted: N`.
+(Not the literal `#5f6b78` used specifically for the shell's footer hint bar —
+that is a one-off value for that one bar per the handoff's token README;
+`--fg3` is the right token for a muted line inside a card or output block.)
+Rendered only
 when `N > 0`; a clean response or output shows nothing, so this never adds
 clutter to the common case. On terminal/command surfaces it sits directly
 above the Section 3 pill row.
