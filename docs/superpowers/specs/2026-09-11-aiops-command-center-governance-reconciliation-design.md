@@ -4,6 +4,15 @@
 **Date:** 2026-09-11
 **Type:** UX/UI specification amendment (no backend/contract change)
 
+## Execution note
+
+This document is written and committed on `claude/review-requirements-spec-thai-89f240`.
+The code it describes lives on `claude/aiops-command-center-4e1759` (a sibling
+worktree of the same repository). The implementation plan must bring this
+document's commits onto that branch (cherry-pick, not a rewrite) before any
+task starts — otherwise the branch being implemented has no committed record
+of the spec it's following.
+
 ## Provenance
 
 This document amends `docs/design/aiops-command-center.md`, the UX/UI spec
@@ -68,24 +77,31 @@ Two options were considered:
 
 ## Section 1 — Severity and Priority
 
-**Applies to:** Incident header (detail view), Incident inbox rows, Incident
-kanban cards.
+**Correction (2026-09-11, post-approval):** verified against the actual
+shipped code in the `claude/aiops-command-center-4e1759` worktree. Two
+different types carry Incident data, and only one of them has Priority:
 
-`ConsoleSeverity` (`S1`–`S5`) and `ConsolePriority` (`P1`–`P5`) already exist as
-separate fields in `ui/contracts/ipc.ts` (`IncidentQueueItem.severity`,
-`IncidentQueueItem.priority`) — no contract change.
+- `IncidentQueueItem` (Operations Console dashboard row) has both
+  `severity: ConsoleSeverity` and `priority: ConsolePriority | null` — and
+  **already renders both** (`ui/src/OperationsConsole.tsx:428-429`:
+  `<StatusIndicator severity={...} />` followed by
+  `{item.priority && <span className="operations-priority">{item.priority}</span>}`).
+  No task needed here; this requirement is already met.
+- `Incident` (the full domain entity `IncidentWorkspace` renders —
+  `ui/contracts/ipc.ts:1081-1101`) has `derived_severity` and
+  `severity_override` but **no `priority` field at all**. Showing Priority on
+  the Incident detail header/list/kanban would require a backend/contract
+  change, which is out of this document's declared non-goals. Adding
+  `priority` to the `Incident` domain entity is tracked as a backlog item
+  (see "Backlog" section below), not part of this design.
 
-- **Incident header card:** existing 22px severity chip (`--critbg` on
-  `--crit`-family tone) stays as the primary signal. Add a second, smaller
-  chip immediately to its right for Priority, styled neutral
-  (`--surface3` background, `--fg2` text, same 3px radius) so it reads as
-  contextual rather than competing with severity's alarm coloring.
-- **Inbox rows / kanban cards:** append `P{n}` to the existing mono
-  10–11px meta line (`service · owner`, id, age) that both list styles
-  already render. No new component; same type scale.
-- **Alerts table:** unchanged — no Priority column. Priority is an Incident-
-  level concept per requirements-summary.md §8.2; an Alert does not carry one
-  until correlated into an Incident.
+The Incident-detail-view bullets originally in this section (header chip,
+inbox/kanban `P{n}`) are removed — they described work this document cannot
+scope without a contract change.
+
+**Alerts table:** unchanged — no Priority column, unaffected by the above.
+Priority is an Incident-level concept per requirements-summary.md §8.2; an
+Alert does not carry one until correlated into an Incident.
 
 ## Section 2 — AI response disclosure contract
 
@@ -160,28 +176,94 @@ section does not touch them, matching the note already in
 
 ## Section 5 — Evidence Tide Line
 
-**Applies to:** Incident detail timeline.
+**Deferred to Sprint 19 (correction, 2026-09-11).** The component this would
+restyle, `ui/src/incident/IncidentNarrative.tsx`, carries its own doc comment
+at line 28: *"a bare count... Sprint 19 rewrites the narrative anyway (design
+15)."* It currently renders as a `<Table>` (shared `design-system/components`
+table), not an event-card list — restyling it into a rail-based Tide Line now
+means building throwaway structure a known, already-scheduled rewrite
+replaces. This section's rail/marker design (thin rail, `--accent` marker for
+the latest event, severity-toned markers for alert-origin events) is the
+target for Sprint 19 to implement directly, not an interim restyle.
 
-Replaces the handoff's plain vertical event list with a restyled version of
-the same concept from the old spec (`ux-ui-concept.md`: "a thin, calm
-timeline that shows how signals, changes, hypotheses and actions move through
-an incident"). Same event data and per-event grammar (actor, mono timestamp,
-body) as the handoff's Timeline — this is a rendering change, not a new data
-requirement:
+Plain color-token consistency for `IncidentNarrative` (so it doesn't look
+visually stale next to the rest of a restyled Incident Workspace) is still in
+scope — see "Phase 2" below — but no structural rail/timeline change happens
+before Sprint 19.
 
-- Thin rail using `--border2`, with event markers along it instead of a plain
-  stacked list.
-- Latest/active event marker in `--accent` (orange).
-- Alert-origin event markers colored by the alert's severity tone.
+## Phase 2 — Restyle Incident Workspace to the new visual system
 
-## Design tokens (for reference — unchanged from the Claude Design handoff)
+**Added 2026-09-11, after user request to expand this document's scope
+beyond documentation-only changes.** `docs/superpowers/plans/2026-09-10-aiops-command-center-shell-phase1.md`
+scoped Phase 1 to shell chrome + Home only, explicitly leaving
+`IncidentWorkspace` and its children unrestyled ("keep rendering inside the
+new shell unchanged"). Phase 2 closes that gap for the six `IncidentWorkspace`
+child components confirmed clean of any "will be rewritten" marker
+(`IncidentList`, `IncidentSummaryCard`, `IncidentTabs`, `IncidentEvidencePanel`,
+`IncidentCommentThread`, `IncidentActions` — grepped for "Sprint 19",
+"rewrite", "design 15", "throwaway": no matches, unlike `IncidentNarrative`
+above). These render real Sprint 15/16 backend data through existing,
+passing tests — restyling them is not mock-driven UI work.
+
+**Scope:** visual token restyle only (colors, spacing already-in-use,
+typography inherited from the Phase 1 font change). No markup restructuring,
+no new interaction, no behavior change. Existing test files
+(`IncidentList.test.tsx`, `IncidentSummaryCard.test.tsx`, `IncidentTabs.test.tsx`,
+`IncidentEvidencePanel.test.tsx`, `IncidentCommentThread.test.tsx`,
+`IncidentActions.test.tsx`, `IncidentWorkspace.test.tsx`) must keep passing
+unmodified — the same rule Phase 1 applied to `shell.test.tsx`.
+
+### Token gap
+
+`ui/src/styles.css` defines 13 color custom properties (the "ocean" naming:
+`--color-abyss`, `--color-nav`, `--color-deep-water`, `--color-sea-glass`,
+`--color-reef-cyan`, `--color-info(-bg)`, `--color-kelp(-bg)`,
+`--color-amber(-bg)`, `--color-coral(-bg)`) — a subset of the ~25 the Claude
+Design handoff README specifies. This document's Sections 1–4 above cite
+handoff names (`--crit`, `--ok`, `--surface2`, `--fg2`, etc.) directly; the
+table below is the authoritative mapping from handoff name to the actual (or
+newly added) project variable, so an implementer never has to guess:
+
+| Handoff token | Dark value | Project variable | Status |
+|---|---|---|---|
+| `--bg` | `#0c1116` | `--color-abyss` | exists |
+| `--nav` | `#000716` | `--color-nav` | exists |
+| `--surface` | `#161d26` | `--color-deep-water` | exists |
+| `--fg` | `#f2f3f3` | `--color-sea-glass` | exists |
+| `--accent` | `#ff9900` | `--color-reef-cyan` | exists — **name is misleading, the value is orange, not cyan; do not rename as part of this plan, just don't be surprised by it** |
+| `--ok` / `--okbg` | `#5dd47a` / `#12241a` | `--color-kelp` / `--color-kelp-bg` | exists |
+| `--warn` / `--warnbg` | `#f0b429` / `#2a2113` | `--color-amber` / `--color-amber-bg` | exists |
+| `--crit` / `--critbg` | `#ff7c70` / `#2a1614` | `--color-coral` / `--color-coral-bg` | exists |
+| `--info` / `--infobg` | `#539fe5` / `#12212f` | `--color-info` / `--color-info-bg` | exists |
+| `--link` | `#539fe5` | `--color-info` | exists — handoff's dark-theme `--link` and `--info` are the same hex; reuse `--color-info`, no new variable |
+| `--fg2` | `#9aa7b4` | `--color-fog` | **used but never defined** — referenced 12 times in `ui/src/incident/incident.css`, missing from `:root`. Defining it is a real bug fix, not new scope. |
+| `--fg3` | `#7a8794` | `--color-mist` (new) | to add |
+| `--surface2` | `#1b232e` | `--color-deep-water-2` (new) | to add |
+| `--surface3` | `#212b38` | `--color-deep-water-3` (new) | to add |
+| `--border` | `#2a3542` | `--color-border` (new) | to add |
+| `--border2` | `#3a4757` | `--color-border-strong` (new) | to add |
+| `--ai` / `--aibg` | `#b18cf0` / `#1f1830` | `--color-violet` / `--color-violet-bg` (new) | to add — no current use (Section 2 is blocked), added now so the token set is complete for Sprint 18/19 |
+| `--shadow` | `0 1px 4px rgba(0,0,0,.45)` | `--shadow-card` (new) | to add |
+| `--navfg` / `--navsub` | `#f7f8f8` / `#96a3b0` | `--color-nav-fg` / `--color-nav-sub` (new) | to add |
+
+### Non-goals for Phase 2
+
+- `IncidentNarrative`'s Tide Line rail (Section 5, deferred to Sprint 19).
+- Kanban/board mode for the incident list — no existing concept in
+  `IncidentList`, not requested.
+- Priority on the Incident detail view (Section 1 correction above) —
+  backend follow-up, not scoped here.
+- Sections 2, 3, 4 — still blocked on Sprint 18 (redaction), Sprint 19 (AI
+  investigation) and Sprint 22 (terminal/runbooks) backend respectively.
+
+## Design tokens
 
 Colors, type scale, spacing, radii and fixed dimensions are as specified in
-`design_handoff_aiops_command_center/README.md` (delivered 2026-09-10,
-`--bg`/`--surface`/`--crit`/`--warn`/`--ok`/`--info`/`--ai` families, IBM Plex
-Sans/Sans Thai/Mono, 4px spacing base, 3/4/6/8/10px radii). This document
-introduces no new token values — every element above is styled from the
-existing set.
+`design_handoff_aiops_command_center/README.md` (delivered 2026-09-10). The
+handoff's token *values* are unchanged by this document — the "Token gap"
+table under Phase 2 above is the authoritative name mapping from handoff
+token to the actual (or newly added) project CSS variable; use that table,
+not the handoff README's names directly, when implementing.
 
 ## Divergence carried forward (unchanged by this document)
 
@@ -194,6 +276,21 @@ still open and not resolved here:
 - `AiProviderPanel` and the Sprint 17 audit store's provider-level governance
   (fallback order, request auditing) — kept as-is, no mockup/spec equivalent
   needed.
+
+## Backlog (not implemented by this document or its plan)
+
+- **Priority on the Incident domain entity.** `Incident` (`ui/contracts/ipc.ts:1081`)
+  has no `priority` field; only the dashboard-level `IncidentQueueItem` does.
+  Adding it (Rust domain type, migration, IPC contract, then the Section-1
+  display this document originally proposed for the detail view) is a
+  backend task for a future sprint, not UI-only work.
+- **Sections 2, 3, 4** (AI disclosure, action risk/execution pills, redaction
+  line) — blocked on Sprint 18/19/22 backend, as stated throughout.
+- **Section 5 / Evidence Tide Line** — blocked on the Sprint 19
+  `IncidentNarrative` rewrite already noted in that component's own code
+  comment.
+- **Kanban/board mode** for the incident list — no existing concept, not
+  requested by any current requirement.
 
 ## Follow-up documentation corrections (out of this document, tracked here)
 
@@ -220,10 +317,13 @@ Phase 1 shell code already exist) and are not made by this document itself.
 
 ## Testing
 
-- Visual/interaction: each of the five reconciled elements gets a
-  presence/absence check (e.g., redaction line absent at N=0, present at N>0)
-  in the relevant view's existing test file (`shell.test.tsx`,
-  `TopologyWorkspace.test.tsx`, `ChangeTimeline.test.tsx` pattern already in
-  use).
-- No new IPC contract to test in this document's scope — Section 2's fields
-  are Sprint 18/19 work.
+- **Phase 2 (buildable now):** no new assertions — the existing test files
+  for the six restyled components (`IncidentList.test.tsx`,
+  `IncidentSummaryCard.test.tsx`, `IncidentTabs.test.tsx`,
+  `IncidentEvidencePanel.test.tsx`, `IncidentCommentThread.test.tsx`,
+  `IncidentActions.test.tsx`, `IncidentWorkspace.test.tsx`) must keep passing
+  unmodified, since this is a token-only restyle with no markup or behavior
+  change. Verify visually with a Vite dev server + Browser pane screenshot,
+  same as Phase 1.
+- **Sections 2/3/4 and the Tide Line:** no tests to write yet — there is no
+  component or contract for them until Sprint 18/19/22.
