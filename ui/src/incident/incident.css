@@ -8,7 +8,7 @@
 }
 
 .incident-workspace__header {
-  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-1);
 }
 
@@ -47,14 +47,14 @@
   flex-direction: column;
   gap: 0.25rem;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-1, 4px);
   cursor: pointer;
 }
 
 .incident-queue__row--selected {
   border-color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-sea-glass) 12%, transparent);
+  background: var(--color-deep-water-3);
 }
 
 .incident-queue__row:focus-visible {
@@ -86,7 +86,8 @@
 }
 
 .incident-summary-card {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-1, 4px);
   display: flex;
   flex-direction: column;
@@ -161,7 +162,8 @@
 }
 
 .incident-evidence__entry {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-1, 4px);
   padding: var(--space-1);
   display: flex;
@@ -230,7 +232,8 @@
 }
 
 .incident-comments__entry {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-1, 4px);
   padding: var(--space-1);
 }
@@ -285,7 +288,7 @@
 }
 
 .incident-actions {
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -316,7 +319,8 @@
 }
 
 .incident-actions__principal {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water-2);
+  border: 1px solid var(--color-border);
   display: grid;
   gap: var(--space-1);
   grid-template-columns: minmax(8rem, 0.8fr) minmax(12rem, 1fr);
@@ -337,7 +341,8 @@
 }
 
 .incident-actions__form {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  background: var(--color-deep-water-2);
+  border: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
