@@ -11,6 +11,22 @@
   --color-kelp: #50d18c;
   --color-amber: #e4b65a;
   --color-coral: #ff6b6b;
+  /* Added in Phase 2 (docs/superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md,
+     "Token gap" table) — fills the gap between the 13 tokens Phase 1 ported
+     and the ~25 the Claude Design handoff defines. --color-fog was already
+     referenced 12 times in incident.css with no definition; this is that
+     fix, not new usage. */
+  --color-fog: #9aa7b4;
+  --color-mist: #7a8794;
+  --color-deep-water-2: #1b232e;
+  --color-deep-water-3: #212b38;
+  --color-border: #2a3542;
+  --color-border-strong: #3a4757;
+  --color-violet: #b18cf0;
+  --color-violet-bg: #1f1830;
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.45);
+  --color-nav-fg: #f7f8f8;
+  --color-nav-sub: #96a3b0;
   --font-ui: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --space-1: 0.5rem;
