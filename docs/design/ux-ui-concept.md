@@ -1,7 +1,22 @@
 # ThalassaOps UX/UI Concept — Operations Console
 
-**Status:** Concept for requirement validation  
-**Updated:** 2026-08-24
+**Status: Superseded for visual language and navigation.** As of
+2026-09-10 the palette, typography, shell layout and view structure are
+defined by [`docs/design/aiops-command-center.md`](aiops-command-center.md),
+sourced from the imported Claude Design project
+`e51ce2dd-9138-45bb-8bab-70d2c5b6de50`.
+
+This document's governance rules still stand. On 2026-09-10 they were
+dropped along with the visuals — the severity/priority split, the AI
+evidence/confidence/budget disclosure contract, the terminal
+risk-classification labels, redaction disclosure and the Evidence Tide
+Line. That decision was reversed on 2026-09-11: each rule is kept and
+re-expressed inside the new visual system by
+[`docs/superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md`](../superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md).
+Read that document, not the visual sections below, for how each rule
+renders.
+
+**Updated:** 2026-09-15
 
 ## Design thesis
 
@@ -151,18 +166,35 @@ Every command shown by ThalassaOps should display its risk classification: `READ
 
 ### Palette
 
-- Abyss `#071A2B` — main application background
-- Deep Water `#0E2C3D` — panels and navigation
-- Sea Glass `#DCEFF0` — primary text and surfaces
-- Reef Cyan `#53D7E8` — focus, active links and telemetry
-- Kelp `#50D18C` — healthy and verified
-- Amber `#E4B65A` — warning and approval pending
-- Coral `#FF6B6B` — critical impact and blocked action
+Superseded 2026-09-10, for visual language only, by the AIOps Command
+Center visual system (dark theme only — the mockup's light theme was not adopted). Token names keep
+their ocean-identity meaning; only the hex values changed, so every
+existing component reskinned automatically.
+
+- Abyss `#0C1116` — main application background
+- Nav `#000716` — top bar (darker than content, distinct from panels)
+- Deep Water `#161D26` — panels, cards and sidebar
+- Sea Glass `#F2F3F3` — primary text and surfaces
+- Reef Cyan `#FF9900` — brand accent, focus and active nav state
+- Info `#539FE5` — informational status (kept separate from Reef Cyan so
+  S5/informational doesn't collide visually with Amber warnings)
+- Kelp `#5DD47A` — healthy and verified
+- Amber `#F0B429` — warning and approval pending
+- Coral `#FF7C70` — critical impact and blocked action
+
+Status indicators render as tinted pills (background + text in the same
+tone) rather than text-only color, reinforcing rather than replacing the
+existing symbol-plus-label pattern — color is still never the only signal.
 
 ### Typography
 
-- UI and headings: Manrope
-- Telemetry, identifiers and commands: IBM Plex Mono
+Superseded 2026-09-10, for visual language only.
+
+- UI and headings: IBM Plex Sans, with IBM Plex Sans Thai as the
+  per-glyph fallback for Thai text (both self-hosted via `@fontsource`,
+  not a runtime Google Fonts dependency — the app's CSP is
+  `default-src 'self'`).
+- Telemetry, identifiers and commands: IBM Plex Mono (unchanged).
 - Avoid all-caps for long labels; use sentence case and short operational verbs.
 
 ### Signature element
