@@ -85,8 +85,10 @@ exporting a file, running a remediation or asking an assistant.
 
 ### 3.2 Excluded
 
-- the Evidence Tide Line. It is the product's signature visual
-  (`docs/design/ux-ui-concept.md`, line 170) but is not a Sprint 16 deliverable,
+- the Evidence Tide Line. It is the product's signature visual (originally
+  `ux-ui-concept.md`, since removed; now `aiops-command-center.md` "Design
+  principles" and the governance reconciliation design, Section 5) but is not
+  a Sprint 16 deliverable,
   and adding it here would consume unbudgeted time.
 - attaching further signals or evidence to an existing incident. No public
   attach operation exists in the aggregate today, and adding one is a new domain

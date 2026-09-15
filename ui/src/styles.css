@@ -11,7 +11,7 @@
 @import "@fontsource/ibm-plex-mono/600.css";
 
 :root {
-  /* AIOps Command Center visual system — see docs/design/ux-ui-concept.md */
+  /* AIOps Command Center visual system — see docs/design/aiops-command-center.md */
   --color-abyss: #0c1116;
   --color-nav: #000716;
   --color-deep-water: #161d26;

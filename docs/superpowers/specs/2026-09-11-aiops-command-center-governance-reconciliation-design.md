@@ -18,7 +18,8 @@ of the spec it's following.
 This document amends `docs/design/aiops-command-center.md`, the UX/UI spec
 produced from a Claude Design mockup (handoff bundle: `AIOps Command Center.dc.html`
 + `README.md`, delivered 2026-09-10). That spec replaced the product's original
-UX/UI concept (`docs/design/ux-ui-concept.md`) with the mockup's visual system
+UX/UI concept (`docs/design/ux-ui-concept.md`, removed 2026-09-15 — its
+surviving principles are in the spec's "Design principles") with the mockup's visual system
 (IBM Plex Sans/Mono, orange-accent enterprise-console palette) and, per an
 earlier decision recorded in
 `docs/superpowers/plans/2026-09-10-aiops-command-center-spec-deprecation.md`,
@@ -293,6 +294,10 @@ still open and not resolved here:
   requested by any current requirement.
 
 ## Follow-up documentation corrections (out of this document, tracked here)
+
+**Done 2026-09-15.** All three corrections below were made. `ux-ui-concept.md`
+was afterwards removed outright, with its surviving principles moved into
+`aiops-command-center.md`.
 
 Three documents from the 2026-09-10 session need a short correction note (not
 a rewrite) once this design is approved, since their "drop the governance

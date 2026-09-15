@@ -561,7 +561,8 @@ plumbing it saves. Section 13.6 is the resulting contract.
    **Settled 2026-09-06.** Mount both. The provider surface goes into the
    existing `integrations` area rather than a new `Area` member, because section
    12 places it in "the existing connector/model status area" and the nav tree in
-   `ux-ui-concept.md` has no separate AI-admin area. The incident workspace takes
+   `ux-ui-concept.md` (since removed; the current tree is in
+   `aiops-command-center.md`) has no separate AI-admin area. The incident workspace takes
    over the `"incidents"` entry that renders `EmptyState` today. Plan Task 14.
 
 10. **Nothing writes to the audit store.** Task 5 built `AiRequestStore` and

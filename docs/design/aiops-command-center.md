@@ -21,14 +21,35 @@ change explicitly rather than leaving it implicit.
 
 ## Provenance and what this replaces
 
-`docs/design/ux-ui-concept.md` is superseded by this document for visual
-language and navigation. Its governance rules were dropped here on
-2026-09-10 and reinstated on 2026-09-11; they now live in the governance
-reconciliation design, expressed in this visual system. The old file is
-kept because several sprint-plan docs cite it by line number. Visual and
-layout changes happen in this document; governance changes happen in the
-reconciliation design. Any change to shipped UI follows the
+This document replaces `docs/design/ux-ui-concept.md` (2026-08-24), which
+was removed on 2026-09-15 and remains in git history. Its governance rules
+were dropped here on 2026-09-10 and reinstated on 2026-09-11; they live in
+the governance reconciliation design, expressed in this visual system. The
+principles it held that had no other home are carried in
+[Design principles](#design-principles) below. Visual and layout changes
+happen in this document; governance changes happen in the reconciliation
+design. Any change to shipped UI follows the
 [UX/UI change playbook](ux-ui-change-playbook.md).
+
+## Design principles
+
+Carried over from the original UX/UI concept, and binding on every view
+below:
+
+- **Answer three questions, in order:** what is affected right now, what
+  evidence explains it, and what can safely be done next. Impact and
+  severity come before infrastructure detail; Home is for triage, not deep
+  analysis.
+- **An AI finding without an evidence link is incomplete.** It is not
+  presented as a root-cause conclusion, and missing or contradictory
+  evidence is stated rather than filled in.
+- **Read-only investigation stays visually separate from mutation**, and an
+  approval shows its confirmation and expected impact before it is given.
+- **Expert escape hatches stay available:** raw queries and native-tool
+  links are never hidden.
+- **The Evidence Tide Line is the signature element:** a thin, calm
+  timeline showing how signals, changes, hypotheses and actions move
+  through an incident. Its rendering is reconciliation design Section 5.
 
 ## Navigation and information architecture
 

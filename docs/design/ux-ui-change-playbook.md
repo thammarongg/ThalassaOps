@@ -130,8 +130,9 @@ A change that breaks one of these is Class C by definition.
   verification to run. The 2026-09-10 visual-rebrand plan is the model.
 - **Class C:** a design document in `docs/superpowers/specs/` and the user's
   approval before any code, exactly as for a sprint.
-- A rejected direction is **parked on a branch, not deleted.** The
-  `visual-system-pass-pilot` branch is the example.
+- A rejected direction is **archived, not lost:** tag its last commit under
+  `archive/` before deleting its branch. `archive/visual-system-pass-pilot`
+  is the example.
 
 ## Step 5 — Build on one branch
 
@@ -160,7 +161,7 @@ Then the checks the suite cannot make:
   must reach WCAG AA — 4.5:1 for text, 3:1 for large text and UI boundaries —
   including hover and selected states. Compute the ratios; jsdom does not.
 - **Screenshots** of every screen the change touches, in English and Thai,
-  reviewed by the user. Use the preview harness (see Readiness gaps) or
+  reviewed by the user. Use the preview harness (`npm run dev:preview`) or
   `npm run tauri:dev`. With no connectors configured, empty states are
   correct, not a defect.
 - **Keyboard and motion.** `⌘K` opens the palette, `Escape` closes overlays,
@@ -192,11 +193,10 @@ round.
 
 These make future changes safer. None is urgent; each is small.
 
-1. **Preview harness.** `ui/dev.html`, `ui/src/dev/preview.tsx` and
-   `ui/src/dev/operations-fixture.ts`, plus the `dev:preview` npm script,
-   exist only on `visual-system-pass-pilot`. They depend only on `Shell` and
-   `styles.css`, not on that branch's palette, so they can be brought over
-   without its fonts. They give screenshots without Tauri.
+1. **Preview harness — done 2026-09-15.** `npm run dev:preview` serves
+   `ui/dev.html`, which renders the real `Shell` against
+   `ui/src/dev/operations-fixture.ts` without Tauri. Use it for screenshots;
+   judge correctness against the backend, never against the harness.
 2. **Raw colours outside tokens.**
    - `ui/src/observability/MetricsPanel.tsx:177` uses an inline
      `background: "#f5f5f5"` for the selected-alert context box. On the dark
