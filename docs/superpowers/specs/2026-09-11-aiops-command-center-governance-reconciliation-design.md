@@ -259,7 +259,7 @@ newly added) project variable, so an implementer never has to guess:
 ## Design tokens
 
 Colors, type scale, spacing, radii and fixed dimensions are as specified in
-`design_handoff_aiops_command_center/README.md` (delivered 2026-09-10). The
+[`docs/design/aiops-command-center-handoff.md`](../../design/aiops-command-center-handoff.md) (delivered 2026-09-10). The
 handoff's token *values* are unchanged by this document — the "Token gap"
 table under Phase 2 above is the authoritative name mapping from handoff
 token to the actual (or newly added) project CSS variable; use that table,

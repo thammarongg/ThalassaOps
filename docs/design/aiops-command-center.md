@@ -1,6 +1,12 @@
 # ThalassaOps UX/UI Spec — AIOps Command Center
 
-**Status:** Authoritative UX/UI spec — replaces `ux-ui-concept.md` in full
+**Status:** Authoritative UX/UI spec for visual language, navigation and
+view layout. Governance rules (severity/priority, AI disclosure, action
+risk, redaction, Evidence Tide Line) are specified by the
+[governance reconciliation design](../superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md)
+and apply to every view below, including where a view description does
+not repeat them.
+**Amended:** 2026-09-15 — view sections aligned with the 2026-09-11 reversal
 **Source:** Claude Design project `e51ce2dd-9138-45bb-8bab-70d2c5b6de50`,
 file `AIOps Command Center.dc.html` (imported via the `claude_design` MCP)
 **Adopted:** 2026-09-10, by explicit user decision (see
@@ -15,10 +21,13 @@ change explicitly rather than leaving it implicit.
 
 ## Provenance and what this replaces
 
-`docs/design/ux-ui-concept.md` is deprecated as of this document. It is
-kept in the repository for history — several sprint-plan docs cite it by
-line number — but no longer describes what gets built. Any future spec
-change happens in this document.
+`docs/design/ux-ui-concept.md` is superseded by this document for visual
+language and navigation. Its governance rules were dropped here on
+2026-09-10 and reinstated on 2026-09-11; they now live in the governance
+reconciliation design, expressed in this visual system. The old file is
+kept because several sprint-plan docs cite it by line number. Visual and
+layout changes happen in this document; governance changes happen in the
+reconciliation design.
 
 ## Navigation and information architecture
 
@@ -31,14 +40,18 @@ Four sidebar groups, eleven views:
 | Automate | Runbooks, Agents |
 | Govern | Reports, Settings |
 
-This four-group structure was already adopted in the shell (Phase 1,
-2026-09-10) as a reasonable, non-conflicting evolution of the old spec's
-flat list; this document makes it the spec of record instead of an
-unwritten addition. `Area` ids in `ui/src/shell.tsx` map to these views
-one-to-one except: `commandCenter`→Home, `incidents`→Incidents (list) +
-an Incident detail view reached by opening a row. `correlation`,
-`changes`, `vulnerability`, `environments`, `integrations`, `policies`,
-`audit` are current-product concepts with no mockup equivalent — see
+The four groups are the spec of record. The shell shipped on 2026-09-10
+uses the same groups but fills them with the twelve existing `Area` ids
+in `ui/src/shell.tsx`, not these eleven views:
+
+| Group | Shipped `Area` ids |
+|---|---|
+| Operate | `commandCenter` (Home), `incidents`, `environments` |
+| Investigate | `observability`, `correlation`, `topology`, `changes`, `vulnerability` |
+| Automate | `automations`, `integrations` |
+| Govern | `policies`, `audit` |
+
+How the two lists converge is recorded under
 [Divergence](#divergence-from-the-current-implementation).
 
 ## Global application shell
@@ -141,11 +154,14 @@ adopted default**. `board` is an open variant.
   Postmortem.
 - **Timeline tab**: a vertical event list — time, colored dot, event
   text, and an optional monospace metadata block per entry (e.g. a diff
-  or a stack trace excerpt).
+  or a stack trace excerpt). Sprint 19 rebuilds this list as the Evidence
+  Tide Line rail — reconciliation design Section 5.
 - **Right column** (three stacked cards):
   1. **Probable cause** — an AI panel with a confidence number, one
      narrative paragraph, and an "ask a follow-up" affordance that opens
-     the AI drawer.
+     the AI drawer. It carries the "Show evidence" disclosure and, when
+     any field was withheld, the redaction line — reconciliation design
+     Sections 2 and 4.
   2. **Blast radius** — a list of affected services with a colored
      health dot and state label.
   3. **Similar past incidents** — id, one-line description, and a
@@ -183,18 +199,23 @@ adopted default**. `board` is an open variant.
 - **Card grid** (auto-fit, ~330px min column): each card has a kind badge
   (`Correlation` / `Anomaly` / `Forecast`, colored + iconized), a
   confidence number, a one-line title, a supporting sentence, and a row
-  of informal tags (e.g. an incident id, a service name — not a
-  structured evidence-source list; see
-  [Product-model changes](#product-model-changes-from-the-old-spec)).
+  of informal tags (e.g. an incident id, a service name).
+- **Show evidence** disclosure at the bottom of every card: evidence
+  references, sources queried, data omitted/redacted, context budget,
+  next step, and read-only vs. mutation status — reconciliation design
+  Section 2. This replaces the 2026-09-10 "informal tags only" model.
 
 ## Runbooks
 
 - **Pending-approval banner** (shown when one exists): title, runbook
   id + related incident id + requester, and two actions — Dry run,
   Approve and run.
-- **Runbook table**: name + step count, a trigger-type badge
-  (`Automatic` / `Needs approval` / `Manual`), 30-day run count, success
-  rate, and last-run time.
+- **Runbook table**: name + step count, a risk-class pill
+  (`READ-ONLY` / `MUTATING` / `BLOCKED` / `REQUIRES APPROVAL`) and an
+  execution-mode pill (`OBSERVE` / `RECOMMEND` / `APPROVAL` /
+  `POLICY_AUTO`) in place of the mockup's trigger-type badge
+  (reconciliation design Section 3), 30-day run count, success rate, and
+  last-run time.
 
 ## Agents
 
@@ -227,7 +248,10 @@ adopted default**. `board` is an open variant.
 
 See `docs/superpowers/plans/2026-09-10-aiops-command-center-visual-rebrand.md`
 for the palette/typography decision and mechanism (a 7-token CSS variable
-substitution) — not duplicated here. Summary: IBM Plex Sans/Sans Thai +
+substitution) — not duplicated here. Exact token values, type scale,
+spacing, radii and fixed dimensions come from the design handoff,
+committed as [`aiops-command-center-handoff.md`](aiops-command-center-handoff.md).
+Summary: IBM Plex Sans/Sans Thai +
 IBM Plex Mono, dark-only, orange (`#ff9900`) brand accent, tinted-pill
 status indicators.
 
@@ -260,16 +284,16 @@ one value per axis as the product default and marks the rest open:
 - Read-only views (Metrics, Logs, Topology, Reports, Settings) contain no
   mutating actions. Mutating actions (Acknowledge, Run rollback,
   Approve and run, connector enable/disable) are visually distinct button
-  styles (filled accent vs. outlined) but do not carry the old spec's
-  formal `READ-ONLY`/`MUTATING`/`BLOCKED`/`REQUIRES APPROVAL` label —
-  see [Product-model changes](#product-model-changes-from-the-old-spec).
+  styles (filled accent vs. outlined), and every action or command
+  surface also carries its risk-class and execution-mode pills —
+  reconciliation design Section 3.
 
 ## Product-model changes from the old spec
 
 `ux-ui-concept.md` treated several things as hard product rules that this
-mockup does not encode. Per explicit user decision on 2026-09-10, this
-spec drops them rather than layering them onto the mockup's simpler
-model:
+mockup does not encode. On 2026-09-10 this spec dropped them. On
+2026-09-11 every one was reinstated. Each bullet below keeps the original
+decision for history and ends with the reversal that stands today:
 
 - **Severity/priority split dropped.** The old spec required severity
   (`S1–S5`, business impact) and derived priority (`P1–P5`, operational)
@@ -326,14 +350,26 @@ behavior. The following are known gaps between this spec and
 `crates/`/`ui/contracts/ipc.ts` as of 2026-09-10, listed so they are
 reconciled deliberately rather than discovered mid-implementation:
 
+- Navigation: the mockup's views and the shipped areas overlap in
+  Home/`commandCenter`, Incidents/`incidents` and Topology/`topology`.
+  Metrics and Logs correspond to what `observability` already covers
+  (Sprints 8–9), Runbooks to `automations`, and Settings' integrations
+  panel to `integrations`. Alerts, AI insights, Agents and Reports have
+  no shipped area. `environments`, `correlation`, `changes`,
+  `vulnerability`, `policies` and `audit` have no mockup view and stay.
+  Each new view is added only when the sprint that produces its data
+  lands — AI insights with Sprint 19, Runbooks with Sprint 22, Reports
+  with Sprint 26 — not ahead of its backend.
 - `ConsoleSeverity`/`Severity` types are `s1`–`s5` throughout
   `ui/contracts/ipc.ts`, `ui/src/design-system/components.tsx`
   (`severityTone`), and both locale files (`severity.s1`…`severity.s5`).
-  This spec's `SEV1–3` model requires either a mapping layer or a
-  contract change — not decided here.
+  With the severity/priority split reinstated, the scale stays `S1–S5`
+  as set by `docs/policies/operational-policy-baseline.md`; the mockup's
+  `SEV1`–`SEV3` badges are sample data, not a narrower scale, so no
+  mapping layer or contract change is needed.
 - `IncidentQueueItem.priority` and the domain's derived-priority handling
-  exist in the Rust incident domain (Sprint 15/16) and are now spec-less
-  per the dropped severity/priority split.
+  exist in the Rust incident domain (Sprint 15/16) and are specified
+  again by the reinstated severity/priority split.
 - `CriticalNumberLink` (`OperationsConsole`) hard-requires an
   `evidence_ids` list before rendering a number as a clickable
   drill-down, and the evidence panel shows redaction/parse-state per
@@ -354,8 +390,8 @@ reconciled deliberately rather than discovered mid-implementation:
 - `docs/planning/sprint-plan.md` Sprints 18 (context optimization and
   redaction), 19 (read-only AI investigation), 20 (Policy Center), 21
   (approval and action framework), and 22 (terminal and runbook
-  workflows) were scoped against the old spec's governance model. They
-  need reconciliation against this document before implementation —
-  **this is a separate approval gate**, following the same design→
-  approval→plan pattern every prior sprint used. Not done as part of
-  this document.
+  workflows) were scoped against the old spec's governance model. With
+  that model reinstated, their deliverables stand unchanged, and the UI
+  surfaces they produce are specified by the reconciliation design. Each
+  sprint still needs its own design document and approval before
+  implementation, as every prior sprint did.
