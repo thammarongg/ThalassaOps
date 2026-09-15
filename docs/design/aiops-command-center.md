@@ -27,7 +27,8 @@ language and navigation. Its governance rules were dropped here on
 reconciliation design, expressed in this visual system. The old file is
 kept because several sprint-plan docs cite it by line number. Visual and
 layout changes happen in this document; governance changes happen in the
-reconciliation design.
+reconciliation design. Any change to shipped UI follows the
+[UX/UI change playbook](ux-ui-change-playbook.md).
 
 ## Navigation and information architecture
 
