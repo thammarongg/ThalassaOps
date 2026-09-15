@@ -693,8 +693,7 @@ fn resolve_report(
         observed_at.to_rfc3339().as_bytes(),
         summary.as_bytes(),
     ]);
-    let short = &digest[..16];
-    let source_id = format!("{}-{short}", source_kind_wire(kind).replace('_', "-"));
+    let source_id = report_source_id(kind, &digest);
     let evidence_id: ConsoleEvidenceId = format!("evidence-{source_id}");
 
     Ok(ResolvedIncidentTrigger {
@@ -707,6 +706,18 @@ fn resolve_report(
         evidence_ids: vec![evidence_id],
         report: Some(report),
     })
+}
+
+/// A report's source identifier: the report kind, then `h` and a
+/// sixteen-character slice of the report digest.  The letter keeps a slice
+/// that happens to be all digits from standing alone as a twelve-plus digit
+/// run, which the account-id screen rejects as a cloud account identifier.
+fn report_source_id(kind: IncidentSourceKind, digest: &str) -> String {
+    format!(
+        "{}-h{}",
+        source_kind_wire(kind).replace('_', "-"),
+        &digest[..16]
+    )
 }
 
 /// Deterministic trigger identity: the same request resolving the same source
@@ -744,5 +755,33 @@ fn source_kind_wire(kind: IncidentSourceKind) -> &'static str {
         IncidentSourceKind::ScheduledHealthCheck => "scheduled_health_check",
         IncidentSourceKind::VulnerabilityFinding => "vulnerability_finding",
         IncidentSourceKind::ManualReport => "manual_report",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{report_source_id, validate_incident_text, IncidentSourceKind};
+
+    #[test]
+    fn a_report_source_id_is_never_read_as_an_account_id() {
+        // Sixteen hex characters are all digits about one time in two thousand.
+        // A bare run like that is what the account-id screen rejects, so a
+        // report created from such a digest used to fail as unsafe content.
+        let all_digit_digest = "1234567890123456".repeat(4);
+        for kind in [
+            IncidentSourceKind::ManualReport,
+            IncidentSourceKind::UserReport,
+        ] {
+            let source_id = report_source_id(kind, &all_digit_digest);
+            assert!(
+                validate_incident_text(&source_id, 256).is_ok(),
+                "{source_id}"
+            );
+            let evidence_id = format!("evidence-{source_id}");
+            assert!(
+                validate_incident_text(&evidence_id, 256).is_ok(),
+                "{evidence_id}"
+            );
+        }
     }
 }

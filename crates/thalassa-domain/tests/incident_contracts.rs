@@ -481,10 +481,13 @@ fn account_id_screening_flags_standalone_runs_and_not_digest_interiors() {
         );
     }
 
-    // The residual false positive: a digest slice that is *all* digits is a
-    // standalone token and is still rejected.  Sixteen hex characters land
-    // there about one time in two thousand.
+    // A bare all-digit run is a standalone token and is still rejected.  That is
+    // why a report source identifier marks the start of its digest slice with a
+    // letter: an all-digit slice then touches that letter and is accepted.
     assert!(
         thalassa_domain::validate_incident_text("manual-report-1234567890123456", 4_000).is_err()
+    );
+    assert!(
+        thalassa_domain::validate_incident_text("manual-report-h1234567890123456", 4_000).is_ok()
     );
 }
