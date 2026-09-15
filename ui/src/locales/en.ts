@@ -79,7 +79,18 @@ const en = {
     externalTerminalUnavailable: "External terminal handoff is not yet available.",
     terminalUnavailable: "Embedded terminal is not yet available.",
     routeUnavailable: "This product area is not yet available.",
-    close: "Close"
+    close: "Close",
+    groups: {
+      operate: "Operate",
+      investigate: "Investigate",
+      automate: "Automate",
+      govern: "Govern"
+    },
+    collapseSidebar: "Collapse navigation",
+    expandSidebar: "Expand navigation",
+    language: "Language",
+    switchToThai: "Switch to Thai",
+    switchToEnglish: "Switch to English"
   },
   integrations: {
     loading: "Loading integrations…",

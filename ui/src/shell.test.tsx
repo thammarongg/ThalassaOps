@@ -1419,3 +1419,34 @@ it("shows three cloud environments with provider boundaries and keeps healthy on
   expect(screen.getByText(/az login/)).toBeInTheDocument();
   expect(screen.queryByText("prod-aks")).not.toBeInTheDocument();
 });
+
+it("collapses and expands the sidebar navigation while keeping area buttons reachable by name", async () => {
+  const user = userEvent.setup();
+  render(
+    <I18nProvider>
+      <Shell invoke={vi.fn().mockResolvedValue({ ok: true, value: context })} />
+    </I18nProvider>
+  );
+
+  expect(screen.getByRole("button", { name: "Incidents" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Collapse navigation" }));
+  expect(screen.getByRole("button", { name: "Incidents" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Incidents" }));
+  expect(screen.getByRole("heading", { name: "Incidents" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Expand navigation" }));
+  expect(screen.getByRole("button", { name: "Incidents" })).toBeInTheDocument();
+});
+
+it("switches the interface language from the top bar", async () => {
+  const user = userEvent.setup();
+  render(
+    <I18nProvider>
+      <Shell invoke={vi.fn().mockResolvedValue({ ok: true, value: context })} />
+    </I18nProvider>
+  );
+
+  await user.click(screen.getByRole("button", { name: "Switch to Thai" }));
+  expect(screen.getByRole("button", { name: "เหตุการณ์" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "เปลี่ยนเป็นภาษาอังกฤษ" }));
+  expect(screen.getByRole("button", { name: "Incidents" })).toBeInTheDocument();
+});

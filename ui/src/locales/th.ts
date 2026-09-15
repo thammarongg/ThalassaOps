@@ -79,7 +79,18 @@ const th = {
     externalTerminalUnavailable: "การส่งต่อไปยังเทอร์มินัลภายนอกยังไม่พร้อมใช้งาน",
     terminalUnavailable: "เทอร์มินัลแบบฝังยังไม่พร้อมใช้งาน",
     routeUnavailable: "พื้นที่ผลิตภัณฑ์นี้ยังไม่พร้อมใช้งาน",
-    close: "ปิด"
+    close: "ปิด",
+    groups: {
+      operate: "ปฏิบัติการ",
+      investigate: "ตรวจสอบ",
+      automate: "ระบบอัตโนมัติ",
+      govern: "กำกับดูแล"
+    },
+    collapseSidebar: "ย่อเมนูนำทาง",
+    expandSidebar: "ขยายเมนูนำทาง",
+    language: "ภาษา",
+    switchToThai: "เปลี่ยนเป็นภาษาไทย",
+    switchToEnglish: "เปลี่ยนเป็นภาษาอังกฤษ"
   },
   integrations: {
     loading: "กำลังโหลดการเชื่อมต่อ…",

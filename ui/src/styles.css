@@ -1,17 +1,47 @@
-@import "@fontsource/manrope/400.css";
-@import "@fontsource/manrope/600.css";
-@import "@fontsource/manrope/700.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-sans-thai/400.css";
+@import "@fontsource/ibm-plex-sans-thai/500.css";
+@import "@fontsource/ibm-plex-sans-thai/600.css";
+@import "@fontsource/ibm-plex-sans-thai/700.css";
 @import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
 :root {
-  --color-abyss: #071a2b;
-  --color-deep-water: #0e2c3d;
-  --color-sea-glass: #dceff0;
-  --color-reef-cyan: #53d7e8;
-  --color-kelp: #50d18c;
-  --color-amber: #e4b65a;
-  --color-coral: #ff6b6b;
-  --font-ui: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* AIOps Command Center visual system — see docs/design/ux-ui-concept.md */
+  --color-abyss: #0c1116;
+  --color-nav: #000716;
+  --color-deep-water: #161d26;
+  --color-sea-glass: #f2f3f3;
+  --color-reef-cyan: #ff9900;
+  --color-info: #539fe5;
+  --color-kelp: #5dd47a;
+  --color-amber: #f0b429;
+  --color-coral: #ff7c70;
+  --color-kelp-bg: #12241a;
+  --color-amber-bg: #2a2113;
+  --color-coral-bg: #2a1614;
+  --color-info-bg: #12212f;
+  /* Added in Phase 2 (docs/superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md,
+     "Token gap" table) — fills the gap between the 13 tokens Phase 1 ported
+     and the ~25 the Claude Design handoff defines. --color-fog was already
+     referenced 12 times in incident.css with no definition; this is that
+     fix, not new usage. */
+  --color-fog: #9aa7b4;
+  --color-mist: #7a8794;
+  --color-deep-water-2: #1b232e;
+  --color-deep-water-3: #212b38;
+  --color-border: #2a3542;
+  --color-border-strong: #3a4757;
+  --color-violet: #b18cf0;
+  --color-violet-bg: #1f1830;
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.45);
+  --color-nav-fg: #f7f8f8;
+  --color-nav-sub: #96a3b0;
+  --font-ui: "IBM Plex Sans", "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --space-1: 0.5rem;
   --space-2: 1rem;
@@ -56,7 +86,7 @@ input {
   gap: var(--space-2);
   padding: var(--space-2);
   border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
-  background: var(--color-deep-water);
+  background: var(--color-nav);
 }
 .shell-header strong {
   color: var(--color-reef-cyan);
@@ -77,14 +107,57 @@ input {
   flex: 1;
   overflow: auto;
 }
+.shell-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+}
+.shell-icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.shell-icon-button--square {
+  padding: 0.4rem;
+}
+.shell-icon-button svg {
+  flex: none;
+  color: var(--color-sea-glass);
+}
 .shell > aside {
   padding: var(--space-2);
   background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+}
+.shell-sidebar {
+  position: relative;
+}
+.shell-sidebar-toggle {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-bottom: var(--space-2);
+  padding: 0 !important;
 }
 .shell nav {
   display: grid;
   gap: 0.35rem;
   margin-bottom: var(--space-2);
+}
+.shell-nav-group {
+  display: grid;
+  gap: 0.2rem;
+}
+.shell-nav-group__label {
+  margin: 0.4rem 0 0.15rem;
+  padding: 0 0.3rem;
+  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .nav-row {
   display: grid;
@@ -97,6 +170,29 @@ input {
 .nav-row [aria-current="page"] {
   color: var(--color-abyss);
   background: var(--color-reef-cyan);
+}
+.shell-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+}
+.shell-nav-item__icon {
+  flex: none;
+  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+}
+.shell-nav-item[aria-current="page"] .shell-nav-item__icon {
+  color: var(--color-abyss);
+}
+.shell-nav-item__favorite {
+  padding: 0.3rem 0.4rem !important;
+}
+.shell-sidebar--collapsed .shell-nav-item {
+  justify-content: center;
+}
+.shell-sidebar--collapsed .shell-nav-group__label {
+  display: none;
 }
 .shell-main {
   padding: clamp(1rem, 4vw, 3rem);
@@ -185,6 +281,8 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  padding: 0.05rem 0.5rem 0.05rem 0.4rem;
+  border-radius: 3px;
   font-weight: 700;
 }
 .indicator > span:first-child {
@@ -193,20 +291,25 @@ h2 {
 }
 .indicator--healthy {
   color: var(--color-kelp);
+  background: var(--color-kelp-bg);
 }
 .indicator--informational {
-  color: var(--color-reef-cyan);
+  color: var(--color-info);
+  background: var(--color-info-bg);
 }
 .indicator--degraded,
 .indicator--warning {
   color: var(--color-amber);
+  background: var(--color-amber-bg);
 }
 .indicator--unavailable,
 .indicator--critical {
   color: var(--color-coral);
+  background: var(--color-coral-bg);
 }
 .indicator--unknown {
   color: var(--color-sea-glass);
+  background: transparent;
 }
 .empty-state {
   display: grid;
