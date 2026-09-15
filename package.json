@@ -13,7 +13,8 @@
     "format": "prettier --write package.json tsconfig.json tsconfig.app.json vite.config.ts eslint.config.js .prettierrc.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json ui/index.html ui/src .github/workflows/ci.yml README.md",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build --bundles app && codesign --force --deep --sign - target/release/bundle/macos/ThalassaOps.app"
+    "tauri:build": "tauri build --bundles app && codesign --force --deep --sign - target/release/bundle/macos/ThalassaOps.app",
+    "dev:preview": "vite --port 1421 --strictPort"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
