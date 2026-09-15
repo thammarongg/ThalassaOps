@@ -20,7 +20,26 @@ import {
   StatusIndicator,
   Table
 } from "./design-system/components";
-import { useTranslation } from "./i18n";
+import {
+  AuditIcon,
+  AutomationsIcon,
+  BellIcon,
+  ChangesIcon,
+  ChevronIcon,
+  CorrelationIcon,
+  EnvironmentIcon,
+  HomeIcon,
+  IncidentIcon,
+  IntegrationsIcon,
+  LanguageIcon,
+  ObservabilityIcon,
+  PoliciesIcon,
+  SearchIcon,
+  TerminalIcon,
+  TopologyIcon,
+  VulnerabilityIcon
+} from "./design-system/icons";
+import { i18n, useTranslation } from "./i18n";
 import { EnvironmentWorkspace } from "./EnvironmentWorkspace";
 import { ObservabilityWorkspace } from "./ObservabilityWorkspace";
 import { OperationsConsole } from "./OperationsConsole";
@@ -56,6 +75,28 @@ const areas: Area[] = [
   "policies",
   "audit"
 ];
+type AreaGroup = "operate" | "investigate" | "automate" | "govern";
+const groupOrder: AreaGroup[] = ["operate", "investigate", "automate", "govern"];
+const areasByGroup: Record<AreaGroup, Area[]> = {
+  operate: ["commandCenter", "incidents", "environments"],
+  investigate: ["observability", "correlation", "topology", "changes", "vulnerability"],
+  automate: ["automations", "integrations"],
+  govern: ["policies", "audit"]
+};
+const areaIcons: Record<Area, (props: { className?: string }) => JSX.Element> = {
+  commandCenter: HomeIcon,
+  incidents: IncidentIcon,
+  environments: EnvironmentIcon,
+  observability: ObservabilityIcon,
+  correlation: CorrelationIcon,
+  topology: TopologyIcon,
+  changes: ChangesIcon,
+  vulnerability: VulnerabilityIcon,
+  automations: AutomationsIcon,
+  integrations: IntegrationsIcon,
+  policies: PoliciesIcon,
+  audit: AuditIcon
+};
 export type ShellNotification = { id: string; titleKey: string; bodyKey: string };
 export const localNotifications: ShellNotification[] = [
   { id: "foundation-demo", titleKey: "shell.notificationTitle", bodyKey: "shell.notificationBody" }
@@ -91,6 +132,10 @@ export function Shell({ invoke }: { invoke: Invoke }) {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [handoffRequested, setHandoffRequested] = useState(false);
   const [topologyIncidentId, setTopologyIncidentId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const toggleLanguage = () => {
+    void i18n.changeLanguage(i18n.language === "th" ? "en" : "th");
+  };
   useEffect(() => {
     let active = true;
     setContextFetchState("loading");
@@ -155,7 +200,7 @@ export function Shell({ invoke }: { invoke: Invoke }) {
   return (
     <div className="shell">
       <header className="shell-header">
-        <strong>{t("shell.productName")}</strong>
+        <strong className="shell-brand">{t("shell.productName")}</strong>
         <div className="switchers">
           <button type="button">
             {t("shell.organization")}: {context?.organization_name ?? contextPlaceholder}
@@ -170,51 +215,111 @@ export function Shell({ invoke }: { invoke: Invoke }) {
             {t("shell.environment")}: {t("shell.noEnvironments")}
           </button>
         </div>
-        <button type="button" onClick={() => setPaletteOpen(true)} aria-label={t("shell.search")}>
-          {t("shell.commandShortcut")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setNotificationsOpen((value) => !value)}
-          aria-label={t("shell.notifications")}
-        >
-          ●
-        </button>
-        <button
-          type="button"
-          onClick={() => setTerminalOpen(true)}
-          aria-label={t("shell.openTerminal")}
-        >
-          ⌘
-        </button>
+        <div className="shell-header-actions">
+          <button
+            type="button"
+            className="shell-icon-button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label={t("shell.search")}
+          >
+            <SearchIcon />
+            <span aria-hidden="true">{t("shell.commandShortcut")}</span>
+          </button>
+          <button
+            type="button"
+            className="shell-icon-button"
+            onClick={toggleLanguage}
+            aria-label={
+              i18n.language === "th" ? t("shell.switchToEnglish") : t("shell.switchToThai")
+            }
+            title={t("shell.language")}
+          >
+            <LanguageIcon />
+            <span aria-hidden="true">{(i18n.language ?? "en").toUpperCase()}</span>
+          </button>
+          <button
+            type="button"
+            className="shell-icon-button shell-icon-button--square"
+            onClick={() => setNotificationsOpen((value) => !value)}
+            aria-label={t("shell.notifications")}
+          >
+            <BellIcon />
+          </button>
+          <button
+            type="button"
+            className="shell-icon-button shell-icon-button--square"
+            onClick={() => setTerminalOpen(true)}
+            aria-label={t("shell.openTerminal")}
+          >
+            <TerminalIcon />
+          </button>
+        </div>
       </header>
-      <aside>
-        <nav aria-label={t("shell.favorites")}>
-          {favorites.map((area) => (
-            <button key={area} type="button" onClick={() => select(area)}>
-              {t(`shell.${area}`)}
-            </button>
-          ))}
-        </nav>
+      <aside className={sidebarOpen ? "shell-sidebar" : "shell-sidebar shell-sidebar--collapsed"}>
+        <button
+          type="button"
+          className="shell-sidebar-toggle"
+          onClick={() => setSidebarOpen((value) => !value)}
+          aria-label={t(sidebarOpen ? "shell.collapseSidebar" : "shell.expandSidebar")}
+        >
+          <ChevronIcon direction={sidebarOpen ? "left" : "right"} />
+        </button>
+        {favorites.length > 0 && (
+          <nav aria-label={t("shell.favorites")} className="shell-nav-group">
+            {sidebarOpen && <p className="shell-nav-group__label">{t("shell.favorites")}</p>}
+            {favorites.map((area) => {
+              const Icon = areaIcons[area];
+              return (
+                <button
+                  key={area}
+                  type="button"
+                  className="shell-nav-item"
+                  onClick={() => select(area)}
+                  aria-label={t(`shell.${area}`)}
+                  aria-current={active === area ? "page" : undefined}
+                >
+                  <Icon className="shell-nav-item__icon" />
+                  {sidebarOpen && <span>{t(`shell.${area}`)}</span>}
+                </button>
+              );
+            })}
+          </nav>
+        )}
         <nav aria-label={t("shell.productName")}>
-          {areas.map((area) => (
-            <div className="nav-row" key={area}>
-              <button
-                type="button"
-                aria-current={active === area ? "page" : undefined}
-                onClick={() => select(area)}
-              >
-                {t(`shell.${area}`)}
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleFavorite(area)}
-                aria-label={t(favorites.includes(area) ? "shell.unpin" : "shell.pin", {
-                  area: t(`shell.${area}`)
-                })}
-              >
-                ☆
-              </button>
+          {groupOrder.map((group) => (
+            <div key={group} className="shell-nav-group">
+              {sidebarOpen && (
+                <p className="shell-nav-group__label">{t(`shell.groups.${group}`)}</p>
+              )}
+              {areasByGroup[group].map((area) => {
+                const Icon = areaIcons[area];
+                return (
+                  <div className="nav-row shell-nav-item-row" key={area}>
+                    <button
+                      type="button"
+                      className="shell-nav-item"
+                      aria-current={active === area ? "page" : undefined}
+                      aria-label={t(`shell.${area}`)}
+                      onClick={() => select(area)}
+                    >
+                      <Icon className="shell-nav-item__icon" />
+                      {sidebarOpen && <span>{t(`shell.${area}`)}</span>}
+                    </button>
+                    {sidebarOpen && (
+                      <button
+                        type="button"
+                        className="shell-nav-item__favorite"
+                        onClick={() => toggleFavorite(area)}
+                        aria-label={t(favorites.includes(area) ? "shell.unpin" : "shell.pin", {
+                          area: t(`shell.${area}`)
+                        })}
+                      >
+                        ☆
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </nav>
