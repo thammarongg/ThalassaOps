@@ -17,13 +17,13 @@
 
 .change-timeline__description,
 .change-candidate-section__description {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   margin: 0;
 }
 
 .change-timeline__window,
 .change-timeline__truncated {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   font-size: 0.85rem;
   margin: 0;
 }
@@ -40,7 +40,7 @@
 
 .change-entry {
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 0.4rem;
   cursor: pointer;
   display: flex;
@@ -52,7 +52,7 @@
 }
 
 .change-entry--selected {
-  border-color: var(--color-sea-glass);
+  border-color: var(--fg);
 }
 
 .change-entry__heading,
@@ -67,7 +67,7 @@
 
 .change-entry__meta,
 .change-association__meta {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   font-size: 0.85rem;
 }
 
@@ -79,7 +79,7 @@
 }
 
 .change-detail__fields dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   font-size: 0.8rem;
 }
 
@@ -94,7 +94,7 @@
 }
 
 .change-detail__diff-notice {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   margin: 0;
 }
 
@@ -106,12 +106,12 @@
 .change-detail__link--missing,
 .change-association__link--missing,
 .change-candidate-section__empty {
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   margin: 0;
 }
 
 .change-association {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
   border-radius: 0.4rem;
   display: flex;
   flex-direction: column;
@@ -123,7 +123,7 @@
 .change-association__evidence {
   align-self: flex-start;
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 35%, transparent);
   border-radius: 0.4rem;
   color: inherit;
   cursor: pointer;
