@@ -174,7 +174,7 @@ export function MetricsPanel({
     <Card titleKey="observability.prometheus">
       <h3>{connector.display_name}</h3>
       {selectedAlert && (
-        <div style={{ marginBottom: "1rem", padding: "0.5rem", background: "#f5f5f5" }}>
+        <div className="metrics-panel__context">
           <strong>{t("observability.context")}: </strong>
           <span>{renderResource(selectedAlert.resource_reference)}</span>
           <br />
