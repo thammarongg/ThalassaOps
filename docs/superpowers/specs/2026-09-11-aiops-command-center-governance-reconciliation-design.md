@@ -225,6 +225,12 @@ handoff names (`--crit`, `--ok`, `--surface2`, `--fg2`, etc.) directly; the
 table below is the authoritative mapping from handoff name to the actual (or
 newly added) project variable, so an implementer never has to guess:
 
+> **Renamed 2026-09-17.** The project variables now carry the handoff
+> names themselves — `--bg`, `--surface`, `--fg2`, `--accent` and the rest.
+> The "Project variable" column below records what they were called before
+> that change, not what to write today; the two columns have since
+> converged. See [the rename plan](../plans/2026-09-17-design-token-rename.md).
+
 | Handoff token | Dark value | Project variable | Status |
 |---|---|---|---|
 | `--bg` | `#0c1116` | `--color-abyss` | exists |
