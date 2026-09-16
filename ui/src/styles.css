@@ -39,6 +39,9 @@
   --ai: #b18cf0;
   --aibg: #1f1830;
   --shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  --shadow-widget: 0 1rem 2.5rem rgb(0 0 0 / 13%);
+  --scrim: rgb(0 0 0 / 55%);
+  --radius-1: 4px;
   --navfg: #f7f8f8;
   --navsub: #96a3b0;
   --font-ui: "IBM Plex Sans", "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
@@ -407,7 +410,7 @@ td {
   inset: 0;
   display: flex;
   justify-content: end;
-  background: rgb(0 0 0 / 55%);
+  background: var(--scrim);
 }
 .drawer {
   width: min(30rem, 100%);
@@ -442,6 +445,14 @@ td {
 .logs-panel h3,
 .trace-panel h3 {
   margin: 0;
+}
+
+.metrics-panel__context {
+  margin-bottom: var(--space-2);
+  padding: var(--space-1);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
 }
 
 .logs-panel__query {
@@ -814,7 +825,7 @@ td {
   height: 100%;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--accent) 24%, transparent);
-  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 13%);
+  box-shadow: var(--shadow-widget);
 }
 
 .operations-widget .card > h2 {
