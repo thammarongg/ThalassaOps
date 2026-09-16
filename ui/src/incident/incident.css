@@ -8,7 +8,7 @@
 }
 
 .incident-workspace__header {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   padding-bottom: var(--space-1);
 }
 
@@ -20,11 +20,11 @@
 }
 
 .incident-workspace__state {
-  color: var(--color-fog);
+  color: var(--fg2);
 }
 
 .incident-workspace__state--error {
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .incident-queue__filter {
@@ -47,25 +47,25 @@
   flex-direction: column;
   gap: 0.25rem;
   padding: var(--space-1);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-1, 4px);
   cursor: pointer;
 }
 
 .incident-queue__row--selected {
-  border-color: var(--color-sea-glass);
-  background: var(--color-deep-water-3);
+  border-color: var(--fg);
+  background: var(--surface3);
 }
 
 .incident-queue__row:focus-visible {
-  outline: 2px solid var(--color-sea-glass);
+  outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
 
 .incident-queue__meta {
   display: flex;
   gap: var(--space-1);
-  color: var(--color-fog);
+  color: var(--fg2);
 }
 
 /*
@@ -86,8 +86,8 @@
 }
 
 .incident-summary-card {
-  background: var(--color-deep-water-2);
-  border: 1px solid var(--color-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-1, 4px);
   display: flex;
   flex-direction: column;
@@ -120,7 +120,7 @@
 }
 
 .incident-summary-card__fields dt {
-  color: var(--color-fog);
+  color: var(--fg2);
   font-size: 0.8rem;
   text-transform: uppercase;
 }
@@ -145,7 +145,7 @@
 }
 
 .incident-narrative__kind {
-  color: var(--color-fog);
+  color: var(--fg2);
 }
 
 /* Actor and reason are identifiers and free text an operator wrote; neither is
@@ -162,8 +162,8 @@
 }
 
 .incident-evidence__entry {
-  background: var(--color-deep-water-2);
-  border: 1px solid var(--color-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-1, 4px);
   padding: var(--space-1);
   display: flex;
@@ -182,7 +182,7 @@
    something a reader could mistake for a different id. */
 .incident-evidence__entry-id {
   font-family: var(--font-mono, monospace);
-  color: var(--color-fog);
+  color: var(--fg2);
   word-break: break-all;
 }
 
@@ -199,7 +199,7 @@
 }
 
 .incident-evidence dt {
-  color: var(--color-fog);
+  color: var(--fg2);
   font-size: 0.8rem;
   text-transform: uppercase;
 }
@@ -211,11 +211,11 @@
 
 .incident-evidence__redaction {
   margin: 0;
-  color: var(--color-fog);
+  color: var(--fg2);
 }
 
 .incident-evidence__unavailable {
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .incident-comments {
@@ -232,8 +232,8 @@
 }
 
 .incident-comments__entry {
-  background: var(--color-deep-water-2);
-  border: 1px solid var(--color-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-1, 4px);
   padding: var(--space-1);
 }
@@ -250,7 +250,7 @@
 
 .incident-comments__meta {
   align-items: baseline;
-  color: var(--color-fog);
+  color: var(--fg2);
   display: flex;
   gap: var(--space-1);
   justify-content: space-between;
@@ -279,16 +279,16 @@
 }
 
 .incident-comments__limit {
-  color: var(--color-fog);
+  color: var(--fg2);
   font-size: 0.8rem;
 }
 
 .incident-comments__error {
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .incident-actions {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -301,7 +301,7 @@
 }
 
 .incident-actions__status span {
-  color: var(--color-fog);
+  color: var(--fg2);
 }
 
 .incident-actions__group {
@@ -319,8 +319,8 @@
 }
 
 .incident-actions__principal {
-  background: var(--color-deep-water-2);
-  border: 1px solid var(--color-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   display: grid;
   gap: var(--space-1);
   grid-template-columns: minmax(8rem, 0.8fr) minmax(12rem, 1fr);
@@ -329,7 +329,7 @@
 }
 
 .incident-actions__principal legend {
-  color: var(--color-fog);
+  color: var(--fg2);
   font-size: 0.85rem;
   grid-column: 1 / -1;
   padding: 0;
@@ -341,8 +341,8 @@
 }
 
 .incident-actions__form {
-  background: var(--color-deep-water-2);
-  border: 1px solid var(--color-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -369,7 +369,7 @@
 }
 
 .incident-actions__evidence {
-  color: var(--color-fog);
+  color: var(--fg2);
   margin: 0;
 }
 
@@ -381,7 +381,7 @@
 
 .incident-actions__error,
 .incident-actions__conflict {
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .incident-actions__error,
@@ -391,7 +391,7 @@
 
 .incident-actions__conflict {
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--color-coral) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--crit) 45%, transparent);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);

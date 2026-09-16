@@ -11,43 +11,43 @@
 @import "@fontsource/ibm-plex-mono/600.css";
 
 :root {
-  /* AIOps Command Center visual system — see docs/design/aiops-command-center.md */
-  --color-abyss: #0c1116;
-  --color-nav: #000716;
-  --color-deep-water: #161d26;
-  --color-sea-glass: #f2f3f3;
-  --color-reef-cyan: #ff9900;
-  --color-info: #539fe5;
-  --color-kelp: #5dd47a;
-  --color-amber: #f0b429;
-  --color-coral: #ff7c70;
-  --color-kelp-bg: #12241a;
-  --color-amber-bg: #2a2113;
-  --color-coral-bg: #2a1614;
-  --color-info-bg: #12212f;
-  /* Added in Phase 2 (docs/superpowers/specs/2026-09-11-aiops-command-center-governance-reconciliation-design.md,
-     "Token gap" table) — fills the gap between the 13 tokens Phase 1 ported
-     and the ~25 the Claude Design handoff defines. --color-fog was already
-     referenced 12 times in incident.css with no definition; this is that
-     fix, not new usage. */
-  --color-fog: #9aa7b4;
-  --color-mist: #7a8794;
-  --color-deep-water-2: #1b232e;
-  --color-deep-water-3: #212b38;
-  --color-border: #2a3542;
-  --color-border-strong: #3a4757;
-  --color-violet: #b18cf0;
-  --color-violet-bg: #1f1830;
-  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.45);
-  --color-nav-fg: #f7f8f8;
-  --color-nav-sub: #96a3b0;
+  /* AIOps Command Center visual system. Both the names and the dark values
+     are the handoff's own (docs/design/aiops-command-center-handoff.md), so a
+     re-export from Claude Design needs no translation. Renamed from the ocean
+     palette on 2026-09-17 — docs/superpowers/plans/2026-09-17-design-token-rename.md.
+     Layout and usage rules: docs/design/aiops-command-center.md */
+  --bg: #0c1116;
+  --nav: #000716;
+  --surface: #161d26;
+  --fg: #f2f3f3;
+  --accent: #ff9900;
+  --info: #539fe5;
+  --ok: #5dd47a;
+  --warn: #f0b429;
+  --crit: #ff7c70;
+  --okbg: #12241a;
+  --warnbg: #2a2113;
+  --critbg: #2a1614;
+  --infobg: #12212f;
+  /* The rest of the handoff's dark set, completed 2026-09-11. */
+  --fg2: #9aa7b4;
+  --fg3: #7a8794;
+  --surface2: #1b232e;
+  --surface3: #212b38;
+  --border: #2a3542;
+  --border2: #3a4757;
+  --ai: #b18cf0;
+  --aibg: #1f1830;
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  --navfg: #f7f8f8;
+  --navsub: #96a3b0;
   --font-ui: "IBM Plex Sans", "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --space-1: 0.5rem;
   --space-2: 1rem;
   --space-3: 1.5rem;
-  color: var(--color-sea-glass);
-  background: var(--color-abyss);
+  color: var(--fg);
+  background: var(--bg);
   font-family: var(--font-ui);
 }
 * {
@@ -56,14 +56,14 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: var(--color-abyss);
+  background: var(--bg);
 }
 button,
 input {
   font: inherit;
 }
 :focus-visible {
-  outline: 3px solid var(--color-reef-cyan);
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 .app {
@@ -85,18 +85,18 @@ input {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
-  background: var(--color-nav);
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  background: var(--nav);
 }
 .shell-header strong {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
 }
 .shell-header button,
 .shell aside button,
 .notification-center button {
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 0.4rem;
   padding: 0.4rem 0.55rem;
   cursor: pointer;
@@ -123,11 +123,11 @@ input {
 }
 .shell-icon-button svg {
   flex: none;
-  color: var(--color-sea-glass);
+  color: var(--fg);
 }
 .shell > aside {
   padding: var(--space-2);
-  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
 }
 .shell-sidebar {
   position: relative;
@@ -153,7 +153,7 @@ input {
 .shell-nav-group__label {
   margin: 0.4rem 0 0.15rem;
   padding: 0 0.3rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -168,8 +168,8 @@ input {
   text-align: left;
 }
 .nav-row [aria-current="page"] {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 .shell-nav-item {
   display: flex;
@@ -180,10 +180,10 @@ input {
 }
 .shell-nav-item__icon {
   flex: none;
-  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+  color: color-mix(in srgb, var(--fg) 78%, transparent);
 }
 .shell-nav-item[aria-current="page"] .shell-nav-item__icon {
-  color: var(--color-abyss);
+  color: var(--bg);
 }
 .shell-nav-item__favorite {
   padding: 0.3rem 0.4rem !important;
@@ -211,9 +211,9 @@ input {
   right: 1rem;
   width: min(22rem, calc(100% - 2rem));
   padding: var(--space-2);
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.6rem;
-  background: var(--color-deep-water);
+  background: var(--surface);
 }
 .drawer .command-surface + button {
   display: block;
@@ -245,7 +245,7 @@ input {
   }
 }
 .eyebrow {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 400 0.8rem var(--font-mono);
   margin: 0;
 }
@@ -272,9 +272,9 @@ h2 {
 .command-surface,
 .tabs,
 .timeline {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
   border-radius: 0.75rem;
-  background: var(--color-deep-water);
+  background: var(--surface);
   padding: var(--space-2);
 }
 .indicator {
@@ -290,25 +290,25 @@ h2 {
   text-align: center;
 }
 .indicator--healthy {
-  color: var(--color-kelp);
-  background: var(--color-kelp-bg);
+  color: var(--ok);
+  background: var(--okbg);
 }
 .indicator--informational {
-  color: var(--color-info);
-  background: var(--color-info-bg);
+  color: var(--info);
+  background: var(--infobg);
 }
 .indicator--degraded,
 .indicator--warning {
-  color: var(--color-amber);
-  background: var(--color-amber-bg);
+  color: var(--warn);
+  background: var(--warnbg);
 }
 .indicator--unavailable,
 .indicator--critical {
-  color: var(--color-coral);
-  background: var(--color-coral-bg);
+  color: var(--crit);
+  background: var(--critbg);
 }
 .indicator--unknown {
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
 }
 .empty-state {
@@ -316,7 +316,7 @@ h2 {
   place-items: center;
   gap: 0.5rem;
   min-height: 6rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
   text-align: center;
 }
 .empty-state p {
@@ -329,10 +329,10 @@ h2 {
 .integrations > button,
 .empty-state button,
 .connector-actions button {
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   background: transparent;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   padding: 0.4rem 0.7rem;
   cursor: pointer;
 }
@@ -343,7 +343,7 @@ h2 {
 }
 td small {
   display: block;
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
   font-family: var(--font-mono);
 }
 table {
@@ -359,7 +359,7 @@ th,
 td {
   padding: 0.5rem;
   text-align: left;
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 12%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
 }
 .tabs {
   display: flex;
@@ -367,16 +367,16 @@ td {
 }
 .tab,
 .drawer button {
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   background: transparent;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   padding: 0.4rem 0.7rem;
   cursor: pointer;
 }
 .tab[aria-selected="true"] {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 .timeline {
   list-style: none;
@@ -387,7 +387,7 @@ td {
   gap: var(--space-1);
   align-items: center;
   padding: 0.5rem 0 0.5rem var(--space-2);
-  border-left: 2px solid var(--color-reef-cyan);
+  border-left: 2px solid var(--accent);
 }
 .command-surface {
   display: grid;
@@ -395,9 +395,9 @@ td {
 }
 .command-surface input {
   width: 100%;
-  color: var(--color-sea-glass);
-  background: var(--color-abyss);
-  border: 1px solid var(--color-reef-cyan);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   padding: 0.65rem;
   font-family: var(--font-mono);
@@ -413,8 +413,8 @@ td {
   width: min(30rem, 100%);
   min-height: 100%;
   padding: var(--space-3);
-  color: var(--color-sea-glass);
-  background: var(--color-deep-water);
+  color: var(--fg);
+  background: var(--surface);
 }
 .drawer-header {
   display: flex;
@@ -451,9 +451,9 @@ td {
 
 .logs-panel__query input {
   width: 100%;
-  color: var(--color-sea-glass);
-  background: var(--color-abyss);
-  border: 1px solid var(--color-reef-cyan);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   padding: 0.65rem;
   font-family: var(--font-mono);
@@ -462,9 +462,9 @@ td {
 .logs-panel__query button,
 .logs-panel__trace-control {
   width: fit-content;
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   padding: 0.4rem 0.7rem;
   cursor: pointer;
@@ -476,8 +476,8 @@ td {
 }
 
 .logs-panel__unparsed {
-  color: var(--color-amber);
-  border-inline-start: 3px solid var(--color-amber);
+  color: var(--warn);
+  border-inline-start: 3px solid var(--warn);
   padding-inline-start: 0.65rem;
 }
 
@@ -506,7 +506,7 @@ td {
 
 .trace-panel__window {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
   font: 400 0.8rem var(--font-mono);
 }
 
@@ -528,7 +528,7 @@ td {
 
 .environment-workspace__intro {
   max-width: 48rem;
-  border-inline-start: 3px solid var(--color-reef-cyan);
+  border-inline-start: 3px solid var(--accent);
   padding-inline-start: var(--space-2);
 }
 
@@ -545,12 +545,12 @@ td {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-2);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 24%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 24%, transparent);
   border-radius: 0.75rem;
   background: linear-gradient(
     125deg,
-    color-mix(in srgb, var(--color-deep-water) 92%, var(--color-reef-cyan)),
-    var(--color-deep-water)
+    color-mix(in srgb, var(--surface) 92%, var(--accent)),
+    var(--surface)
   );
 }
 
@@ -559,7 +559,7 @@ td {
   align-items: start;
   justify-content: space-between;
   gap: var(--space-2);
-  border-block-end: 1px solid color-mix(in srgb, var(--color-sea-glass) 14%, transparent);
+  border-block-end: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
   padding-block-end: var(--space-2);
 }
 
@@ -573,22 +573,22 @@ td {
   align-items: center;
   min-height: 2rem;
   padding: 0.35rem 0.65rem;
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 999px;
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
   font: 700 0.78rem var(--font-mono);
   letter-spacing: 0.03em;
 }
 
 .environment-provider--azure {
-  border-color: var(--color-amber);
-  background: var(--color-amber);
+  border-color: var(--warn);
+  background: var(--warn);
 }
 
 .environment-provider--gcp {
-  border-color: var(--color-kelp);
-  background: var(--color-kelp);
+  border-color: var(--ok);
+  background: var(--ok);
 }
 
 .environment-panel__meta {
@@ -603,7 +603,7 @@ td {
 }
 
 .environment-panel__meta dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
   font-size: 0.78rem;
 }
 
@@ -619,15 +619,15 @@ td {
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2);
-  border: 1px solid var(--color-coral);
+  border: 1px solid var(--crit);
   border-radius: 0.55rem;
-  background: color-mix(in srgb, var(--color-coral) 10%, var(--color-abyss));
+  background: color-mix(in srgb, var(--crit) 10%, var(--bg));
 }
 
 .environment-access--no_credential,
 .environment-access--session_expired {
-  border-color: var(--color-amber);
-  background: color-mix(in srgb, var(--color-amber) 10%, var(--color-abyss));
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg));
 }
 
 .environment-access__copy {
@@ -642,7 +642,7 @@ td {
 }
 
 .environment-access__eyebrow {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 400 0.75rem var(--font-mono);
 }
 
@@ -650,8 +650,8 @@ td {
   display: block;
   padding: 0.55rem 0.65rem;
   overflow-wrap: anywhere;
-  color: var(--color-sea-glass);
-  background: var(--color-abyss);
+  color: var(--fg);
+  background: var(--bg);
   font: 400 0.78rem/1.5 var(--font-mono);
 }
 
@@ -670,18 +670,18 @@ td {
 
 .environment-access button,
 .environment-resource-actions button {
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   padding: 0.4rem 0.65rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   cursor: pointer;
 }
 
 .environment-access button:hover,
 .environment-resource-actions button:hover {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .environment-resource-table {
@@ -709,7 +709,7 @@ td {
 
 .environment-resource-actions span,
 .environment-access__actions span {
-  color: var(--color-kelp);
+  color: var(--ok);
   font-size: 0.75rem;
 }
 
@@ -717,7 +717,7 @@ td {
 .environment-inventory-loading,
 .environment-resources-empty {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 /* Operations Console: a restrained command-bridge layout with one visual tide line. */
@@ -733,12 +733,12 @@ td {
   justify-content: space-between;
   gap: var(--space-2);
   padding-block-end: var(--space-2);
-  border-block-end: 1px solid color-mix(in srgb, var(--color-reef-cyan) 38%, transparent);
+  border-block-end: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 .operations-console__header h1 {
   margin-block: 0.25rem 0.45rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   font-size: clamp(2rem, 4vw, 3rem);
   letter-spacing: -0.04em;
 }
@@ -746,7 +746,7 @@ td {
 .operations-console__subtitle {
   max-width: 40rem;
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 .operations-console__header-actions {
@@ -760,10 +760,10 @@ td {
 .operations-widget-settings > button,
 .operations-widget-settings__order button,
 .operations-widget__expand {
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.45rem;
   padding: 0.5rem 0.75rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   cursor: pointer;
 }
@@ -772,22 +772,22 @@ td {
 .operations-widget-settings > button:hover,
 .operations-widget-settings__order button:hover:not(:disabled),
 .operations-widget__expand:hover {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .operations-console__sync {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 68%, transparent);
+  color: color-mix(in srgb, var(--fg) 68%, transparent);
   font: 400 0.75rem var(--font-mono);
 }
 
 .operations-console__error {
   margin: 0;
-  border-inline-start: 3px solid var(--color-coral);
+  border-inline-start: 3px solid var(--crit);
   padding: 0.7rem 0.85rem;
-  color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-coral) 11%, var(--color-abyss));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--crit) 11%, var(--bg));
 }
 
 .operations-widget-grid {
@@ -813,7 +813,7 @@ td {
 .operations-widget .card {
   height: 100%;
   overflow: hidden;
-  border-color: color-mix(in srgb, var(--color-reef-cyan) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
   box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 13%);
 }
 
@@ -821,7 +821,7 @@ td {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   letter-spacing: -0.01em;
 }
 
@@ -829,18 +829,18 @@ td {
   width: 1.75rem;
   height: 2px;
   content: "";
-  background: var(--color-reef-cyan);
+  background: var(--accent);
 }
 
 .operations-widget-state {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 .operations-widget-state--error {
-  border-inline-start: 3px solid var(--color-coral);
+  border-inline-start: 3px solid var(--crit);
   padding-inline-start: 0.75rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
 }
 
 .operations-widget__expand {
@@ -863,10 +863,10 @@ td {
   gap: var(--space-2);
   overflow: hidden;
   padding: var(--space-2);
-  border-inline-start: 3px solid var(--color-kelp);
+  border-inline-start: 3px solid var(--ok);
   background: linear-gradient(
     100deg,
-    color-mix(in srgb, var(--color-kelp) 13%, transparent),
+    color-mix(in srgb, var(--ok) 13%, transparent),
     transparent 68%
   );
 }
@@ -877,25 +877,25 @@ td {
   bottom: 0;
   height: 1px;
   content: "";
-  background: linear-gradient(90deg, var(--color-reef-cyan), transparent 78%);
+  background: linear-gradient(90deg, var(--accent), transparent 78%);
   opacity: 0.8;
 }
 
 .operations-health-headline--critical {
-  border-inline-start-color: var(--color-coral);
+  border-inline-start-color: var(--crit);
   background: linear-gradient(
     100deg,
-    color-mix(in srgb, var(--color-coral) 15%, transparent),
+    color-mix(in srgb, var(--crit) 15%, transparent),
     transparent 68%
   );
 }
 
 .operations-health-headline--degraded,
 .operations-health-headline--unknown {
-  border-inline-start-color: var(--color-amber);
+  border-inline-start-color: var(--warn);
   background: linear-gradient(
     100deg,
-    color-mix(in srgb, var(--color-amber) 13%, transparent),
+    color-mix(in srgb, var(--warn) 13%, transparent),
     transparent 68%
   );
 }
@@ -912,12 +912,12 @@ td {
 
 .operations-health-headline > div > p:not(.operations-health-headline__meta) {
   margin-block-start: 0.25rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 .operations-health-headline__meta {
   margin-block-start: 0.75rem !important;
-  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
   font: 400 0.75rem var(--font-mono);
 }
 
@@ -942,33 +942,33 @@ td {
   width: 100%;
   min-height: 4.3rem;
   gap: 0.35rem;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
   border-radius: 0.5rem;
   padding: 0.7rem 0.8rem;
   text-align: start;
-  color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-abyss) 54%, transparent);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 54%, transparent);
   cursor: pointer;
 }
 
 .operations-critical-number__button:hover {
-  border-color: var(--color-reef-cyan);
-  background: color-mix(in srgb, var(--color-reef-cyan) 9%, var(--color-abyss));
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
 }
 
 .operations-critical-number__value {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 700 clamp(1.2rem, 3vw, 1.75rem) var(--font-mono);
 }
 
 .operations-critical-number__label {
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--color-sea-glass) 76%, transparent);
+  color: color-mix(in srgb, var(--fg) 76%, transparent);
   font-size: 0.78rem;
 }
 
 .operations-critical-number__affordance {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 700 1.1rem var(--font-mono);
 }
 
@@ -977,9 +977,9 @@ td {
   display: block;
   min-height: 4.3rem;
   padding: 0.7rem 0.8rem;
-  border: 1px dashed color-mix(in srgb, var(--color-coral) 55%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--crit) 55%, transparent);
   border-radius: 0.5rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
 }
 
 .operations-health-breakdown {
@@ -992,7 +992,7 @@ td {
 .operations-signal-sources h3,
 .operations-contributing-scopes h3 {
   margin-block: 0 0.65rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 74%, transparent);
+  color: color-mix(in srgb, var(--fg) 74%, transparent);
   font-size: 0.78rem;
   font-weight: 600;
 }
@@ -1023,7 +1023,7 @@ td {
   display: flex;
   align-items: start;
   gap: 0.5rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+  color: color-mix(in srgb, var(--fg) 78%, transparent);
 }
 
 .operations-incident-list,
@@ -1035,10 +1035,10 @@ td {
 .operations-incident-entry,
 .operations-environment-entry,
 .operations-change-entry {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   border-radius: 0.5rem;
   padding: 0.85rem;
-  background: color-mix(in srgb, var(--color-abyss) 32%, transparent);
+  background: color-mix(in srgb, var(--bg) 32%, transparent);
 }
 
 .operations-incident-entry__topline,
@@ -1060,7 +1060,7 @@ td {
 .operations-environment-entry p,
 .operations-change-entry p {
   margin: 0.2rem 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 .operations-incident-entry__meta,
@@ -1071,33 +1071,33 @@ td {
 
 .operations-priority,
 .operations-incident-status {
-  border: 1px solid color-mix(in srgb, var(--color-amber) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 75%, transparent);
   border-radius: 999px;
   padding: 0.2rem 0.45rem;
-  color: var(--color-amber);
+  color: var(--warn);
   font: 700 0.7rem var(--font-mono);
 }
 
 .operations-incident-status {
-  border-color: color-mix(in srgb, var(--color-sea-glass) 24%, transparent);
-  color: color-mix(in srgb, var(--color-sea-glass) 78%, transparent);
+  border-color: color-mix(in srgb, var(--fg) 24%, transparent);
+  color: color-mix(in srgb, var(--fg) 78%, transparent);
   font-family: var(--font-ui);
   font-weight: 600;
 }
 
 .operations-item-drilldown {
   margin-block-start: 0.7rem;
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   padding: 0.4rem 0.6rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   cursor: pointer;
 }
 
 .operations-item-drilldown:hover {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .operations-incident-entry__actions {
@@ -1109,22 +1109,22 @@ td {
 
 .operations-incident-entry__topology {
   margin-block-start: 0.7rem;
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 0.4rem;
   padding: 0.4rem 0.6rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   cursor: pointer;
 }
 
 .operations-incident-entry__topology:hover {
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .operations-widget-caption {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 58%, transparent);
+  color: color-mix(in srgb, var(--fg) 58%, transparent);
   font-size: 0.78rem;
 }
 
@@ -1139,21 +1139,21 @@ td {
   flex-wrap: wrap;
   gap: 0.45rem;
   margin: 0;
-  border-inline-start: 3px solid var(--color-amber);
+  border-inline-start: 3px solid var(--warn);
   padding: 0.55rem 0.7rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 82%, transparent);
-  background: color-mix(in srgb, var(--color-amber) 8%, var(--color-abyss));
+  color: color-mix(in srgb, var(--fg) 82%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--bg));
   font-size: 0.8rem;
 }
 
 .operations-source-notice[role="alert"] {
-  border-inline-start-color: var(--color-coral);
-  background: color-mix(in srgb, var(--color-coral) 9%, var(--color-abyss));
+  border-inline-start-color: var(--crit);
+  background: color-mix(in srgb, var(--crit) 9%, var(--bg));
 }
 
 .operations-source-notice__detail {
   flex-basis: 100%;
-  color: color-mix(in srgb, var(--color-sea-glass) 62%, transparent);
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
   font-family: var(--font-mono);
   font-size: 0.72rem;
 }
@@ -1167,7 +1167,7 @@ td {
 
 .operations-change-entry__time,
 .operations-evidence-entry__id {
-  color: var(--color-reef-cyan) !important;
+  color: var(--accent) !important;
   font-family: var(--font-mono);
 }
 
@@ -1187,7 +1187,7 @@ td {
 
 .operations-widget-settings > p {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 .operations-widget-settings__list {
@@ -1203,7 +1203,7 @@ td {
   align-items: start;
   justify-content: space-between;
   gap: var(--space-2);
-  border-block-end: 1px solid color-mix(in srgb, var(--color-sea-glass) 12%, transparent);
+  border-block-end: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
   padding-block-end: 0.65rem;
 }
 
@@ -1214,15 +1214,15 @@ td {
 }
 
 .operations-widget-settings__main label {
-  color: color-mix(in srgb, var(--color-sea-glass) 85%, transparent);
+  color: color-mix(in srgb, var(--fg) 85%, transparent);
   font-size: 0.82rem;
 }
 
 .operations-widget-settings__main select {
   max-width: 9rem;
-  color: var(--color-sea-glass);
-  background: var(--color-abyss);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 0.35rem;
   padding: 0.3rem;
 }
@@ -1250,13 +1250,13 @@ td {
 }
 
 .operations-evidence-panel__context {
-  border-inline-start: 3px solid var(--color-reef-cyan);
+  border-inline-start: 3px solid var(--accent);
   padding-inline-start: 0.75rem;
 }
 
 .operations-evidence-panel__context p {
   margin: 0.25rem 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 76%, transparent);
+  color: color-mix(in srgb, var(--fg) 76%, transparent);
   font-size: 0.82rem;
 }
 
@@ -1266,10 +1266,10 @@ td {
 }
 
 .operations-evidence-entry {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   border-radius: 0.5rem;
   padding: 0.8rem;
-  background: color-mix(in srgb, var(--color-abyss) 35%, transparent);
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
 }
 
 .operations-evidence-entry__header {
@@ -1301,14 +1301,14 @@ td {
 }
 
 .operations-evidence-entry dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 57%, transparent);
+  color: color-mix(in srgb, var(--fg) 57%, transparent);
   font-size: 0.72rem;
 }
 
 .operations-evidence-entry dd {
   margin: 0;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--color-sea-glass) 84%, transparent);
+  color: color-mix(in srgb, var(--fg) 84%, transparent);
   font-size: 0.8rem;
 }
 
@@ -1318,7 +1318,7 @@ td {
 
 .operations-evidence-entry__redaction {
   margin: 0.8rem 0 0;
-  color: var(--color-kelp);
+  color: var(--ok);
   font-size: 0.75rem;
 }
 

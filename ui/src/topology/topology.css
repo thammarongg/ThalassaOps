@@ -12,19 +12,19 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-2);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
   padding-bottom: var(--space-1);
 }
 
 .topology-workspace__subtitle {
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
   margin: 0;
 }
 
 .topology-workspace__sync {
   font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   margin: 0;
   white-space: nowrap;
 }
@@ -37,15 +37,15 @@
 
 .topology-workspace__error {
   margin: 0;
-  border-inline-start: 3px solid var(--color-coral);
+  border-inline-start: 3px solid var(--crit);
   padding: 0.7rem 0.85rem;
-  color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-coral) 11%, var(--color-abyss));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--crit) 11%, var(--bg));
 }
 
 .topology-workspace__incidents-note {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   font-size: 0.85rem;
 }
 
@@ -55,9 +55,9 @@
   gap: var(--space-1);
   margin: 0;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--color-amber) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
 }
 
 .topology-filters {
@@ -78,14 +78,14 @@
   font-size: 0.8rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
 }
 
 .topology-filters__field select {
   font-family: var(--font-ui);
-  color: var(--color-sea-glass);
-  background: var(--color-deep-water);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 6px;
   padding: 0.4rem 0.5rem;
 }
@@ -109,7 +109,7 @@
   font-size: 1rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   margin: 0 0 var(--space-1);
 }
 
@@ -136,17 +136,17 @@
   gap: 0.25rem;
   text-align: left;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
-  color: var(--color-sea-glass);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  color: var(--fg);
   font-family: var(--font-ui);
   cursor: pointer;
 }
 
 .topology-graph__node-select[aria-pressed="true"] {
-  border-color: var(--color-reef-cyan);
-  box-shadow: inset 0 0 0 1px var(--color-reef-cyan);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .topology-graph__node-name {
@@ -157,33 +157,33 @@
 .topology-graph__node-kind,
 .topology-graph__node-owner {
   font-size: 0.75rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
 }
 
 .topology-graph__node-affected {
   font-size: 0.75rem;
   font-weight: 600;
-  border: 1px solid var(--color-amber);
+  border: 1px solid var(--warn);
   border-radius: 4px;
   padding: 0 0.35rem;
-  color: var(--color-amber);
+  color: var(--warn);
 }
 
 .topology-graph__node-evidence {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
   background: transparent;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   font-family: var(--font-ui);
   padding: 0 0.5rem;
   cursor: pointer;
 }
 
 .topology-graph__visual {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
   padding: var(--space-1);
-  background: color-mix(in srgb, var(--color-deep-water) 55%, var(--color-abyss));
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
 }
 
 .topology-graph__visual h2 {
@@ -207,17 +207,17 @@
   width: 100%;
   min-height: 3rem;
   padding: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
-  color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
   font-family: var(--font-ui);
   cursor: pointer;
 }
 
 .topology-graph__relationship-select[aria-pressed="true"] {
-  border-color: var(--color-reef-cyan);
-  box-shadow: inset 0 0 0 1px var(--color-reef-cyan);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .topology-graph__relationship-node {
@@ -231,12 +231,12 @@
 .topology-graph__relationship-kind {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font-size: 0.75rem;
 }
 
 .topology-graph__relationship-arrow {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
 }
 
 .topology-graph__relation {
@@ -244,7 +244,7 @@
 }
 
 .topology-pathlist {
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 20%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
   padding-top: var(--space-2);
 }
 
@@ -252,7 +252,7 @@
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-sea-glass) 70%, transparent);
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
   margin: var(--space-1) 0 0.5rem;
 }
 
@@ -270,9 +270,9 @@
   flex-direction: column;
   gap: 0.35rem;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-deep-water) 60%, var(--color-abyss));
+  background: color-mix(in srgb, var(--surface) 60%, var(--bg));
 }
 
 .topology-path--error {
@@ -280,7 +280,7 @@
   align-items: center;
   justify-content: space-between;
   border-style: dashed;
-  border-color: var(--color-coral);
+  border-color: var(--crit);
 }
 
 .topology-path__summary {
@@ -294,7 +294,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-reef-cyan);
+  color: var(--accent);
 }
 
 .topology-path__sequence {
@@ -305,19 +305,19 @@
 .topology-path__termination {
   font-size: 0.75rem;
   font-weight: 600;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 40%, transparent);
   border-radius: 4px;
   padding: 0 0.35rem;
 }
 
 .topology-path__termination--cycle_detected {
-  border-color: var(--color-amber);
-  color: var(--color-amber);
+  border-color: var(--warn);
+  color: var(--warn);
 }
 
 .topology-path__termination--depth_limit {
-  border-color: var(--color-reef-cyan);
-  color: var(--color-reef-cyan);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .topology-path__facts {
@@ -334,7 +334,7 @@
 }
 
 .topology-path__facts dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
 }
 
 .topology-path__facts dd {
@@ -345,14 +345,14 @@
 .topology-path__note {
   margin: 0;
   font-size: 0.8rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 .topology-detail {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
   padding: var(--space-1);
-  background: color-mix(in srgb, var(--color-deep-water) 72%, var(--color-abyss));
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
 }
 
 .topology-detail h2 {
@@ -365,12 +365,12 @@
   justify-content: space-between;
   gap: var(--space-1);
   padding: 0.2rem 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-sea-glass) 15%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--fg) 15%, transparent);
   font-size: 0.85rem;
 }
 
 .topology-detail dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
 }
 
 .topology-detail dd {
@@ -388,12 +388,12 @@
 
 .topology-evidence__context {
   margin: 0 0 var(--space-1);
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 .topology-evidence__error {
   margin: 0;
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .topology-evidence__list {
@@ -403,7 +403,7 @@
 }
 
 .topology-evidence__entry {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 6px;
   padding: var(--space-1);
 }
@@ -423,7 +423,7 @@
 .topology-evidence__entry-id {
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
 }
 
 .topology-evidence__entry dl div {
@@ -432,11 +432,11 @@
   gap: var(--space-1);
   padding: 0.2rem 0;
   font-size: 0.85rem;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-sea-glass) 15%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--fg) 15%, transparent);
 }
 
 .topology-evidence__entry dt {
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
 }
 
 .topology-evidence__entry dd {
@@ -451,7 +451,7 @@
 .topology-evidence__redaction {
   margin: 0.5rem 0 0;
   font-size: 0.8rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 @media (max-width: 60rem) {

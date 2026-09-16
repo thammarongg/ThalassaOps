@@ -23,7 +23,7 @@
 .ai-fallback-order__description,
 .ai-provider-form__section-heading p {
   max-width: 48rem;
-  color: color-mix(in srgb, var(--color-sea-glass) 72%, transparent);
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
 }
 
 .ai-provider-panel__roster {
@@ -34,9 +34,9 @@
 .ai-provider-row,
 .ai-fallback-order,
 .ai-provider-form {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
   border-radius: 0.75rem;
-  background: var(--color-deep-water);
+  background: var(--surface);
   padding: var(--space-2);
 }
 
@@ -51,7 +51,7 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 0.25rem;
-  background: var(--color-reef-cyan);
+  background: var(--accent);
   content: "";
 }
 
@@ -71,7 +71,7 @@
 .ai-provider-row__kind,
 .ai-provider-row__details dt,
 .ai-fallback-order__position {
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 400 0.75rem var(--font-mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -91,22 +91,22 @@
 }
 
 .ai-health--healthy {
-  color: var(--color-kelp);
+  color: var(--ok);
 }
 
 .ai-health--unknown {
-  color: var(--color-sea-glass);
+  color: var(--fg);
 }
 
 .ai-health--unreachable,
 .ai-health--unauthorized,
 .ai-health--model_unavailable {
-  color: var(--color-coral);
+  color: var(--crit);
 }
 
 .ai-health--rate_limited,
 .ai-health--budget_exhausted {
-  color: var(--color-amber);
+  color: var(--warn);
 }
 
 .ai-provider-row__details {
@@ -133,13 +133,13 @@
 .ai-fallback-order__provider code {
   display: block;
   overflow-wrap: anywhere;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   font-family: var(--font-mono);
   font-size: 0.82rem;
 }
 
 .ai-button {
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 0.45rem;
   padding: 0.55rem 0.8rem;
   cursor: pointer;
@@ -151,29 +151,29 @@
 }
 
 .ai-button--primary {
-  border-color: var(--color-reef-cyan);
-  color: var(--color-abyss);
-  background: var(--color-reef-cyan);
+  border-color: var(--accent);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .ai-button--quiet {
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
 }
 
 .ai-button--danger {
-  border-color: color-mix(in srgb, var(--color-coral) 65%, transparent);
-  color: var(--color-coral);
+  border-color: color-mix(in srgb, var(--crit) 65%, transparent);
+  color: var(--crit);
   background: transparent;
 }
 
 .ai-provider-panel__error,
 .ai-provider-form__error {
   margin: 0;
-  border-left: 3px solid var(--color-coral);
+  border-left: 3px solid var(--crit);
   padding: 0.7rem 0.9rem;
-  color: var(--color-coral);
-  background: color-mix(in srgb, var(--color-coral) 8%, transparent);
+  color: var(--crit);
+  background: color-mix(in srgb, var(--crit) 8%, transparent);
 }
 
 .ai-provider-panel__loading,
@@ -181,7 +181,7 @@
 .ai-fallback-order__off,
 .ai-provider-form__empty-models {
   margin: 0;
-  color: color-mix(in srgb, var(--color-sea-glass) 75%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 .ai-fallback-order {
@@ -194,9 +194,9 @@
   min-width: 2rem;
   min-height: 2rem;
   place-items: center;
-  border: 1px solid var(--color-reef-cyan);
+  border: 1px solid var(--accent);
   border-radius: 50%;
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font-family: var(--font-mono);
 }
 
@@ -218,7 +218,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 14%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
   padding-top: 0.75rem;
 }
 
@@ -240,15 +240,15 @@
 .ai-fallback-order__actions button {
   min-width: 2.2rem;
   min-height: 2.2rem;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 0.4rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   background: transparent;
   cursor: pointer;
 }
 
 .ai-fallback-order__omitted {
-  border-top: 1px solid color-mix(in srgb, var(--color-amber) 35%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   padding-top: var(--space-2);
 }
 
@@ -259,7 +259,7 @@
 }
 
 .ai-fallback-order__omitted li {
-  color: var(--color-amber);
+  color: var(--warn);
   font-family: var(--font-mono);
   font-size: 0.85rem;
 }
@@ -272,7 +272,7 @@
 }
 
 .ai-provider-panel__form-shell {
-  border-top: 1px solid color-mix(in srgb, var(--color-reef-cyan) 35%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   padding-top: var(--space-3);
 }
 
@@ -292,27 +292,27 @@
 .ai-model-card label {
   display: grid;
   gap: 0.35rem;
-  color: var(--color-sea-glass);
+  color: var(--fg);
   font-size: 0.85rem;
 }
 
 .ai-provider-form label > span,
 .ai-model-card label > span {
-  color: color-mix(in srgb, var(--color-sea-glass) 85%, transparent);
+  color: color-mix(in srgb, var(--fg) 85%, transparent);
 }
 
 .ai-provider-form input,
 .ai-provider-form select {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
   border-radius: 0.4rem;
   padding: 0.6rem 0.7rem;
-  color: var(--color-sea-glass);
-  background: color-mix(in srgb, var(--color-abyss) 80%, var(--color-deep-water));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 80%, var(--surface));
 }
 
 .ai-provider-form small {
-  color: color-mix(in srgb, var(--color-sea-glass) 65%, transparent);
+  color: color-mix(in srgb, var(--fg) 65%, transparent);
 }
 
 .ai-provider-form__wide-field {
@@ -322,7 +322,7 @@
 .ai-provider-form__models {
   display: grid;
   gap: var(--space-2);
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   padding-top: var(--space-2);
 }
 
@@ -341,14 +341,14 @@
 .ai-model-card {
   position: relative;
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--color-sea-glass) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
   border-radius: 0.5rem;
   padding: var(--space-2);
 }
 
 .ai-model-card legend {
   padding: 0 0.4rem;
-  color: var(--color-reef-cyan);
+  color: var(--accent);
   font: 400 0.75rem var(--font-mono);
   text-transform: uppercase;
 }
@@ -370,7 +370,7 @@
 .ai-provider-form__footer {
   display: flex;
   justify-content: flex-end;
-  border-top: 1px solid color-mix(in srgb, var(--color-sea-glass) 16%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   padding-top: var(--space-2);
 }
 

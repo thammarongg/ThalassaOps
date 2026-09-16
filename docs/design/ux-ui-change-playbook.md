@@ -68,6 +68,16 @@ and its 2026-09-11 reversal were Class C.
 Claude Design omits a governance element, that omission is a Class C question
 to ask the user, not a detail to follow.
 
+**A rename is its own case.** Renaming a token or a class touches every
+screen like Class A but changes no value, so the contrast gate is not
+skipped — it is inapplicable. Its gate is a **round-trip diff**: apply the
+inverse map to the changed files and diff the result against the previous
+commit. An empty diff proves the change is a bijective substitution of
+identifiers and therefore cannot move a pixel. Run the collision pre-check
+first: every new name must be absent from `ui/` beforehand, as a custom
+property *and* as a BEM modifier, or two different things merge silently.
+Worked example: [the 2026-09-17 token rename](../superpowers/plans/2026-09-17-design-token-rename.md).
+
 ## Step 2 — Invariants every change keeps
 
 A change that breaks one of these is Class C by definition.
@@ -116,6 +126,11 @@ A change that breaks one of these is Class C by definition.
    256 KiB read cap), and compare its SHA-1 with the baseline above. The
    handoff README can be compared the same way against
    `aiops-command-center-handoff.md`.
+   `list_files` returns neither a hash nor a size, so there is no cheap
+   version of this check — it costs a full 173 KB read. Run it for any change
+   that follows the design. Skip it, and record that you did, for a change
+   that cannot depend on the design's content: a rename, a lint guard, a
+   contrast script.
 3. **Export the new handoff** from Claude Design and replace
    `aiops-command-center-handoff.md` in the same change, so token values in the
    repository always match the design being implemented.

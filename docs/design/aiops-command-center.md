@@ -78,7 +78,7 @@ How the two lists converge is recorded under
 
 ## Global application shell
 
-- **Top bar** (`--color-nav`, darker than panels): brand mark, ⌘K search
+- **Top bar** (`--nav`, darker than panels): brand mark, ⌘K search
   field, language toggle, notifications bell, terminal/embedded-shell
   icon. (Shipped 2026-09-10.)
 - **Sidebar**: collapsible, icon-only when collapsed, grouped per the
