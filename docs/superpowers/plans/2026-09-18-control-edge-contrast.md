@@ -133,3 +133,24 @@ Selected, hover and pressed states keep their own edges (`--accent` or
 - Update playbook readiness gap 3 to done, and the `:root` token count from
   32 to 33.
 - Merge `--no-ff`, push, and confirm CI.
+
+## Verification (2026-09-18, on the branch)
+
+- `npm run contrast`: **39 required pairs, 0 below threshold**, exit 0.
+  Controls now measure 3.54:1 on `--surface`, 3.73:1 on the topology
+  graph's mixed surface, and 3.96:1 on `--bg`.
+- Gates: `format:check`, `lint`, `lint:tokens`, `contrast` and
+  `typecheck` pass; 236/236 frontend tests pass; `cargo fmt` is clean.
+  Rust is untouched.
+- Before and after screenshots in English and Thai: Command Center,
+  Customize console, Incidents, Signal correlation, Resource topology,
+  Changes and Integrations. Visible in the harness: the header and sidebar
+  buttons, the Customize console buttons and selects, the topology filter
+  selects, and the critical-number tiles.
+- **Not verifiable in the harness:** the AI provider form and the
+  fallback-order buttons (providers fail to load), the topology graph
+  buttons, correlation candidates, change entries and incident queue rows.
+  With no connectors, each of these renders an empty or error state. Their
+  ratios are computed, but nobody has looked at them on screen.
+- Keyboard: the 3px `--accent` focus ring stays distinct from the new edge,
+  on a header button and on a critical-number tile.
