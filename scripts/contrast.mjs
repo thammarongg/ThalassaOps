@@ -70,20 +70,36 @@ const text = [
 ];
 
 // [selector, edge, fill (null when transparent), what it sits on]
+// Every rule that draws the boundary of a <button>, <select>, <input> or
+// listbox option, found by scanning ui/src for --fg-mix and --border edges
+// and checking each against its element — keep it exhaustive.
 const controls = [
   [".connector-actions button", "--accent", null, "--surface"],
   [".command-surface input", "--accent", null, "--surface"],
   [".logs-panel__query input", "--accent", null, "--surface"],
-  [".notification-center button", "mix:--fg:30", null, "--surface"],
-  [".ai-button", "mix:--fg:30", null, "--surface"],
+  [
+    ".shell-header / .shell aside / .notification-center button",
+    "--control-edge",
+    null,
+    "--surface"
+  ],
+  [".ai-button", "--control-edge", null, "--surface"],
   [".ai-button--primary", "--accent", "--accent", "--surface"],
-  [".ai-fallback-order__actions button", "mix:--fg:30", null, "--surface"],
-  [".ai-provider-form select", "mix:--fg:30", "mix:--bg:80:--surface", "--surface"],
-  [".operations-widget-settings__main select", "mix:--fg:30", "--bg", "--surface"],
-  [".topology-filters__field select", "mix:--fg:30", "--surface", "--bg"],
-  [".topology-graph__node-select", "mix:--fg:25", "mix:--surface:72:--bg", "--bg"],
-  [".operations-critical-number__button", "mix:--fg:18", "mix:--bg:54:--surface", "--surface"],
-  [".incident-queue__row", "--border", "--surface2", "--surface"]
+  [".ai-fallback-order__actions button", "--control-edge", null, "--surface"],
+  [".ai-provider-form input, select", "--control-edge", "mix:--bg:80:--surface", "--surface"],
+  [".operations-widget-settings__main select", "--control-edge", "--bg", "--surface"],
+  [".topology-filters__field select", "--control-edge", "--surface", "--bg"],
+  [".topology-graph__node-select", "--control-edge", "mix:--surface:72:--bg", "--bg"],
+  [
+    ".topology-graph__relationship-select",
+    "--control-edge",
+    "mix:--surface:72:--bg",
+    "mix:--surface:55:--bg"
+  ],
+  [".correlation-candidate", "--control-edge", "mix:--surface:72:--bg", "--surface"],
+  [".change-entry", "--control-edge", null, "--surface"],
+  [".operations-critical-number__button", "--control-edge", "mix:--bg:54:--surface", "--surface"],
+  [".incident-queue__row", "--control-edge", null, "--surface"]
 ];
 
 const decorative = [
