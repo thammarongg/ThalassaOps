@@ -139,7 +139,7 @@
 }
 
 .ai-button {
-  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 0.45rem;
   padding: 0.55rem 0.8rem;
   cursor: pointer;
@@ -240,7 +240,7 @@
 .ai-fallback-order__actions button {
   min-width: 2.2rem;
   min-height: 2.2rem;
-  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 0.4rem;
   color: var(--fg);
   background: transparent;
@@ -304,7 +304,7 @@
 .ai-provider-form input,
 .ai-provider-form select {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 0.4rem;
   padding: 0.6rem 0.7rem;
   color: var(--fg);

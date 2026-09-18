@@ -85,7 +85,7 @@
   font-family: var(--font-ui);
   color: var(--fg);
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 6px;
   padding: 0.4rem 0.5rem;
 }
