@@ -277,6 +277,10 @@ Summary: IBM Plex Sans/Sans Thai +
 IBM Plex Mono, dark-only, orange (`#ff9900`) brand accent, tinted-pill
 status indicators.
 
+One token is the repository's own rather than the handoff's: `--control-edge`,
+which draws every control's boundary at 3:1 or better — see the handoff's dark
+colours and [the control-edge plan](../superpowers/plans/2026-09-18-control-edge-contrast.md).
+
 ### `data-props` variants and adopted defaults
 
 The source file exposes editor-configurable variants; this spec adopts

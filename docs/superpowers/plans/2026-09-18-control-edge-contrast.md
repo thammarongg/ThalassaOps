@@ -1,8 +1,7 @@
 # Plan: give every control an edge that reaches 3:1
 
 **Date:** 2026-09-18
-**Status:** Built on `claude/control-edge-contrast`, awaiting the user's
-decision on the screenshots. Not merged.
+**Status:** Approved by the user 2026-09-18 (both tiers), merged to `main`.
 **Class:** B. One new `:root` token (Class A) that twelve control rules are
 rewired to use (Class B). No class name, role or accessible name changes,
 so none of the four class-asserting test files are touched.
