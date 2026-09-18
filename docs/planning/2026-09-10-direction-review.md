@@ -75,6 +75,11 @@ and ship it publicly.
 | 28 · Release candidate and launch | Pull forward | Take the launch, leave the release-candidate ceremony. |
 | **New · Make it visible** | **Add** | Screenshots, a 90-second demo, a rewritten README opening, a launch post. Absent from the plan and the most needed item in it. |
 
+> **Superseded for Sprints 22–24 (2026-09-18):** the "Cut" verdicts above
+> became deferrals in [`v0.1-definition.md`](v0.1-definition.md) ("deferred
+> with a reason, not forgotten"). Cutting them would drop requirements —
+> Jira and Slack, SSO and the terminal are all in the requirements baseline.
+
 ### Indicative sequence
 
 - **Weeks 1–2** — Sprint 18, with the Sprint 25 secret-leak tests pulled in alongside.
@@ -98,7 +103,9 @@ and ship it publicly.
 > Evidence Tide Line — per-source freshness marks under the console header — is not
 > carried forward; the adopted design places the Tide Line on the incident timeline.
 
-`docs/design/2026-09-07-visual-system-pass.md` was reviewed against the working tree.
+`docs/design/2026-09-07-visual-system-pass.md` was reviewed against the working tree. (That
+file has since been removed from `main`; it survives in commit `1407514` and the
+`archive/visual-system-pass-pilot` tag.)
 
 It is justified rather than displacement activity: the problem was measured (15 font
 sizes, 3 spacing steps, 21 duplicated button rules, 0 elevation levels, 1 surface

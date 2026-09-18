@@ -114,11 +114,11 @@ A change that breaks one of these is Class C by definition.
 
 - 24 test files query by accessible role, name or text. Keep roles and
   accessible names stable, or update those tests in the same change.
-- 4 test files assert class names: `shell.test.tsx`,
-  `design-system/components.test.tsx`, `incident/IncidentNarrative.test.tsx`
-  and `operations/operations-console.acceptance.test.tsx`. The
-  `.indicator--{tone}` classes are the severity-to-tone contract. A Class B
-  change keeps them or updates these four files deliberately.
+- 2 test files assert class names: `shell.test.tsx` and
+  `design-system/components.test.tsx`. The `.indicator--{tone}` classes are
+  the severity-to-tone contract. A Class B change keeps them or updates these
+  two files deliberately. `operations/operations-console.acceptance.test.tsx`
+  selects by `data-widget-id` and `data-testid`, which are contracts too.
 
 ## Step 3 — Bring the design in
 

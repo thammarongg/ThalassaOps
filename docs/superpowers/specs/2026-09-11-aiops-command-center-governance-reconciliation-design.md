@@ -1,6 +1,6 @@
 # AIOps Command Center — Governance Reconciliation Design
 
-**Status:** Approved design (pending user's file review)
+**Status:** Approved design
 **Date:** 2026-09-11
 **Type:** UX/UI specification amendment (no backend/contract change)
 
@@ -114,8 +114,10 @@ from the Claude Design handoff is kept as the always-visible default — this
 already satisfies the "beside AI output" requirement for the two cheapest
 fields (finding via prose, confidence via the existing mono treatment).
 
-Add a text link "Show evidence" (13px, `--link` color, underline-on-hover —
-the handoff's existing link style) at the bottom of every such card. Expanding
+Add a text link "Show evidence" (13px, `--info` color, underline-on-hover —
+the handoff's existing link style; the handoff calls this colour `--link`,
+which has the same dark value but is not a project token) at the bottom of
+every such card. Expanding
 it reveals key/value rows using the same key style as the Incident detail stat
 strip (11px/600 uppercase `--fg2`), but with a smaller 12–13px value instead of
 the stat strip's 18px/700 mono — the stat strip's size is tuned for a handful
@@ -260,17 +262,19 @@ newly added) project variable, so an implementer never has to guess:
   `IncidentList`, not requested.
 - Priority on the Incident detail view (Section 1 correction above) —
   backend follow-up, not scoped here.
-- Sections 2, 3, 4 — still blocked on Sprint 18 (redaction), Sprint 19 (AI
-  investigation) and Sprint 22 (terminal/runbooks) backend respectively.
+- Sections 2, 3, 4 — still blocked on backend: Section 2 on Sprint 19 (AI
+  investigation), Section 3 on Sprints 21–22 (action registry,
+  terminal/runbooks), Section 4 on Sprint 18 (redaction).
 
 ## Design tokens
 
 Colors, type scale, spacing, radii and fixed dimensions are as specified in
 [`docs/design/aiops-command-center-handoff.md`](../../design/aiops-command-center-handoff.md) (delivered 2026-09-10). The
-handoff's token *values* are unchanged by this document — the "Token gap"
-table under Phase 2 above is the authoritative name mapping from handoff
-token to the actual (or newly added) project CSS variable; use that table,
-not the handoff README's names directly, when implementing.
+handoff's token *values* are unchanged by this document. Since the
+2026-09-17 rename the project variables carry the handoff's own names, so
+implement with the handoff names directly; the "Token gap" table above is
+now a historical record — see
+[ADR 0007](../../adr/0007-colour-and-type-live-in-root-tokens.md).
 
 ## Divergence carried forward (unchanged by this document)
 

@@ -156,7 +156,7 @@ adopted default**. `board` is an open variant.
 - **Summary strip**: five numbers — total open, SEV1 active, updates
   overdue, unassigned, alerts rolled up.
 - **Incident cards**, one per row: severity color bar, id, severity
-  badge, status badge (`Triage`/`Investigating`/`Identified`/
+  badge, status badge (`Triage`/`Investigating`/`Mitigating`/
   `Monitoring`), affected-service tags, title, one-line impact
   statement, most recent update (or an explicit "no update yet" state),
   commander/owner with initials avatar (or an "unassigned — claim"
@@ -268,9 +268,11 @@ adopted default**. `board` is an open variant.
 
 ## Visual system
 
-See `docs/superpowers/plans/2026-09-10-aiops-command-center-visual-rebrand.md`
-for the palette/typography decision and mechanism (a 7-token CSS variable
-substitution) — not duplicated here. Exact token values, type scale,
+Colour and type flow only through the `:root` tokens in `ui/src/styles.css`,
+which carry the handoff's own names — see
+[ADR 0007](../adr/0007-colour-and-type-live-in-root-tokens.md). The
+2026-09-10 rebrand plan that first introduced them used names that were
+retired on 2026-09-17. Exact token values, type scale,
 spacing, radii and fixed dimensions come from the design handoff,
 committed as [`aiops-command-center-handoff.md`](aiops-command-center-handoff.md).
 Summary: IBM Plex Sans/Sans Thai +
@@ -373,7 +375,8 @@ decision for history and ends with the reversal that stands today:
 This document describes the target design. It does not, by itself,
 change backend contracts, Rust domain types, or already-shipped Sprint
 behavior. The following are known gaps between this spec and
-`crates/`/`ui/contracts/ipc.ts` as of 2026-09-10, listed so they are
+`crates/`/`ui/contracts/ipc.ts` as of 2026-09-10 (governance items as
+reconciled 2026-09-11), listed so they are
 reconciled deliberately rather than discovered mid-implementation:
 
 - Navigation: the mockup's views and the shipped areas overlap in
@@ -409,10 +412,10 @@ reconciled deliberately rather than discovered mid-implementation:
   provider-level governance (fallback order, request auditing) with no
   mockup equivalent — kept as-is; out of this spec's scope.
 - Kubernetes manifest masking and Loki log masking (Sprint 6, 9) surface
-  a redaction banner in the UI today. This spec's dropped
-  "redaction-disclosure UI" rule applies to the AI-response/terminal
-  surfaces the old spec described, not to this existing, unrelated
-  masking UI — not touched by this document.
+  a redaction banner in the UI today. This spec's redaction-disclosure
+  line (dropped 2026-09-10, reinstated 2026-09-11 — reconciliation design
+  Section 4) applies to the AI-response and command-output surfaces, not
+  to this existing, unrelated masking UI — not touched by this document.
 - `docs/planning/sprint-plan.md` Sprints 18 (context optimization and
   redaction), 19 (read-only AI investigation), 20 (Policy Center), 21
   (approval and action framework), and 22 (terminal and runbook

@@ -1,6 +1,6 @@
 # ThalassaOps System Requirements — Working Baseline
 
-**Status:** Requirements discovery in progress  
+**Status:** Working baseline; the remaining open decisions are listed in §9  
 **Updated:** 2026-08-24
 
 ## 1. Product problem

@@ -2,7 +2,8 @@
 
 **Purpose:** find contradictions between the project's documents, then judge
 whether Sprint 18 (Context optimization and redaction) is ready to design.
-**Output:** findings only. No document was changed.
+**Output:** findings only; the audit itself changed no document.
+**Follow-up:** F1–F16 were applied on 2026-09-18, in the commit after this report.
 **Precedence used:** requirements and policy > ADR > UX spec and governance
 reconciliation > sprint-plan and v0.1 > old sprint designs. When code
 contradicts a requirement, the finding asks the user rather than assuming the

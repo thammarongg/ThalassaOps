@@ -138,11 +138,11 @@ The highest matching impact dimension sets the initial severity. Severity can be
 
 ```text
 Detected → Triage → Investigating → Mitigating → Monitoring → Resolved → Closed
-                         ↑                 │
-                         └── Reopened ─────┘
+
+Monitoring / Resolved / Closed → Reopened → Investigating
 ```
 
-`Duplicate`, `False Positive`, `Suppressed` and `Cancelled` are dispositions rather than lifecycle statuses.
+`Duplicate`, `False Positive`, `Suppressed`, `Cancelled` and `Informational` are dispositions rather than lifecycle statuses.
 
 ### 8.4 Incident workspace
 

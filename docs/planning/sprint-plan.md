@@ -5,6 +5,10 @@
 **Core plan:** 1-week Pre-Sprint + 28 delivery sprints / approximately 57 weeks  
 **Target:** Production-ready macOS-first release with Windows/Linux path
 
+> The first release is narrower than this plan: see
+> [`v0.1-definition.md`](v0.1-definition.md) for which sprints it keeps,
+> defers or pulls forward. This plan stays the full product sequence.
+
 ## Planning assumptions
 
 - This is a product build, not an MVP-only exercise.
@@ -90,7 +94,7 @@ Every sprint ends with a demonstrable artifact, not only merged code.
 - Secure local workspace bootstrap, local administrator identity and policy-store migrations.
 - CI for formatting, linting, type checks and tests.
 
-**Exit criteria:** A signed development build opens on macOS and executes a tested Rust-to-React health call.
+**Exit criteria:** A signed development build opens on macOS and executes a tested Rust-to-React health call. (Code signing is out of scope for v0.1 — see [`v0.1-definition.md`](v0.1-definition.md).)
 
 ### Sprint 3 — Design system and localization foundation
 
@@ -453,7 +457,7 @@ Every sprint ends with a demonstrable artifact, not only merged code.
 
 **Deliverables:**
 
-- OS keychain integration.
+- OS keychain integration (already delivered in Sprint 5).
 - Secure secret storage.
 - IPC capability restrictions.
 - Signed policy and audit events.
