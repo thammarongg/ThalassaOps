@@ -85,7 +85,7 @@
   font-family: var(--font-ui);
   color: var(--fg);
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 6px;
   padding: 0.4rem 0.5rem;
 }
@@ -136,7 +136,7 @@
   gap: 0.25rem;
   text-align: left;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface) 72%, var(--bg));
   color: var(--fg);
@@ -207,7 +207,7 @@
   width: 100%;
   min-height: 3rem;
   padding: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 6px;
   color: var(--fg);
   background: color-mix(in srgb, var(--surface) 72%, var(--bg));

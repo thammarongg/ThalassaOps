@@ -40,7 +40,7 @@
 
 .change-entry {
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 0.4rem;
   cursor: pointer;
   display: flex;

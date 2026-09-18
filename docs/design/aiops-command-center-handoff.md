@@ -172,6 +172,8 @@ Data the real app must fetch, all scope-filtered: KPI summary, alert stream (wit
 ```
 Extra literal used on the footer hint: `#5f6b78`. Nav-surface text literals: `#e6eaee`, `#a3adb8`, `#8d99a6`. Nav hairlines/fills: `rgba(255,255,255,.06)` / `.18`.
 
+**Repository addition (2026-09-18), not yet in Claude Design:** `--control-edge #6e7378` — the boundary of every control. `--border2` is 1.79:1 on `--surface`, below WCAG 1.4.11's 3:1, so controls use this instead. No light value is defined; adopting the light theme needs one computed against `--surface #ffffff`. See [the control-edge plan](../superpowers/plans/2026-09-18-control-edge-contrast.md).
+
 ### Typography
 Families (Google Fonts, weights 400/500/600/700):
 - UI: `"IBM Plex Sans", "IBM Plex Sans Thai", Arial, sans-serif`
@@ -201,7 +203,7 @@ Scale (size / line-height / weight):
 `3px` icon buttons + severity chips · `4px` inputs, pills, control groups · `6px` scrollbar thumb · `8px` cards and panels · `10px` status pills · `50%` dots and avatars.
 
 ### Elevation & borders
-One shadow only: `--shadow`. Borders: 1px `--border` on cards, 1px `--border2` on controls/inputs. Accent edges: `border-top: 3px solid <severity>` (incident header), `border-left: 3px solid var(--accent)` (recommended runbook).
+One shadow only: `--shadow`. Borders: 1px `--border` on cards, 1px `--control-edge` on controls/inputs (the export says `--border2`; see the repository addition above). Accent edges: `border-top: 3px solid <severity>` (incident header), `border-left: 3px solid var(--accent)` (recommended runbook).
 
 ### Fixed dimensions
 Window chrome 32px · top bar 48px · scope pill 30px · segmented control 32px (6px 13px padding) · severity chip 22px · status pill 19px · icon button 22×20px · status dot 7–8px · nav icon 14–15px.

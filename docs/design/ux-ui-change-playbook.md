@@ -47,7 +47,9 @@ lessons. Each rule below traces back to one of them.
 **Design baseline.** The spec was written against `AIOps Command Center.dc.html`
 with SHA-1 `ac06c6d0be21f0aea8ec7f28b58acbb5e88f3513` (173,526 bytes, exported
 2026-09-10). Claude Design reports no last-modified time, so the hash is the
-only way to know whether the design has moved since.
+only way to know whether the design has moved since. The repository has run
+one token ahead of the design since 2026-09-18 (`--control-edge`); a re-export
+that lacks it must not remove it.
 
 ## Step 1 — Classify the change
 
@@ -56,7 +58,7 @@ the strictest gate.
 
 | Class | What changes | Where | Blast radius | Gate |
 |---|---|---|---|---|
-| **A — Tokens** | Colour, type, spacing, radius or shadow values | `:root` in `ui/src/styles.css` (32 tokens) | Every screen at once | Computed contrast + screenshots |
+| **A — Tokens** | Colour, type, spacing, radius or shadow values | `:root` in `ui/src/styles.css` (33 tokens) | Every screen at once | Computed contrast + screenshots |
 | **B — Layout and components** | Structure, component markup, class names, variants, navigation layout | `ui/src/design-system/`, `ui/src/shell.tsx`, workspace `.tsx`/`.css` | The screens touched | Class A gate + test review + user sign-off on screenshots |
 | **C — Product model** | What a view means: severity or priority display, AI disclosure, action risk labels, redaction line, theme default, removing any requirement | Spec + requirements + `ui/contracts/ipc.ts` + Rust types | Across the stack | Design document → user approval → task plan, as for a sprint |
 
@@ -161,10 +163,10 @@ A change that breaks one of these is Class C by definition.
 
 ## Step 6 — Verify
 
-Run all seven gates, as in CI:
+Run all the gates, as in CI:
 
 ```bash
-npm run format:check && npm run lint && npm run lint:tokens && npm run typecheck
+npm run format:check && npm run lint && npm run lint:tokens && npm run contrast && npm run typecheck
 NODE_OPTIONS=--no-experimental-webstorage npm test   # the flag is needed on Node 25+
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -177,8 +179,9 @@ Then the checks the suite cannot make:
   renders: text against its surface (4.5:1), each control against what it
   sits on (3:1, on its edge **or** its fill — WCAG 1.4.11 asks that the
   control be identifiable, not that its border specifically carry it), and
-  the decorative edges, measured but not gated. It is not a CI step,
-  because it exits non-zero on a standing finding — see Readiness gaps.
+  the decorative edges, measured but not gated. It runs in CI directly after
+  `lint:tokens`, so a colour change that drops a required pair below
+  threshold fails the build.
   Read the whole table when a change touches colour: a pair moving from
   6:1 to 4.6:1 passes and still matters.
 - **Screenshots** of every screen the change touches, in English and Thai,
@@ -223,17 +226,18 @@ These make future changes safer.
    raised widget shadow are `--scrim` and `--shadow-widget`; `--radius-1`,
    referenced four times and never defined, is defined. `ui/src` holds no
    colour literal outside `:root`.
-3. **Contrast tool — done 2026-09-17, with one finding open.**
+3. **Contrast tool — done 2026-09-17; control edges fixed 2026-09-18.**
    `npm run contrast` (`scripts/contrast.mjs`) computes every ratio,
    including `color-mix` edges resolved against what they sit on. All 23
-   text pairs pass. **Nine controls do not:** every secondary button and
-   `select` draws its boundary with `color-mix(in srgb, var(--fg) 18–30%,
+   text pairs passed. **Nine controls failed:** every secondary button and
+   `select` drew its boundary with `color-mix(in srgb, var(--fg) 18–30%,
    transparent)`, giving 1.4–2.6:1 where 1.4.11 wants 3:1, and their fills
-   are within 1.1:1 of the surface behind them, so the edge is the only
-   thing identifying the control. 35% over `--surface` and 36% over `--bg`
-   would clear it. That is a Class A/B change to how every button looks, so
-   it needs its own plan and the user's approval — it is not a cleanup.
-   Until then the script exits non-zero and stays out of CI.
+   were within 1.1:1 of the surface behind them, so the edge was the only
+   thing identifying the control. Three more buttons, which the tool had
+   not listed, had the same problem. `--control-edge` (`#6e7378`) now draws every control's
+   boundary at 3.54:1 on `--surface` and 3.96:1 on `--bg`. The script
+   exits 0 and runs in CI after `lint:tokens`. See
+   [the control-edge plan](../superpowers/plans/2026-09-18-control-edge-contrast.md).
 4. **Lint guard — done 2026-09-17.** `npm run lint:tokens`
    (`scripts/check-design-tokens.mjs`, no dependencies) fails on any colour
    literal in `ui/src` outside the `:root` block, in stylesheets and in
