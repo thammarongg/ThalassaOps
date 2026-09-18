@@ -242,8 +242,10 @@ These make future changes safer.
    (`scripts/check-design-tokens.mjs`, no dependencies) fails on any colour
    literal in `ui/src` outside the `:root` block, in stylesheets and in
    components alike. It runs in CI directly after `lint`.
-5. **No ADR.** "Visual properties flow only through `:root` tokens" has been
-   load-bearing three times now and could be recorded as `docs/adr/0007`.
+5. **ADR — done 2026-09-18.** [ADR 0007](../adr/0007-colour-and-type-live-in-root-tokens.md)
+   records that colour and type live only in `:root`. It also records that
+   spacing and radius literals are deliberately allowed, so tokenising them
+   is a planned Class B change, not a cleanup.
 
 ## Out of scope
 
