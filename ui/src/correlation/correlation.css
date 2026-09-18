@@ -172,7 +172,7 @@
   width: 100%;
   gap: 0.35rem;
   padding: var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border: 1px solid var(--control-edge);
   border-radius: 6px;
   color: var(--fg);
   background: color-mix(in srgb, var(--surface) 72%, var(--bg));
